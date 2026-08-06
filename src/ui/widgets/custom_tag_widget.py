@@ -1,14 +1,24 @@
 """
 CustomTagWidget - 自定义标签组件
 
-基于 QListView 的圆角矩形标签展示组件，支持自动换行和垂直滚动
+基于 QWidget + QListView 的圆角矩形标签展示组件，支持自动换行和垂直滚动，
+顶部带有添加/删除按钮的小型工具栏
 """
 
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QSize, pyqtSlot
-from PyQt6.QtWidgets import QListView, QStyledItemDelegate, QStyleOptionViewItem, QStyle, QSizePolicy
-from PyQt6.QtGui import QPainter, QStandardItemModel, QPen, QBrush, QColor
+from PyQt6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QToolBar,
+    QListView,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QStyle,
+    QSizePolicy,
+)
+from PyQt6.QtGui import QAction, QPainter, QStandardItemModel, QPen, QBrush, QColor
 
 
 class TagItemDelegate(QStyledItemDelegate):
@@ -147,13 +157,13 @@ class TagItemDelegate(QStyledItemDelegate):
         return QSize(width, height)
 
 
-class CustomTagWidget(QListView):
+class CustomTagWidget(QWidget):
     """
     自定义标签组件
     
-    基于 QListView，展示从左到右排列的圆角矩形标签列表，
-    当标签数量超过一行时自动换行显示。
-    当组件高度超过 200px 时，不再增加高度，显示垂直滚动条。
+    容器组件：顶部为小型工具栏（添加/删除按钮），下方为 QListView，
+    标签从左到右排列并自动换行显示。
+    列表区域高度超过 MAX_HEIGHT 时，不再增加高度，显示垂直滚动条。
     
     Example:
         >>> model = QStandardItemModel()
@@ -178,41 +188,76 @@ class CustomTagWidget(QListView):
         
         # 创建并设置自定义委托
         self._item_delegate = TagItemDelegate(self)
-        self.setItemDelegate(self._item_delegate)
-        self.setWrapping(True)
+        self._list_view = QListView(self)
+        self._list_view.setItemDelegate(self._item_delegate)
+        self._list_view.setWrapping(True)
         
-        # 配置视图
+        # 创建工具栏并配置视图
+        self._setup_toolbar()
         self._setup_view()
         
         # 设置模型
         if model is not None:
             self.setModel(model)
     
+    def _setup_toolbar(self):
+        """
+        创建顶部的添加/删除工具栏
+        """
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        
+        self.toolbar = QToolBar(self)
+        self.toolbar.setObjectName("tagToolBar")
+        self.toolbar.setMovable(False)
+        self.toolbar.setFloatable(False)
+        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        
+        # 添加按钮：数据库功能未完成，暂时只放图标
+        self.add_action = QAction("➕", self)
+        self.add_action.setObjectName("addTagAction")
+        self.add_action.setToolTip("添加标签")
+        self.toolbar.addAction(self.add_action)
+        
+        # 删除按钮：数据库功能未完成，暂时只放图标
+        self.delete_action = QAction("🗑️", self)
+        self.delete_action.setObjectName("deleteTagAction")
+        self.delete_action.setToolTip("删除标签")
+        self.toolbar.addAction(self.delete_action)
+        
+        layout.addWidget(self.toolbar)
+        layout.addWidget(self._list_view, 1)
+        
     def _setup_view(self):
         """
         配置 QListView 的视图属性
         """
         # 设置为流式布局模式（从左到右，自动换行）
-        self.setFlow(QListView.Flow.LeftToRight)
+        self._list_view.setFlow(QListView.Flow.LeftToRight)
         
         # 设置视图的调整模式为 Adjust，允许动态调整
-        self.setResizeMode(QListView.ResizeMode.Adjust)
+        self._list_view.setResizeMode(QListView.ResizeMode.Adjust)
         
         # 隐藏水平滚动条（允许自动换行）
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
         # 垂直滚动条需要时显示
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._list_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         
         # 设置边框样式
-        self.setFrameShape(QListView.Shape.NoFrame)
+        self._list_view.setFrameShape(QListView.Shape.NoFrame)
         
-        # 设置最大高度为 200px
-        self.setMaximumHeight(self.MAX_HEIGHT)
+        # 设置列表区域的最大高度
+        self._list_view.setMaximumHeight(self.MAX_HEIGHT)
         
         # 设置尺寸策略
         # 水平方向可以拉伸，垂直方向遵循最大高度限制
         self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Maximum
+        )
+        self._list_view.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Maximum
         )
@@ -224,7 +269,7 @@ class CustomTagWidget(QListView):
         Args:
             model: QStandardItemModel 实例
         """
-        super().setModel(model)
+        self._list_view.setModel(model)
         
         # 连接模型变化信号
         if model:
@@ -232,14 +277,22 @@ class CustomTagWidget(QListView):
             model.rowsInserted.connect(self._on_model_rows_changed)
             model.rowsRemoved.connect(self._on_model_rows_changed)
     
+    def model(self) -> Optional[QStandardItemModel]:
+        """
+        返回内部 QListView 当前使用的模型
+        """
+        return self._list_view.model()
+    
     @pyqtSlot()
     def _on_model_data_changed(self):
         """模型数据变化时的处理"""
+        self._list_view.updateGeometry()
         self.updateGeometry()
         
     @pyqtSlot()
     def _on_model_rows_changed(self):
         """模型行变化时的处理"""
+        self._list_view.updateGeometry()
         self.updateGeometry()
     
     def set_tag_colors(self, bg_color: Optional[QColor] = None, 
@@ -261,7 +314,7 @@ class CustomTagWidget(QListView):
             self._item_delegate.border_color = border_color
             
         # 触发视图重绘
-        viewport = self.viewport()
+        viewport = self._list_view.viewport()
         if viewport is not None:
             viewport.update()
     
@@ -273,7 +326,7 @@ class CustomTagWidget(QListView):
             radius: 圆角半径（像素）
         """
         self._item_delegate._corner_radius = radius
-        viewport = self.viewport()
+        viewport = self._list_view.viewport()
         if viewport is not None:
             viewport.update()
     
@@ -285,5 +338,5 @@ class CustomTagWidget(QListView):
             height: 最大高度值（像素）
         """
         self.MAX_HEIGHT = height
-        self.setMaximumHeight(height)
+        self._list_view.setMaximumHeight(height)
         self.updateGeometry()
