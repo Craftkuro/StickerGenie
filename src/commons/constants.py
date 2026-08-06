@@ -1,0 +1,8 @@
+# coding=utf-8
+
+# Enums
+LIST_DISPLAY_MODE_LIST = 0
+LIST_DISPLAY_MODE_ICON = 1
+
+SORT_BY_NAME = 0
+SORT_BY_DATE = 1

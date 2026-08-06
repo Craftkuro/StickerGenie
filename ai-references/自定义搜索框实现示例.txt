@@ -1,0 +1,362 @@
+### USER
+PyQt6如何写自定义的widget？举个例子，qt并没有提供一个专门的widget用来展示富媒体的搜索关键词推荐。我希望的是这个样子：
+- 一个类似搜索引擎的搜索框，当用户点击文本框的时候，展示一个搜索关键词推荐的下拉菜单。基本的交互体验类似于QCombobox，当这个组件失去焦点时，仅仅占据一个文本框+搜索按钮的空间，以及这个下拉菜单的展示是悬浮在窗体顶层的，不会影响到窗体其他组件的布局。
+- 当用户没有输入任何内容的时候，展示近期搜索词，如果能想搜索引擎的界面里那样加上“清除最近搜索”的按钮就更好了。这里的搜索词展示为两行，第一行是搜索词的内容，使用粗体，第二行是搜索词的属性，比如“最近用过的搜索”，使用斜体。
+- 当用户开始键入内容的时候，展示两部分内容，一部分是系统已经存储过的标签，当然，有哪些标签在这里并没有什么关系，我们就用“Landscape”，“People”，“Food”作为例子吧。第一行是这个标签的名称，同样是粗体，第二行也是这个标签的属性，这里的属性是“用户定义的标签”，同样是斜体。
+- 用户可以按照和搜索引擎相同的用法，鼠标点击下拉菜单中的选项可以发起搜索。
+
+### ASSISTANT
+<details type="reasoning" done="true" duration="24">
+<summary>Thought for 24 seconds</summary>
+> **Analyzing User Needs**
+> 
+> I've started by meticulously dissecting the user's request. My goal is a precise understanding of the desired search box widget, including its core features and how it should behave. I'm focused on the essential functionalities: the search input and the dynamic suggestions.
+> 
+> 
+> **Structuring Widget Components**
+> 
+> I'm now focusing on how to translate the requirements into PyQt6 components. A main `QWidget` subclass will hold the search box, and I'll need to manage the dropdown separately. The initial architecture involves a `QLineEdit` for the input, a `QPushButton` for visual flair, and a custom dropdown, probably a `QListView` or `QListWidget`, for the suggestions. I'm sketching out how the interaction between these will function, especially the floating behavior of the dropdown.
+> 
+> 
+> **Planning Widget Construction**
+> 
+> I'm formulating the class structure for the `RichSearchBox`. The `QWidget` subclass will contain a `QHBoxLayout` to manage the `QLineEdit` and `QPushButton`.  Focusing on the `QListWidget` for the dropdown, I see it needing custom items. I'm now mapping how the signals and slots, particularly those related to input changes, dropdown visibility, and item clicks, will coordinate the interaction. I need to carefully design how the data models for recent searches and suggestions will interact with the UI elements.
+> 
+> 
+> **Outlining the Implementation**
+> 
+> I'm now meticulously outlining the class structure, starting with the `RichSearchBox`, including the `QLineEdit`, the `QPushButton` with its icon, and, crucially, the hidden `SuggestionPopup`. I've planned the signal connections, notably linking `textChanged` to update suggestions and `returnPressed` and `clicked` to trigger the search signal. The focus events are next.
+> 
+> 
+> **Mapping Components to Code**
+> 
+> I'm now in the process of transforming the architectural design into concrete code, focusing on the core classes. The `RichSearchBox` will contain the `QLineEdit`, `QPushButton`, and `SuggestionPopup`. I plan to use `QHBoxLayout` for the layout, then defining the signals and slots. Next is creating the `SuggestionItemWidget` for the dynamic dropdown list items.
+> 
+> 
+> **Implementing Key Components**
+> 
+> I'm now focused on implementing the foundational elements, starting with the `RichSearchBox` class. I'll define the `__init__` method, incorporating a `QHBoxLayout` to hold the `QLineEdit` and `QPushButton`. I'm also instantiating the `SuggestionPopup`, setting the necessary signals and slots for text changes and button clicks. I plan on overriding `focusInEvent` and potentially `focusOutEvent`.
+> 
+> 
+> **Decomposing Implementation Details**
+> 
+> I'm now fully immersed in the development plan. It's broken down into classes: `RichSearchBox`, `SuggestionItemWidget`, and `SuggestionPopup`. I'm outlining the roles of each class and their specific methods, and connecting them to signals for coordinated behavior. I'm focused on how the `textChanged` signal will drive the dynamic update of suggestions.
+> 
+> 
+> **Developing the Widget Structure**
+> 
+> I'm now focused on the architecture of the main components: `RichSearchBox`, `SuggestionPopup`, and `SuggestionItemWidget`. I plan to use layouts effectively within each class, especially to handle the arrangement of the `QLineEdit` and `QPushButton` within the search box. I'm also strategizing how to manage the visibility and positioning of the dropdown, including the use of window flags to ensure it floats correctly.
+> 
+> 
+> **Defining Recent Search Data**
+> 
+> I'm now starting to think about persistent storage for the recent searches.  The plan is to use a list, initially, but I'm considering a persistent storage mechanism, such as saving it to a file or using `QSettings`, for maintaining the history across sessions. I'll also consider a maximum number of recent searches.
+> 
+> 
+> **Defining Recent Searches**
+> 
+> I'm now implementing the list of recent searches. I plan to use a list, and I'm contemplating integrating a persistent storage method, likely saving it to a file or utilizing `QSettings`. The final step is to decide on the maximum number of recent searches to be stored.
+> 
+> 
+> **Planning Class Structures**
+> 
+> I'm breaking down the plan into individual classes: `RichSearchBox`, `SuggestionItemWidget`, and `SuggestionPopup`. I'm focusing on the interactions and signals between them. Specifically, how the `textChanged` signal will trigger the display of either recent searches or filtered suggestions.
+> 
+> 
+</details>
+好的，创建一个功能丰富的自定义搜索框是一个非常典型的自定义Widget的例子。它涉及到组合现有控件、事件处理、自定义绘图/布局以及创建独立的弹出窗口。
+
+下面我将分步为您创建一个完整的、可运行的示例，并详细解释每一步的原理。
+
+这个自定义Widget将由以下几个部分组成：
+
+1.  **`SuggestionItemWidget`**: 用于在下拉列表中显示每一项的自定义控件。它包含两行文本（一个粗体标题，一个斜体副标题）。
+2.  **`SuggestionPopup`**: 悬浮的下拉列表窗口。它本质上是一个使用特殊窗口标志（`Qt.WindowType.Popup`）的`QFrame`，内部包含一个`QListWidget`来管理`SuggestionItemWidget`。
+3.  **`RichSearchBox`**: 我们最终的自定义控件。它将`QLineEdit`（文本框）和`QPushButton`（搜索按钮）组合在一起，并管理`SuggestionPopup`的显示/隐藏和内容更新。
+4.  **`MainWindow`**: 一个主窗口，用于展示和测试我们的`RichSearchBox`。
+
+---
+
+### 第1步：创建列表项的自定义Widget (`SuggestionItemWidget`)
+
+这个Widget负责展示两行文本，并设置不同的样式。
+
+```python
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
+from PyQt6.QtGui import QFont
+
+class SuggestionItemWidget(QWidget):
+    """下拉列表中每一项的自定义Widget"""
+    def __init__(self, title, subtitle, parent=None):
+        super().__init__(parent)
+        self.title = title  # 保存标题，方便之后获取
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5) # 设置内边距
+        layout.setSpacing(0) # 减少行间距
+
+        # 标题标签
+        self.title_label = QLabel(title)
+        font_title = QFont()
+        font_title.setBold(True)
+        self.title_label.setFont(font_title)
+
+        # 副标题标签
+        self.subtitle_label = QLabel(subtitle)
+        font_subtitle = QFont()
+        font_subtitle.setItalic(True)
+        self.subtitle_label.setFont(font_subtitle)
+
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.subtitle_label)
+
+        self.setLayout(layout)
+```
+
+### 第2步：创建悬浮的下拉菜单 (`SuggestionPopup`)
+
+这个是核心部分之一。它是一个特殊的窗口，可以独立于主布局显示，并且在失去焦点时自动隐藏。
+
+```python
+from PyQt6.QtWidgets import QFrame, QVBoxLayout, QListWidget, QListWidgetItem, QPushButton
+from PyQt6.QtCore import Qt, pyqtSignal
+
+class SuggestionPopup(QFrame):
+    """自定义的悬浮下拉菜单"""
+    # 定义两个信号，一个用于项点击，一个用于清除历史记录
+    item_clicked = pyqtSignal(str)
+    clear_history_clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        # 设置窗口标志为Popup，使其成为一个弹出窗口，失去焦点时自动关闭
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setFrameShape(QFrame.Shape.Box) # 添加边框，让它看起来像个下拉菜单
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(1, 1, 1, 1)
+
+        self.list_widget = QListWidget(self)
+        self.list_widget.setSpacing(1) # 项之间的间距
+        self.list_widget.itemClicked.connect(self._on_item_clicked)
+        
+        # “清除最近搜索”按钮
+        self.clear_button = QPushButton("清除最近搜索")
+        self.clear_button.clicked.connect(self.clear_history_clicked)
+        
+        layout.addWidget(self.list_widget)
+        layout.addWidget(self.clear_button)
+
+    def _on_item_clicked(self, item):
+        # 获取与QListWidgetItem关联的自定义Widget
+        widget = self.list_widget.itemWidget(item)
+        if widget:
+            # 发射信号，并传递标题文本
+            self.item_clicked.emit(widget.title)
+
+    def update_suggestions(self, items, is_history=False):
+        self.list_widget.clear()
+        
+        if not items:
+            self.hide()
+            return
+            
+        for title, subtitle in items:
+            list_item = QListWidgetItem(self.list_widget)
+            item_widget = SuggestionItemWidget(title, subtitle)
+            
+            # 必须设置SizeHint，否则列表项可能不会正确显示
+            list_item.setSizeHint(item_widget.sizeHint())
+            
+            self.list_widget.addItem(list_item)
+            self.list_widget.setItemWidget(list_item, item_widget)
+
+        # 根据是否是历史记录来显示/隐藏清除按钮
+        self.clear_button.setVisible(is_history)
+        
+        # 调整自身大小以适应内容
+        self.adjustSize()
+```
+
+### 第3步：创建最终的自定义搜索框 (`RichSearchBox`)
+
+这个控件将所有部分组合在一起，并处理所有交互逻辑。
+
+```python
+from PyQt6.QtWidgets import QWidget, QLineEdit, QPushButton, QHBoxLayout
+from PyQt6.QtCore import pyqtSignal, QPoint, QEvent
+from PyQt6.QtGui import QIcon, QGuiApplication
+import sys
+
+# (确保SuggestionItemWidget和SuggestionPopup类已经定义)
+
+class RichSearchBox(QWidget):
+    """
+    一个带有富媒体推荐下拉菜单的自定义搜索框
+    """
+    # 当用户确认搜索时（回车或点击按钮），发射此信号
+    searched = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        # --- 数据模型 ---
+        self.recent_searches = ["PyQt6 tutorial", "Custom Widget", "Signal and Slot"]
+        self.predefined_tags = ["Landscape", "People", "Food", "Architecture", "Nature"]
+        
+        # --- UI组件 ---
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.line_edit = QLineEdit(self)
+        self.line_edit.setPlaceholderText("搜索...")
+        
+        self.search_button = QPushButton(self)
+        # 使用Qt内置的标准图标
+        style = self.style()
+        icon = style.standardIcon(style.StandardPixmap.SP_DialogApplyButton)
+        self.search_button.setIcon(icon)
+        self.search_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+
+        layout.addWidget(self.line_edit)
+        layout.addWidget(self.search_button)
+
+        # --- 弹出菜单 ---
+        self.popup = SuggestionPopup(self)
+        
+        # --- 信号和槽的连接 ---
+        self.line_edit.textChanged.connect(self._update_and_show_popup)
+        # 安装事件过滤器以捕获焦点事件
+        self.line_edit.installEventFilter(self)
+        
+        self.search_button.clicked.connect(self._trigger_search)
+        self.line_edit.returnPressed.connect(self._trigger_search)
+
+        self.popup.item_clicked.connect(self._on_suggestion_clicked)
+        self.popup.clear_history_clicked.connect(self._clear_history)
+
+    def _update_and_show_popup(self):
+        """根据文本内容更新建议并显示弹出菜单"""
+        text = self.line_edit.text()
+        
+        if not self.line_edit.hasFocus():
+            self.popup.hide()
+            return
+            
+        if not text:
+            # 输入为空，显示历史记录
+            items = [(term, "最近用过的搜索") for term in self.recent_searches]
+            self.popup.update_suggestions(items, is_history=True)
+        else:
+            # 输入不为空，显示过滤后的标签
+            filtered_tags = [tag for tag in self.predefined_tags if text.lower() in tag.lower()]
+            items = [(tag, "用户定义的标签") for tag in filtered_tags]
+            self.popup.update_suggestions(items, is_history=False)
+        
+        if self.popup.list_widget.count() > 0:
+            # 计算弹出菜单的位置
+            point = self.mapToGlobal(QPoint(0, self.height()))
+            self.popup.move(point)
+            self.popup.setFixedWidth(self.width())
+            self.popup.show()
+        else:
+            self.popup.hide()
+
+    def eventFilter(self, source, event):
+        """事件过滤器，用于处理LineEdit的焦点事件"""
+        if source is self.line_edit:
+            if event.type() == QEvent.Type.FocusIn:
+                # 当LineEdit获得焦点时，立即显示建议
+                self._update_and_show_popup()
+            # Popup窗口会在失去焦点时自动隐藏，这里不需要处理FocusOut
+            
+        return super().eventFilter(source, event)
+    
+    def _trigger_search(self):
+        """执行搜索操作"""
+        text = self.line_edit.text().strip()
+        if not text:
+            return
+        
+        self.popup.hide()
+        
+        # 将新搜索词添加到历史记录（如果不存在）
+        if text not in self.recent_searches:
+            self.recent_searches.insert(0, text)
+            # 保持历史记录列表的大小，例如最多10条
+            self.recent_searches = self.recent_searches[:10]
+            
+        self.searched.emit(text)
+        print(f"信号已发射: 搜索 '{text}'")
+
+    def _on_suggestion_clicked(self, text):
+        """当用户点击下拉菜单中的项时调用"""
+        self.line_edit.setText(text)
+        self._trigger_search()
+        
+    def _clear_history(self):
+        """清除历史记录"""
+        self.recent_searches.clear()
+        self.popup.hide() # 清除后隐藏菜单
+```
+
+### 第4步：创建主窗口并运行
+
+现在我们创建一个主窗口来承载和测试我们强大的新搜索框。
+
+```python
+from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("自定义富媒体搜索框示例")
+        self.setGeometry(300, 300, 400, 200)
+
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        layout = QVBoxLayout(central_widget)
+
+        self.search_box = RichSearchBox()
+        self.search_status_label = QLabel("在这里显示搜索结果...")
+        self.search_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        font = self.search_status_label.font()
+        font.setPointSize(14)
+        self.search_status_label.setFont(font)
+
+        layout.addWidget(self.search_box)
+        layout.addWidget(self.search_status_label)
+        layout.addStretch()
+
+        # 连接RichSearchBox的searched信号到槽函数
+        self.search_box.searched.connect(self.on_search_triggered)
+        
+    def on_search_triggered(self, text):
+        self.search_status_label.setText(f"开始搜索: '{text}'")
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+```
+
+### 运行和交互
+
+将以上所有代码片段保存到一个 Python 文件中（例如 `custom_search_box.py`）并运行它。
+
+你会看到一个窗口，包含我们的自定义搜索框。
+
+1.  **点击文本框**：一个下拉菜单会立即出现，显示“最近用过的搜索”。底部有一个“清除最近搜索”按钮。
+2.  **点击“清除最近搜索”**：历史记录会被清空，下拉菜单消失。再次点击文本框，将不会有任何内容显示。
+3.  **开始输入**（例如，输入 "lan"）：下拉菜单的内容会实时更新，显示匹配的标签，如 "Landscape"。每一项都包含粗体标题和斜体副标题。
+4.  **点击下拉菜单中的项**：文本框会填充该项的文本，下拉菜单消失，同时主窗口下方的标签会显示 "开始搜索: '...'"，这证明了 `searched` 信号被成功发射和接收。
+5.  **在文本框中输入并按回车**：同样会触发搜索。
+6.  **点击搜索框外部**：下拉菜单会自动消失。
+
+这个例子完美地满足了你提出的所有要求，并展示了如何通过组合、继承和事件处理来构建一个功能强大的自定义Qt Widget。
