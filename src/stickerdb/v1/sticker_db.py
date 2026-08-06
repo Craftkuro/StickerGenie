@@ -1,5 +1,6 @@
 # coding=utf-8
 import logging
+import pathlib
 from typing import List, Optional
 
 from sqlalchemy import create_engine, select, func
@@ -35,6 +36,7 @@ class StickerDBV1:
         :param db_path: SQLite 数据库文件路径
         """
         self.db_path = db_path
+        pathlib.Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         # 创建数据库引擎
         self.engine = create_engine(f'sqlite:///{db_path}', echo=False, future=True)
         # 创建所有表

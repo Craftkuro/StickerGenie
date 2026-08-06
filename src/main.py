@@ -1,7 +1,6 @@
 #coding=utf-8
 import logging
 import os.path
-import pathlib
 import signal
 import sys
 
@@ -33,8 +32,8 @@ from commons.dto import StickerImage, Tag
 from PyQt6.QtWidgets import QApplication
 
 def my_testing():
-    db_base_path = r"D:\GitRepos\StickerGenie\StickerGenie Library\Default Library\db\v1"
-    db_file_path = pathlib.Path(db_base_path, "sticker.db")
+    db_base_path = apppath.default_library_path / "db" / "v1"
+    db_file_path = db_base_path / "sticker.db"
 
     db = StickerDBV1(str(db_file_path))
 
