@@ -14,7 +14,7 @@ import apppath
 from commons.signal_objects import MainWindowNewTabRequest
 import services.import_images
 import services.global_instances
-# import services.sticker_view_service_debug
+import services.sticker_view_service_debug
 import services.sticker_library_viewer_service
 
 from .widgets.custom_search_box import CustomSearchBox
@@ -55,7 +55,7 @@ class MainWindow(QMainWindow):
         # 配置快速查询按钮
 
         # self.populate_quick_launch_buttons(QUICK_LAUNCH_BUTTON_COUNT)
-        # self.debug_start_test_view()
+        self.debug_start_test_view()
 
     def _init_custom_search_box(self):
         """初始化自定义搜索框，替换原有的 comboBox"""
@@ -125,14 +125,14 @@ class MainWindow(QMainWindow):
         self.tabWidget.addTab(container, tab_title)
 
 
-    # def debug_start_test_view(self):
-    #     model = services.sticker_view_service_debug.start_debug_view()
-    #     debug_view_widget = StickerListView(model)
-    #     self.add_new_tab_debug(debug_view_widget, "测试")
-    #
-    #     services.sticker_library_viewer_service.open_sticker_library_view_tab()
-    #
-    #     self.custom_tag_widget_test()
+    def debug_start_test_view(self):
+        #model = services.sticker_view_service_debug.start_debug_view()
+        #debug_view_widget = StickerListView(model)
+        #self.add_new_tab_debug(debug_view_widget, "测试")
+
+        services.sticker_library_viewer_service.open_sticker_library_view_tab()
+
+        self.custom_tag_widget_test()
 
     def custom_tag_widget_test(self):
         """
