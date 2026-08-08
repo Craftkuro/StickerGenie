@@ -1,6 +1,7 @@
 #coding=utf-8
 import logging
 import pathlib
+from datetime import datetime
 from typing import Iterable
 
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject, Qt
@@ -22,6 +23,28 @@ ROLE_STICKER_IMAGE = Qt.ItemDataRole.UserRole + 1
 ROLE_SIMILARITY = Qt.ItemDataRole.UserRole + 2
 
 logger = logging.getLogger(__name__)
+
+
+def _format_datetime(value: datetime | None) -> str:
+    if value is None:
+        return "不可用"
+    return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _build_sticker_tooltip(
+    image: StickerImage,
+    file_path: str,
+    similarity: float | None,
+) -> str:
+    lines = [
+        f"文件名：{pathlib.Path(file_path).name}",
+        f"原始文件名：{image.original_file_name}",
+        f"修改日期：{_format_datetime(image.modification_date)}",
+    ]
+    if similarity is not None:
+        lines.append(f"相似度：{similarity:.1%}")
+    return "\n".join(lines)
+
 
 class Wiring(QObject):
     signal_refresh_library_content_result = pyqtSignal(QStandardItemModel)
@@ -55,15 +78,13 @@ def build_sticker_model(
             continue
 
         icon = QIcon(pathlib.Path(file_path).as_posix())
-        item = QStandardItem(icon, image.original_file_name)
+        item = QStandardItem(icon, "")
+        item.setAccessibleText(image.original_file_name)
         item.setData(file_path, ROLE_FILE_PATH)
         item.setData(image, ROLE_STICKER_IMAGE)
         similarity = similarities.get(image.id) if similarities else None
         item.setData(similarity, ROLE_SIMILARITY)
-        if similarity is not None:
-            item.setToolTip(
-                f"{image.original_file_name}\n相似度：{similarity:.1%}"
-            )
+        item.setToolTip(_build_sticker_tooltip(image, file_path, similarity))
         model.insertRow(model.rowCount(), item)
 
     return model

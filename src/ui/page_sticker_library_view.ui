@@ -27,7 +27,7 @@
     <number>0</number>
    </property>
    <item>
-    <widget class="QListView" name="listViewStickerList">
+     <widget class="StickerListView" name="listViewStickerList">
      <property name="frameShadow">
       <enum>QFrame::Shadow::Plain</enum>
      </property>
@@ -35,10 +35,10 @@
       <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
      </property>
      <property name="dragEnabled">
-      <bool>true</bool>
+       <bool>false</bool>
      </property>
      <property name="dragDropMode">
-      <enum>QAbstractItemView::DragDropMode::DragDrop</enum>
+       <enum>QAbstractItemView::DragDropMode::NoDragDrop</enum>
      </property>
      <property name="viewMode">
       <enum>QListView::ViewMode::IconMode</enum>
@@ -47,6 +47,13 @@
    </item>
   </layout>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>StickerListView</class>
+   <extends>QListView</extends>
+   <header>ui.sticker_list_view_widget</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>
