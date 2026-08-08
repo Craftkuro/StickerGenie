@@ -1,17 +1,22 @@
 # coding=utf-8
 import logging
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from PyQt6 import uic
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter, QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QDialog,
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
+    QHeaderView,
     QInputDialog,
     QMessageBox,
+    QTableWidgetItem,
 )
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -48,6 +53,7 @@ class ImageViewerDialog(QDialog):
 
         self._init_tag_editor()
         self.widgetTagEditor.hide()
+        self._init_file_info_table()
         self._init_image_viewer()
 
     def _init_tag_editor(self):
@@ -66,6 +72,19 @@ class ImageViewerDialog(QDialog):
         self._image_view.setRenderHints(QPainter.RenderHint.SmoothPixmapTransform)
         self._image_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.widgetImageViewer.layout().addWidget(self._image_view)
+
+    def _init_file_info_table(self):
+        table = self.tableWidgetFileInfo
+        table.setColumnCount(2)
+        table.setHorizontalHeaderLabels(["属性", "值"])
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setAlternatingRowColors(True)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
     def load_image(
         self,
@@ -93,9 +112,92 @@ class ImageViewerDialog(QDialog):
         self._sticker = sticker
         self.widgetTagEditor.setVisible(sticker is not None)
         self._reload_tag_model()
+        self._reload_file_info(file_path, pixmap, title)
 
         # 等窗口完成布局后再把图片适配到视图大小
         QTimer.singleShot(0, self._fit_image)
+
+    def _reload_file_info(self, file_path: str, pixmap: QPixmap, title: str):
+        path = Path(file_path)
+        try:
+            display_path = str(path.resolve(strict=False))
+        except OSError:
+            display_path = str(path)
+
+        try:
+            stat = path.stat()
+        except OSError:
+            stat = None
+
+        original_name = getattr(self._sticker, "original_file_name", None)
+        file_name = original_name or title or path.name or "不可用"
+
+        extension = path.suffix or getattr(self._sticker, "extension", "")
+        file_format = extension.lstrip(".").upper() or "不可用"
+
+        if not pixmap.isNull():
+            dimensions = f"{pixmap.width()} x {pixmap.height()} 像素"
+        else:
+            width = getattr(self._sticker, "size_width", None)
+            height = getattr(self._sticker, "size_height", None)
+            dimensions = f"{width} x {height} 像素" if width and height else "不可用"
+
+        file_size = stat.st_size if stat is not None else getattr(
+            self._sticker, "file_size", None
+        )
+        modified_at = (
+            datetime.fromtimestamp(stat.st_mtime)
+            if stat is not None
+            else getattr(self._sticker, "modification_date", None)
+        )
+
+        rows = [
+            ("文件名", file_name),
+            ("文件路径", display_path),
+            ("文件格式", file_format),
+            ("图片尺寸", dimensions),
+            ("文件大小", self._format_file_size(file_size)),
+            ("修改时间", self._format_datetime(modified_at)),
+        ]
+
+        imported_at = getattr(self._sticker, "imported_at", None)
+        if imported_at is not None:
+            rows.append(("导入时间", self._format_datetime(imported_at)))
+
+        file_hash = getattr(self._sticker, "hash", None)
+        if file_hash:
+            rows.append(("文件哈希", str(file_hash)))
+
+        self.tableWidgetFileInfo.setRowCount(len(rows))
+        for row, (label, value) in enumerate(rows):
+            label_item = QTableWidgetItem(label)
+            value_item = QTableWidgetItem(value)
+            value_item.setToolTip(value)
+            self.tableWidgetFileInfo.setItem(row, 0, label_item)
+            self.tableWidgetFileInfo.setItem(row, 1, value_item)
+
+        self.tableWidgetFileInfo.resizeRowsToContents()
+
+    @staticmethod
+    def _format_file_size(size: Optional[int]) -> str:
+        if size is None or size < 0:
+            return "不可用"
+        if size < 1024:
+            return f"{size:,} 字节"
+
+        value = float(size)
+        for unit in ("KB", "MB", "GB", "TB"):
+            value /= 1024
+            if value < 1024 or unit == "TB":
+                return f"{value:.2f} {unit} ({size:,} 字节)"
+
+        return f"{size:,} 字节"
+
+    @staticmethod
+    def _format_datetime(value: Optional[datetime]) -> str:
+        if value is None:
+            return "不可用"
+        return value.strftime("%Y-%m-%d %H:%M:%S")
 
     def _reload_tag_model(self):
         self._tag_model.clear()

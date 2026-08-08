@@ -229,13 +229,13 @@ class CustomTagWidget(QWidget):
         self.toolbar.setFloatable(False)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         
-        # 添加按钮：数据库功能未完成，暂时只放图标
+        # 添加按钮
         self.add_action = QAction("➕", self)
         self.add_action.setObjectName("addTagAction")
         self.add_action.setToolTip("添加标签")
         self.toolbar.addAction(self.add_action)
         
-        # 删除按钮：数据库功能未完成，暂时只放图标
+        # 删除按钮
         self.delete_action = QAction("🗑️", self)
         self.delete_action.setObjectName("deleteTagAction")
         self.delete_action.setToolTip("删除标签")

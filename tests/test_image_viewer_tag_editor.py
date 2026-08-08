@@ -72,11 +72,48 @@ class ImageViewerTagEditorTests(unittest.TestCase):
         self._temp_dir.cleanup()
 
     def test_loads_tags_and_uses_tag_accent_color(self):
-        self.assertTrue(self.dialog.widgetTagEditor.isVisibleTo(self.dialog))
+        self.assertFalse(self.dialog.widgetTagEditor.isHidden())
         self.assertEqual(1, self.dialog._tag_model.rowCount())
         item = self.dialog._tag_model.item(0)
         self.assertEqual(self.first.id, item.data(TAG_DATA_ROLE).id)
         self.assertEqual("#123456", item.data(TAG_ACCENT_COLOR_ROLE))
+
+    def test_loads_file_information(self):
+        table = self.dialog.tableWidgetFileInfo
+        values = {
+            table.item(row, 0).text(): table.item(row, 1).text()
+            for row in range(table.rowCount())
+        }
+
+        self.assertEqual("viewer.png", values["文件名"])
+        self.assertEqual(str(Path(self.image_path).resolve()), values["文件路径"])
+        self.assertEqual("PNG", values["文件格式"])
+        self.assertEqual("2 x 2 像素", values["图片尺寸"])
+        self.assertRegex(
+            values["文件大小"],
+            r"\d+(?:\.\d+)?(?: [KMGT]B)?(?: \([\d,]+ 字节\)| 字节)",
+        )
+        self.assertRegex(
+            values["修改时间"], r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
+        )
+        self.assertEqual("2026-01-01 00:00:00", values["导入时间"])
+        self.assertEqual("viewer-test-hash", values["文件哈希"])
+
+    def test_missing_file_information_remains_available(self):
+        missing_path = str(Path(self._temp_dir.name) / "missing.webp")
+        self.dialog.load_image(missing_path)
+
+        table = self.dialog.tableWidgetFileInfo
+        values = {
+            table.item(row, 0).text(): table.item(row, 1).text()
+            for row in range(table.rowCount())
+        }
+
+        self.assertEqual("missing.webp", values["文件名"])
+        self.assertEqual("WEBP", values["文件格式"])
+        self.assertEqual("不可用", values["图片尺寸"])
+        self.assertEqual("不可用", values["文件大小"])
+        self.assertEqual("不可用", values["修改时间"])
 
     def test_adds_existing_and_new_global_tags(self):
         with patch(
