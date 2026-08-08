@@ -10,9 +10,10 @@
 """
 
 from __future__ import annotations
+from copy import deepcopy
 from enum import Enum
-from dataclasses import dataclass, field
-from typing import Union, List, Any, Dict, get_origin, get_args
+from dataclasses import dataclass
+from typing import Union, List, Any, Dict
 
 
 class ConfigType(Enum):
@@ -24,7 +25,7 @@ class ConfigType(Enum):
     LIST_INT = "list[int]"
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConfigField:
     """
     配置字段定义
@@ -42,24 +43,25 @@ class ConfigField:
     
     def __post_init__(self):
         """验证配置字段定义的合法性"""
-        if not self.key:
-            raise ValueError("ConfigField key cannot be empty")
+        if not isinstance(self.key, str) or not self.key:
+            raise ValueError("ConfigField key must be a non-empty string")
+
+        if not isinstance(self.type, ConfigType):
+            raise TypeError(f"ConfigField type must be ConfigType, got {type(self.type)}")
+
+        if not isinstance(self.comment, str):
+            raise TypeError(f"ConfigField comment must be str, got {type(self.comment)}")
         
         # 验证默认值类型与声明类型一致
         self._validate_default_type()
     
     def _validate_default_type(self):
         """验证默认值类型"""
-        if self.type == ConfigType.STRING and not isinstance(self.default, str):
-            raise TypeError(f"Default value for STRING must be str, got {type(self.default)}")
-        elif self.type == ConfigType.INT and not isinstance(self.default, int):
-            raise TypeError(f"Default value for INT must be int, got {type(self.default)}")
-        elif self.type == ConfigType.BOOL and not isinstance(self.default, bool):
-            raise TypeError(f"Default value for BOOL must be bool, got {type(self.default)}")
-        elif self.type == ConfigType.LIST_STR and not isinstance(self.default, list):
-            raise TypeError(f"Default value for LIST_STR must be list, got {type(self.default)}")
-        elif self.type == ConfigType.LIST_INT and not isinstance(self.default, list):
-            raise TypeError(f"Default value for LIST_INT must be list, got {type(self.default)}")
+        if not self.validate_value(self.default):
+            raise TypeError(
+                f"Default value for {self.type.name} must be {self.type.value}, "
+                f"got {type(self.default)}"
+            )
     
     def validate_value(self, value: Any) -> bool:
         """
@@ -89,7 +91,7 @@ class ConfigField:
     
     def get_default(self) -> Union[str, int, bool, List[str], List[int]]:
         """获取默认值"""
-        return self.default
+        return deepcopy(self.default)
 
 
 class ConfigSchema:
@@ -106,8 +108,26 @@ class ConfigSchema:
         Args:
             fields: 配置字段列表
         """
-        self._fields: Dict[str, ConfigField] = {f.key: f for f in fields}
-        self._fields_list: List[ConfigField] = fields
+        fields_copy = deepcopy(list(fields))
+        seen_keys = set()
+        duplicate_keys = set()
+        for config_field in fields_copy:
+            if not isinstance(config_field, ConfigField):
+                raise TypeError(
+                    "ConfigSchema fields must contain only ConfigField instances"
+                )
+            if config_field.key in seen_keys:
+                duplicate_keys.add(config_field.key)
+            seen_keys.add(config_field.key)
+
+        if duplicate_keys:
+            keys = ", ".join(sorted(duplicate_keys))
+            raise ValueError(f"Duplicate config keys: {keys}")
+
+        self._fields: Dict[str, ConfigField] = {
+            field.key: field for field in fields_copy
+        }
+        self._fields_list: List[ConfigField] = fields_copy
     
     def get_field(self, key: str) -> ConfigField | None:
         """
@@ -119,7 +139,8 @@ class ConfigSchema:
         Returns:
             配置字段定义，如果不存在返回 None
         """
-        return self._fields.get(key)
+        field = self._fields.get(key)
+        return deepcopy(field) if field else None
     
     def get_default(self, key: str) -> Any:
         """
@@ -153,7 +174,7 @@ class ConfigSchema:
     @property
     def fields(self) -> List[ConfigField]:
         """获取所有配置字段"""
-        return self._fields_list
+        return deepcopy(self._fields_list)
     
     @property
     def keys(self) -> List[str]:

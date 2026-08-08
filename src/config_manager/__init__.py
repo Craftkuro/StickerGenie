@@ -28,6 +28,7 @@ from .exceptions import (
     ConfigValidationError,
     ConfigMigrationError,
     ConfigNotFoundError,
+    ConfigTypeError,
 )
 
 __version__ = "1.0.0"
@@ -41,4 +42,5 @@ __all__ = [
     "ConfigValidationError",
     "ConfigMigrationError",
     "ConfigNotFoundError",
+    "ConfigTypeError",
 ]
