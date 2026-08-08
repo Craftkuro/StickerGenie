@@ -24,7 +24,7 @@ from config_manager import ConfigField, ConfigManager, ConfigType
 
 logger = logging.getLogger(__name__)
 
-SETTINGS_VERSION = "1.0.0"
+SETTINGS_VERSION = "1.1.0"
 SETTINGS_SCHEMA = [
     ConfigField(
         "restore_last_session",
@@ -41,8 +41,20 @@ SETTINGS_SCHEMA = [
     ConfigField(
         "recent_search_limit",
         ConfigType.INT,
+        3,
+        "显示的最近搜索候选数量",
+    ),
+    ConfigField(
+        "tag_suggestion_limit",
+        ConfigType.INT,
         10,
-        "保留的最近搜索数量",
+        "显示的标签搜索候选数量",
+    ),
+    ConfigField(
+        "recent_searches",
+        ConfigType.LIST_STR,
+        [],
+        "最近搜索，最新的项目在前",
     ),
     ConfigField(
         "default_view",
@@ -134,6 +146,13 @@ class SettingsDialog(QDialog):
         self.spinBoxRecentSearchLimit.setRange(0, 100)
         self.spinBoxRecentSearchLimit.setSuffix(" 项")
 
+        self.spinBoxTagSuggestionLimit = QSpinBox()
+        self.spinBoxTagSuggestionLimit.setObjectName(
+            "spinBoxTagSuggestionLimit"
+        )
+        self.spinBoxTagSuggestionLimit.setRange(0, 100)
+        self.spinBoxTagSuggestionLimit.setSuffix(" 项")
+
         self.comboBoxDefaultView = QComboBox()
         self.comboBoxDefaultView.setObjectName("comboBoxDefaultView")
         self.comboBoxDefaultView.addItem("网格", "grid")
@@ -156,7 +175,8 @@ class SettingsDialog(QDialog):
             self._make_group(
                 "浏览与搜索",
                 [
-                    ("最近搜索", self.spinBoxRecentSearchLimit),
+                    ("最近搜索候选", self.spinBoxRecentSearchLimit),
+                    ("标签候选", self.spinBoxTagSuggestionLimit),
                     ("默认视图", self.comboBoxDefaultView),
                 ],
             )
@@ -242,6 +262,9 @@ class SettingsDialog(QDialog):
         self.spinBoxRecentSearchLimit.setValue(
             self._config_manager.get("recent_search_limit")
         )
+        self.spinBoxTagSuggestionLimit.setValue(
+            self._config_manager.get("tag_suggestion_limit")
+        )
         self._set_combo_value(
             self.comboBoxDefaultView,
             self._config_manager.get("default_view"),
@@ -273,6 +296,7 @@ class SettingsDialog(QDialog):
         self.checkBoxRestoreLastSession.toggled.connect(self._mark_dirty)
         self.checkBoxConfirmBeforeDelete.toggled.connect(self._mark_dirty)
         self.spinBoxRecentSearchLimit.valueChanged.connect(self._mark_dirty)
+        self.spinBoxTagSuggestionLimit.valueChanged.connect(self._mark_dirty)
         self.comboBoxDefaultView.currentIndexChanged.connect(self._mark_dirty)
         self.comboBoxTheme.currentIndexChanged.connect(self._mark_dirty)
         self.spinBoxThumbnailSize.valueChanged.connect(self._mark_dirty)
@@ -290,6 +314,7 @@ class SettingsDialog(QDialog):
                 self.checkBoxConfirmBeforeDelete.isChecked()
             ),
             "recent_search_limit": self.spinBoxRecentSearchLimit.value(),
+            "tag_suggestion_limit": self.spinBoxTagSuggestionLimit.value(),
             "default_view": self.comboBoxDefaultView.currentData(),
             "theme": self.comboBoxTheme.currentData(),
             "thumbnail_size": self.spinBoxThumbnailSize.value(),

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -49,6 +49,7 @@ class SettingsDialogTests(unittest.TestCase):
         dialog.show()
         dialog.checkBoxRestoreLastSession.setChecked(False)
         dialog.spinBoxRecentSearchLimit.setValue(24)
+        dialog.spinBoxTagSuggestionLimit.setValue(7)
         dialog.comboBoxDefaultView.setCurrentIndex(
             dialog.comboBoxDefaultView.findData("list")
         )
@@ -62,6 +63,7 @@ class SettingsDialogTests(unittest.TestCase):
         saved_manager = create_settings_manager(self.config_path)
         self.assertFalse(saved_manager.get("restore_last_session"))
         self.assertEqual(24, saved_manager.get("recent_search_limit"))
+        self.assertEqual(7, saved_manager.get("tag_suggestion_limit"))
         self.assertEqual("list", saved_manager.get("default_view"))
         self.assertFalse(apply_button.isEnabled())
         self.assertTrue(dialog.isVisible())
@@ -117,12 +119,23 @@ class SettingsDialogTests(unittest.TestCase):
 
 class MainWindowSettingsTests(unittest.TestCase):
     def test_open_settings_runs_modal_dialog(self):
-        window = SimpleNamespace()
+        settings_manager = object()
+        refresh_suggestions = Mock()
+        window = SimpleNamespace(
+            _settings_manager=settings_manager,
+            customSearchBox=SimpleNamespace(
+                refresh_suggestions=refresh_suggestions,
+            ),
+        )
         with patch("ui.main_window.SettingsDialog") as dialog_class:
             MainWindow.open_settings(window)
 
-        dialog_class.assert_called_once_with(window)
+        dialog_class.assert_called_once_with(
+            window,
+            config_manager=settings_manager,
+        )
         dialog_class.return_value.exec.assert_called_once_with()
+        refresh_suggestions.assert_called_once_with()
 
 
 if __name__ == "__main__":

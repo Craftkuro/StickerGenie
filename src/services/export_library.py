@@ -276,11 +276,11 @@ def _tag_metadata(tags: Sequence[Tag]) -> list[dict[str, object]]:
         {
             "name": tag.name,
             "rgb": tag.color_rgb,
-            "order": order,
+            "order": tag.order,
             "description": tag.description,
             "enabled": tag.enabled,
         }
-        for order, tag in enumerate(tags)
+        for tag in tags
     ]
 
 
@@ -460,7 +460,7 @@ def export_library(
                 last_file_name=sticker.original_file_name,
             )
 
-        tag_order = {tag.name: order for order, tag in enumerate(tags)}
+        tag_order = {tag.name: tag.order for tag in tags}
         metadata = {
             "$schema": "metadata.schema.json",
             "format_version": 1,

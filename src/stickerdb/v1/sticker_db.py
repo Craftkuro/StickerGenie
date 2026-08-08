@@ -101,6 +101,22 @@ class StickerDBV1:
         db_tag = DBTag()
         db_tag.load_from_dto(dto)
         return db_tag
+
+    @staticmethod
+    def _next_tag_order(session: Session) -> int:
+        next_order = session.execute(
+            select(func.coalesce(func.max(DBTag.order), -1) + 1)
+        ).scalar_one()
+        return int(next_order)
+
+    def _create_tag(self, session: Session, dto: Tag) -> DBTag:
+        db_tag = self._import_tag(dto)
+        db_tag.order = self._next_tag_order(session)
+        session.add(db_tag)
+        session.flush()
+        dto.id = db_tag.id
+        dto.order = db_tag.order
+        return db_tag
     
     # ==================== 查询接口 ====================
     
@@ -209,17 +225,89 @@ class StickerDBV1:
 
     def list_tags(self, enabled_only: bool = False) -> List[Tag]:
         """
-        列出全局标签，按名称排序。
+        列出全局标签，按用户定义顺序排序。
         :param enabled_only: 为 True 时只返回启用的标签
         :return: Tag DTO 列表
         """
         with self._get_session() as session:
-            stmt = select(DBTag).order_by(DBTag.name.asc())
+            stmt = select(DBTag).order_by(DBTag.order.asc(), DBTag.id.asc())
             if enabled_only:
                 stmt = stmt.where(DBTag.enabled.is_(True))
 
             db_tags = session.execute(stmt).scalars().all()
             return [self._export_tag(tag) for tag in db_tags]
+
+    def search_tags(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        enabled_only: bool = True,
+    ) -> List[Tag]:
+        """按名称子串查询标签，并按标签顺序返回。"""
+        query = query.strip()
+        if not query or limit <= 0:
+            return []
+
+        with self._get_session() as session:
+            stmt = select(DBTag).where(
+                DBTag.name.contains(query, autoescape=True)
+            )
+            if enabled_only:
+                stmt = stmt.where(DBTag.enabled.is_(True))
+            stmt = stmt.order_by(DBTag.order.asc(), DBTag.id.asc()).limit(limit)
+            db_tags = session.execute(stmt).scalars().all()
+            return [self._export_tag(tag) for tag in db_tags]
+
+    def search_stickers_by_tag(self, query: str) -> List[StickerImage]:
+        """查询任意启用标签名称包含指定文本的图片。"""
+        query = query.strip()
+        if not query:
+            return []
+
+        with self._get_session() as session:
+            stmt = (
+                select(DBStickerImage)
+                .join(
+                    association_table,
+                    association_table.c.sticker_id == DBStickerImage.id,
+                )
+                .join(DBTag, DBTag.id == association_table.c.tag_id)
+                .where(
+                    DBTag.enabled.is_(True),
+                    DBTag.name.contains(query, autoescape=True),
+                )
+                .distinct()
+                .order_by(
+                    DBStickerImage.modification_date.desc(),
+                    DBStickerImage.id.desc(),
+                )
+            )
+            db_stickers = session.execute(stmt).scalars().all()
+            return [self._export_sticker(sticker) for sticker in db_stickers]
+
+    def search_stickers_by_text(self, query: str) -> List[StickerImage]:
+        """查询图片识别文本中包含指定文本的图片。"""
+        query = query.strip()
+        if not query:
+            return []
+
+        with self._get_session() as session:
+            stmt = (
+                select(DBStickerImage)
+                .where(
+                    DBStickerImage.text_in_image.contains(
+                        query,
+                        autoescape=True,
+                    )
+                )
+                .order_by(
+                    DBStickerImage.modification_date.desc(),
+                    DBStickerImage.id.desc(),
+                )
+            )
+            db_stickers = session.execute(stmt).scalars().all()
+            return [self._export_sticker(sticker) for sticker in db_stickers]
     
     # ==================== 增删改接口 ====================
     
@@ -253,9 +341,7 @@ class StickerDBV1:
                         
                         if db_tag is None:
                             # 创建新标签
-                            db_tag = self._import_tag(tag_dto)
-                            session.add(db_tag)
-                            session.flush()  # 获取 id
+                            db_tag = self._create_tag(session, tag_dto)
                         
                         db_sticker.tags.append(db_tag)
                 
@@ -273,7 +359,7 @@ class StickerDBV1:
         if not vector_ids_by_sticker_id:
             return
 
-        with self._get_session() as session:
+        with self._write_lock, self._get_session() as session:
             db_stickers = session.execute(
                 select(DBStickerImage).where(
                     DBStickerImage.id.in_(vector_ids_by_sticker_id)
@@ -289,7 +375,7 @@ class StickerDBV1:
         根据 StickerImage 实例中包含的 id 来确定需要更新的对象。
         :param stickers: StickerImage DTO 列表
         """
-        with self._get_session() as session:
+        with self._write_lock, self._get_session() as session:
             for dto in stickers:
                 # 根据 id 查找现有记录
                 db_sticker = session.get(DBStickerImage, dto.id)
@@ -310,9 +396,7 @@ class StickerDBV1:
                     ).scalar_one_or_none()
 
                     if db_tag is None:
-                        db_tag = self._import_tag(tag_dto)
-                        session.add(db_tag)
-                        session.flush()
+                        db_tag = self._create_tag(session, tag_dto)
 
                     db_sticker.tags.append(db_tag)
             
@@ -340,7 +424,7 @@ class StickerDBV1:
         如果与现有的 id 重复则覆盖其属性，可使用这种方式来实现修改。
         :param tag: Tag DTO 对象
         """
-        with self._get_session() as session:
+        with self._write_lock, self._get_session() as session:
             if tag.id is not None:
                 # 尝试根据 id 查找现有标签
                 db_tag = session.get(DBTag, tag.id)
@@ -350,8 +434,7 @@ class StickerDBV1:
                     db_tag.load_from_dto(tag)
                 else:
                     # id 不存在，创建新标签
-                    db_tag = self._import_tag(tag)
-                    session.add(db_tag)
+                    db_tag = self._create_tag(session, tag)
             else:
                 # 没有 id，根据名称查找
                 db_tag = session.execute(
@@ -360,11 +443,12 @@ class StickerDBV1:
                 
                 if db_tag is not None:
                     # 修改现有标签
+                    existing_order = db_tag.order
                     db_tag.load_from_dto(tag)
+                    db_tag.order = existing_order
                 else:
                     # 创建新标签
-                    db_tag = self._import_tag(tag)
-                    session.add(db_tag)
+                    db_tag = self._create_tag(session, tag)
             
             session.commit()
             return self._export_tag(db_tag)

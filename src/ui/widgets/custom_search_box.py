@@ -454,6 +454,12 @@ class CustomSearchBox(QWidget):
         self.suggestions_requested.connect(provider.request_suggestions)
         provider.suggestions_ready.connect(self.apply_suggestions)
 
+    def refresh_suggestions(self) -> None:
+        """立即按当前文本重新请求候选。"""
+        self.completer.popup().hide()
+        self._reset_completion_selection()
+        self._schedule_suggestions(self.line_edit.text(), 0)
+
     @pyqtSlot(str)
     def _on_search_text_edited(self, text: str) -> None:
         self._reset_completion_selection()

@@ -134,18 +134,29 @@ def open_similar_stickers_tab(sticker: StickerImage, *, top_k: int = 50) -> None
         similar_sticker.id: similarity
         for similar_sticker, similarity in matches
     }
-    page = StickerLibraryViewPage(auto_refresh=False)
-    page.refresh_content(
-        build_sticker_model(
-            (similar_sticker for similar_sticker, _ in matches),
-            similarities,
-        )
+    open_sticker_results_tab(
+        (similar_sticker for similar_sticker, _ in matches),
+        f"相似图片[{sticker.original_file_name}]",
+        similarities=similarities,
     )
 
+
+def open_sticker_results_tab(
+    images: Iterable[StickerImage],
+    title: str,
+    *,
+    similarities: dict[int, float] | None = None,
+) -> None:
+    """在独立标签页中展示给定的图片结果。"""
+    page = StickerLibraryViewPage(auto_refresh=False)
+    page.refresh_content(build_sticker_model(images, similarities))
+
     main_window = services.global_instances.main_window
+    if main_window is None:
+        raise RuntimeError("主窗口尚未初始化。")
     request = MainWindowNewTabRequest(
         page,
-        f"相似图片[{sticker.original_file_name}]",
+        title,
     )
     main_window.signal_add_new_tab.emit(request)
 

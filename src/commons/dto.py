@@ -34,12 +34,14 @@ class Tag:
     description: str| None
     enabled: bool
     color_rgb: str
+    order: int
 
     def __init__(self):
         self.id = None
         self.description = None
         self.enabled = True
         self.color_rgb = '#2196F3'
+        self.order = 0
 
     def __repr__(self):
         return f'Tag<{self.name}, enabled={self.enabled}>'

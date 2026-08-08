@@ -157,18 +157,18 @@ class ExportLibraryTests(unittest.TestCase):
         self.assertEqual(
             [
                 {
-                    "name": "Alpha",
-                    "rgb": "#AABBCC",
-                    "order": 0,
-                    "description": "首个标签",
-                    "enabled": True,
-                },
-                {
                     "name": "Zulu",
                     "rgb": "#112233",
-                    "order": 1,
+                    "order": 0,
                     "description": "末尾标签",
                     "enabled": False,
+                },
+                {
+                    "name": "Alpha",
+                    "rgb": "#AABBCC",
+                    "order": 1,
+                    "description": "首个标签",
+                    "enabled": True,
                 },
             ],
             metadata["tags"],
@@ -177,7 +177,7 @@ class ExportLibraryTests(unittest.TestCase):
         image_metadata = metadata["images"][0]
         self.assertEqual("set_1/示例.png", image_metadata["path"])
         self.assertEqual(sticker.hash, image_metadata["hash"])
-        self.assertEqual(["Alpha", "Zulu"], image_metadata["tags"])
+        self.assertEqual(["Zulu", "Alpha"], image_metadata["tags"])
         self.assertEqual("图片文字", image_metadata["text_in_image"])
 
         exported_file = destination / "set_1" / "示例.png"

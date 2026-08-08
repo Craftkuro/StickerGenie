@@ -157,6 +157,16 @@ class CustomSearchBoxTests(unittest.TestCase):
         QApplication.processEvents()
         self.assertEqual("fresh", self.search_box.completer_model.item(0).text())
 
+    def test_refresh_suggestions_requests_current_text_immediately(self):
+        self._show_and_focus()
+        self.provider.requests.clear()
+        self.search_box.line_edit.setText("current query")
+
+        self.search_box.refresh_suggestions()
+        QTest.qWait(5)
+
+        self.assertEqual("current query", self.provider.requests[-1][1])
+
     def test_search_submission_cancels_pending_and_inflight_suggestions(self):
         self._show_and_focus()
         self.provider.requests.clear()

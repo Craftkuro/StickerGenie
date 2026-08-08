@@ -6,9 +6,9 @@ from typing import Optional
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QPoint, QEvent, Qt, QSize
 from PyQt6.QtWidgets import QMainWindow, QPushButton, QMessageBox, QWidget, QLabel, QVBoxLayout, \
     QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QLineEdit, QLayout, QCompleter, \
-    QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle, QFileDialog
+    QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle, QFileDialog, QComboBox, QSizePolicy
 from PyQt6 import uic
-from PyQt6.QtGui import QFont, QPainter, QStandardItemModel, QStandardItem
+from PyQt6.QtGui import QCloseEvent, QFont, QPainter, QStandardItemModel, QStandardItem
 
 import apppath
 from commons.signal_objects import ImportImagesRequest, MainWindowNewTabRequest
@@ -17,12 +17,13 @@ import services.global_instances
 import services.import_images
 import services.sticker_view_service_debug
 import services.sticker_library_viewer_service
+import services.search
 
 from .widgets.custom_tag_widget import CustomTagWidget
 from .sticker_list_view_widget import StickerListView
 from .dialog_image_import import ImageImportDialog
 from .dialog_image_import_progress import ImageImportProgressDialog
-from .dialog_settings import SettingsDialog
+from .dialog_settings import SettingsDialog, create_settings_manager
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class MainWindow(QMainWindow):
     应用程序主窗体
     """
 
-    def __init__(self):
+    def __init__(self, settings_manager=None):
         super().__init__()
 
         services.global_instances.main_window = self
@@ -45,6 +46,12 @@ class MainWindow(QMainWindow):
         # 加载基础 UI
         ui_file_path = apppath.app_path / 'ui' / 'main_window.ui'
         uic.loadUi(ui_file_path, self)
+
+        self._settings_manager = settings_manager or create_settings_manager()
+        self._search_history = services.search.SearchHistory(
+            self._settings_manager.get("recent_searches")
+        )
+        self._init_search_controls()
 
         self._image_import_service = services.import_images.ImageImportService(
             self
@@ -93,14 +100,94 @@ class MainWindow(QMainWindow):
 
         self.signal_add_new_tab.connect(self.add_new_tab)
 
+    def _init_search_controls(self):
+        self.searchTypeComboBox = QComboBox(self.widgetUnifiedBar)
+        self.searchTypeComboBox.setObjectName("searchTypeComboBox")
+        self.searchTypeComboBox.setAccessibleName("搜索类型")
+        self.searchTypeComboBox.addItem("标签", services.search.SearchType.TAG.value)
+        self.searchTypeComboBox.addItem("文本", services.search.SearchType.TEXT.value)
+        self.searchTypeComboBox.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
+        self.searchTypeComboBox.setSizePolicy(
+            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Fixed,
+        )
+
+        unified_bar_layout = self.widgetUnifiedBar.layout()
+        search_box_index = unified_bar_layout.indexOf(self.customSearchBox)
+        unified_bar_layout.insertWidget(search_box_index, self.searchTypeComboBox)
+
+        self._search_suggestions_provider = (
+            services.search.SearchSuggestionsProvider(
+                self._search_history,
+                self._settings_manager,
+                self._current_search_type,
+                self,
+            )
+        )
+        self.customSearchBox.set_suggestions_provider(
+            self._search_suggestions_provider
+        )
+        self.searchTypeComboBox.currentIndexChanged.connect(
+            self._on_search_type_changed
+        )
+        self._on_search_type_changed(self.searchTypeComboBox.currentIndex())
+
+    def _current_search_type(self):
+        return services.search.SearchType(
+            self.searchTypeComboBox.currentData()
+        )
+
+    @pyqtSlot(int)
+    def _on_search_type_changed(self, _index: int):
+        if self._current_search_type() is services.search.SearchType.TAG:
+            placeholder = "搜索标签..."
+        else:
+            placeholder = "搜索图片文本..."
+        self.customSearchBox.line_edit.setPlaceholderText(placeholder)
+        self.customSearchBox.refresh_suggestions()
+
     def open_settings(self):
-        SettingsDialog(self).exec()
+        SettingsDialog(
+            self,
+            config_manager=self._settings_manager,
+        ).exec()
+        self.customSearchBox.refresh_suggestions()
 
     def on_search_triggered(self, query):
         """处理搜索触发事件"""
-        logger.info(f"用户触发搜索：{query}")
-        # TODO: 实现实际的搜索逻辑
-        # 这里可以添加搜索结果显示、标签过滤等功能
+        search_type = self._current_search_type()
+        logger.info("用户触发%s搜索：%s", search_type.value, query)
+        self._search_history.record(query)
+        try:
+            result_count = services.search.open_search_results(
+                search_type,
+                query,
+            )
+        except Exception as exc:
+            logger.exception("搜索失败")
+            QMessageBox.warning(self, "搜索失败", str(exc))
+            return
+
+        if result_count:
+            message = f"找到 {result_count} 张匹配图片"
+        else:
+            message = "未找到匹配图片"
+        self.statusBar().showMessage(message, 8000)
+
+    def closeEvent(self, event: QCloseEvent):
+        super().closeEvent(event)
+        if not event.isAccepted():
+            return
+        try:
+            self._settings_manager.set(
+                "recent_searches",
+                self._search_history.values(),
+            )
+            self._settings_manager.save()
+        except Exception:
+            logger.exception("保存最近搜索失败")
 
     def basic_import_files(self):
         dialog = ImageImportDialog(self)

@@ -98,6 +98,7 @@ class DBTag(Base):
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     color_rgb: Mapped[str] = mapped_column(String, nullable=False, default='#FFFFFF')
+    order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     
     # 与 StickerImage 的多对多关系
     stickers: Mapped[List[DBStickerImage]] = relationship(secondary=association_table, back_populates='tags')
@@ -114,6 +115,7 @@ class DBTag(Base):
         self.description = dto.description
         self.enabled = dto.enabled
         self.color_rgb = dto.color_rgb
+        self.order = dto.order
     
     def export(self) -> Tag:
         """
@@ -126,4 +128,5 @@ class DBTag(Base):
         dto.description = self.description
         dto.enabled = self.enabled
         dto.color_rgb = self.color_rgb
+        dto.order = self.order
         return dto

@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -11,6 +12,7 @@ from PyQt6.QtWidgets import QApplication
 import apppath
 import services.global_instances
 from ui.main_window import MainWindow
+from ui.dialog_settings import create_settings_manager
 from ui.widgets.custom_search_box import CustomSearchBox
 
 
@@ -22,18 +24,23 @@ class MainWindowSearchBoxTests(unittest.TestCase):
 
     def setUp(self):
         self.previous_main_window = services.global_instances.main_window
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.settings_manager = create_settings_manager(
+            Path(self.temporary_directory.name) / "settings.toml"
+        )
         with patch(
             "ui.main_window.services.import_images.ImageImportService"
         ), patch(
             "ui.main_window.services.export_library.LibraryExportService"
         ), patch.object(MainWindow, "debug_start_test_view"):
-            self.window = MainWindow()
+            self.window = MainWindow(settings_manager=self.settings_manager)
 
     def tearDown(self):
         self.window.customSearchBox.completer.popup().hide()
         self.window.close()
         services.global_instances.main_window = self.previous_main_window
         QApplication.processEvents()
+        self.temporary_directory.cleanup()
 
     def test_ui_uses_custom_search_box_without_legacy_controls(self):
         search_box = self.window.customSearchBox
@@ -41,20 +48,59 @@ class MainWindowSearchBoxTests(unittest.TestCase):
         self.assertIsInstance(search_box, CustomSearchBox)
         self.assertIs(
             search_box,
+            self.window.widgetUnifiedBar.layout().itemAt(3).widget(),
+        )
+        self.assertEqual(5, self.window.widgetUnifiedBar.layout().count())
+        self.assertIs(
+            self.window.searchTypeComboBox,
             self.window.widgetUnifiedBar.layout().itemAt(2).widget(),
         )
-        self.assertEqual(4, self.window.widgetUnifiedBar.layout().count())
-        self.assertIsNone(self.window.findChild(QObject, "comboBox"))
+        self.assertEqual("tag", self.window.searchTypeComboBox.currentData())
         self.assertIsNone(
             self.window.findChild(QObject, "pushButtonStartSearch")
         )
 
     def test_search_signal_is_connected_to_main_window_slot(self):
-        with patch("ui.main_window.logger.info") as info:
+        with patch(
+            "ui.main_window.services.search.open_search_results",
+            return_value=2,
+        ) as open_results:
             self.window.customSearchBox.searched.emit("test query")
 
-        info.assert_called_once()
-        self.assertIn("test query", info.call_args.args[0])
+        open_results.assert_called_once_with(
+            self.window._current_search_type(),
+            "test query",
+        )
+        self.assertEqual(["test query"], self.window._search_history.values())
+
+    def test_text_search_routes_with_text_type(self):
+        self.window.searchTypeComboBox.setCurrentIndex(1)
+
+        with patch(
+            "ui.main_window.services.search.open_search_results",
+            return_value=0,
+        ) as open_results:
+            self.window.customSearchBox.searched.emit("图片文字")
+
+        self.assertEqual("text", open_results.call_args.args[0].value)
+
+    def test_close_persists_recent_searches_latest_first(self):
+        with patch(
+            "ui.main_window.services.search.open_search_results",
+            return_value=0,
+        ):
+            self.window.customSearchBox.searched.emit("first")
+            self.window.customSearchBox.searched.emit("second")
+
+        self.window.close()
+        saved_manager = create_settings_manager(
+            Path(self.temporary_directory.name) / "settings.toml"
+        )
+
+        self.assertEqual(
+            ["second", "first"],
+            saved_manager.get("recent_searches"),
+        )
 
 
 if __name__ == "__main__":
