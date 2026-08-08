@@ -1,27 +1,18 @@
-import hashlib
 import os
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage
 from PyQt6.QtWidgets import QApplication, QDialog
 
 import apppath
+from commons.signal_objects import ImportImagesRequest
 from ui.dialog_image_import import ImageImportDialog
-
-
-class FakeDatabase:
-    def __init__(self, hashes=()):
-        self._stickers = [SimpleNamespace(hash=value) for value in hashes]
-
-    def list_stickers(self, *, count=None):
-        return list(self._stickers)
 
 
 class ImageImportDialogTests(unittest.TestCase):
@@ -34,11 +25,7 @@ class ImageImportDialogTests(unittest.TestCase):
     def setUp(self):
         self._temp_dir = tempfile.TemporaryDirectory()
         self.temp_path = Path(self._temp_dir.name)
-        self.import_service = Mock(return_value=[object()])
-        self.dialog = ImageImportDialog(
-            database=FakeDatabase(),
-            import_service=self.import_service,
-        )
+        self.dialog = ImageImportDialog()
 
     def tearDown(self):
         self.dialog.close()
@@ -90,29 +77,40 @@ class ImageImportDialogTests(unittest.TestCase):
             set(self.dialog.selected_file_paths),
         )
 
-    def test_excludes_duplicate_content_and_existing_database_images(self):
-        first = self._make_image("first.png", 0xFFFFFFFF)
-        first_copy = self.temp_path / "first-copy.png"
-        shutil.copyfile(first, first_copy)
-        existing = self._make_image("existing.png", 0xFF000000)
-        existing_hash = hashlib.sha1(existing.read_bytes()).hexdigest()
+    def test_only_deduplicates_normalized_absolute_paths(self):
+        first = self.temp_path / "first.png"
+        second = self.temp_path / "same-content.png"
+        first.write_bytes(b"same image content")
+        second.write_bytes(b"same image content")
 
-        self.dialog.close()
-        self.dialog = ImageImportDialog(
-            database=FakeDatabase([existing_hash]),
-            import_service=self.import_service,
-        )
-        self.dialog._add_paths([first, first_copy, existing])
+        self.dialog._add_paths([first, first.resolve(), second])
         self.dialog._show_confirmation_page()
 
-        self.assertEqual([str(first.resolve())], self.dialog.prepared_file_paths)
-        self.assertIn("已排除 2 个重复文件", self.dialog.labelNonDuplicateFilesCount.text())
+        self.assertEqual(
+            [str(first.resolve()), str(second.resolve())],
+            self.dialog.prepared_file_paths,
+        )
+        self.assertEqual(2, self.dialog.listWidget.count())
 
-        self.dialog._start_import()
+    def test_accepts_and_sends_import_request(self):
+        image_path = self._make_image("one.png")
+        requests: list[ImportImagesRequest] = []
+        self.dialog.signal_import_requested.connect(
+            requests.append,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
+        self.dialog.checkBoxDoVectorGeneration.setChecked(True)
+        self.dialog._add_paths([image_path])
+        self.dialog._show_confirmation_page()
 
-        self.import_service.assert_called_once_with([str(first.resolve())])
+        self.dialog._send_import_request()
+
+        self.assertEqual([], requests)
+        self.app.processEvents()
+        self.assertEqual(1, len(requests))
+        self.assertEqual((str(image_path.resolve()),), requests[0].file_paths)
+        self.assertTrue(requests[0].generate_vectors)
         self.assertEqual(QDialog.DialogCode.Accepted, self.dialog.result())
-        self.assertEqual(1, len(self.dialog.imported_stickers))
 
 
 if __name__ == "__main__":

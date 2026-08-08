@@ -78,7 +78,7 @@
        <item>
         <widget class="QLabel" name="labelNonDuplicateFilesCount">
          <property name="text">
-          <string>已选择 X 个不重复的文件。点击&quot;确定&quot;开始导入。</string>
+          <string>已选择 X 个文件。点击&quot;确定&quot;开始导入。</string>
          </property>
         </widget>
        </item>

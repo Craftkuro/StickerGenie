@@ -1,15 +1,13 @@
 # coding=utf-8
 import logging
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Optional
 
 from PyQt6 import uic
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
     QDialog,
     QFileDialog,
     QListWidgetItem,
@@ -17,9 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 import apppath
-import services.global_instances
-import services.import_images
-from utils.image_metadata import get_image_metadata
+from commons.signal_objects import ImportImagesRequest
 
 logger = logging.getLogger(__name__)
 
@@ -46,29 +42,18 @@ FILE_PATH_ROLE = Qt.ItemDataRole.UserRole
 class ImageImportDialog(QDialog):
     """Collect, deduplicate, and import image files in a two-step dialog."""
 
+    signal_import_requested = pyqtSignal(ImportImagesRequest)
+
     SELECTION_PAGE = 0
     CONFIRMATION_PAGE = 1
 
-    def __init__(
-        self,
-        parent=None,
-        *,
-        database=None,
-        import_service: Optional[Callable[[list[str]], list[Any]]] = None,
-    ):
+    def __init__(self, parent=None):
         super().__init__(parent)
 
         ui_file_path = apppath.app_path / "ui" / "dialog_image_import.ui"
         uic.loadUi(ui_file_path, self)
 
-        self._database = (
-            database
-            if database is not None
-            else services.global_instances.current_library_db
-        )
-        self._import_service = import_service or services.import_images.import_images
         self._prepared_file_paths: list[str] = []
-        self.imported_stickers: list[Any] = []
 
         self.setWindowTitle("导入图片")
         self.listWidget.setSelectionMode(
@@ -97,7 +82,7 @@ class ImageImportDialog(QDialog):
         self.pushButtonClearAll.clicked.connect(self._clear_files)
         self.pushButtonPrev.clicked.connect(self._show_selection_page)
         self.pushButtonNext.clicked.connect(self._show_confirmation_page)
-        self.pushButtonOk.clicked.connect(self._start_import)
+        self.pushButtonOk.clicked.connect(self._send_import_request)
         self.pushButtonCancel.clicked.connect(self.reject)
         self.listWidget.itemSelectionChanged.connect(self._sync_selection_controls)
         self.stackedWidget.currentChanged.connect(self._sync_page_controls)
@@ -172,85 +157,26 @@ class ImageImportDialog(QDialog):
         self.stackedWidget.setCurrentIndex(self.SELECTION_PAGE)
 
     def _show_confirmation_page(self):
-        try:
-            prepared_paths, duplicate_count, invalid_count = self._prepare_files()
-        except Exception as exc:
-            logger.exception("准备待导入图片失败")
-            QMessageBox.critical(self, "准备导入失败", str(exc))
-            return
-
-        self._prepared_file_paths = prepared_paths
-        self.textEditNonDuplicateFiles.setPlainText("\n".join(prepared_paths))
-
-        details = []
-        if duplicate_count:
-            details.append(f"已排除 {duplicate_count} 个重复文件")
-        if invalid_count:
-            details.append(f"已排除 {invalid_count} 个无效文件")
-        detail_text = f"（{'，'.join(details)}）" if details else ""
+        self._prepared_file_paths = self.selected_file_paths
+        self.textEditNonDuplicateFiles.setPlainText(
+            "\n".join(self._prepared_file_paths)
+        )
         self.labelNonDuplicateFilesCount.setText(
-            f"已选择 {len(prepared_paths)} 个不重复的文件{detail_text}。"
+            f"已选择 {len(self._prepared_file_paths)} 个文件。"
             '点击"确定"开始导入。'
         )
         self.stackedWidget.setCurrentIndex(self.CONFIRMATION_PAGE)
 
-    def _prepare_files(self) -> tuple[list[str], int, int]:
-        existing_hashes = self._load_existing_hashes()
-        seen_hashes = set(existing_hashes)
-        prepared_paths = []
-        duplicate_count = 0
-        invalid_count = 0
-
-        for file_path in self.selected_file_paths:
-            try:
-                metadata = get_image_metadata(file_path)
-            except (FileNotFoundError, OSError, ValueError):
-                logger.warning("跳过无法读取的图片: %s", file_path)
-                invalid_count += 1
-                continue
-
-            if metadata.hash in seen_hashes:
-                duplicate_count += 1
-                continue
-
-            seen_hashes.add(metadata.hash)
-            prepared_paths.append(file_path)
-
-        return prepared_paths, duplicate_count, invalid_count
-
-    def _load_existing_hashes(self) -> set[str]:
-        if self._database is None:
-            return set()
-
-        return {
-            sticker.hash
-            for sticker in self._database.list_stickers(count=None)
-            if getattr(sticker, "hash", None)
-        }
-
-    def _start_import(self):
+    def _send_import_request(self):
         if not self._prepared_file_paths:
             return
 
-        self._set_import_controls_enabled(False)
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            imported = self._import_service(list(self._prepared_file_paths))
-        except Exception as exc:
-            logger.exception("导入图片失败")
-            QMessageBox.critical(self, "导入失败", str(exc))
-            return
-        finally:
-            QApplication.restoreOverrideCursor()
-            self._set_import_controls_enabled(True)
-
-        self.imported_stickers = list(imported or [])
+        request = ImportImagesRequest(
+            file_paths=tuple(self._prepared_file_paths),
+            generate_vectors=self.checkBoxDoVectorGeneration.isChecked(),
+        )
         self.accept()
-
-    def _set_import_controls_enabled(self, enabled: bool):
-        self.pushButtonPrev.setEnabled(enabled)
-        self.pushButtonOk.setEnabled(enabled and bool(self._prepared_file_paths))
-        self.pushButtonCancel.setEnabled(enabled)
+        self.signal_import_requested.emit(request)
 
     def _invalidate_prepared_files(self):
         self._prepared_file_paths = []
@@ -287,10 +213,7 @@ class ImageImportDialog(QDialog):
 
     @staticmethod
     def _normalize_path(file_path: str | Path) -> str:
-        try:
-            return str(Path(file_path).resolve(strict=False))
-        except OSError:
-            return str(Path(file_path).absolute())
+        return os.path.abspath(os.path.normpath(str(file_path)))
 
     @staticmethod
     def _path_key(file_path: str | Path) -> str:

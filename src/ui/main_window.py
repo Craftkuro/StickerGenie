@@ -4,15 +4,16 @@ from traceback import format_tb
 from typing import Optional
 
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QPoint, QEvent, Qt, QSize
-from PyQt6.QtWidgets import QMainWindow, QPushButton, QDialog, QMessageBox, QWidget, QLabel, QVBoxLayout, \
+from PyQt6.QtWidgets import QMainWindow, QPushButton, QMessageBox, QWidget, QLabel, QVBoxLayout, \
     QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QLineEdit, QComboBox, QLayout, QCompleter, \
     QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle
 from PyQt6 import uic
 from PyQt6.QtGui import QFont, QPainter, QStandardItemModel, QStandardItem
 
 import apppath
-from commons.signal_objects import MainWindowNewTabRequest
+from commons.signal_objects import ImportImagesRequest, MainWindowNewTabRequest
 import services.global_instances
+import services.import_images
 import services.sticker_view_service_debug
 import services.sticker_library_viewer_service
 
@@ -100,7 +101,24 @@ class MainWindow(QMainWindow):
 
     def basic_import_files(self):
         dialog = ImageImportDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        dialog.signal_import_requested.connect(
+            self.handle_import_images_request,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
+        dialog.exec()
+
+    @pyqtSlot(ImportImagesRequest)
+    def handle_import_images_request(self, request: ImportImagesRequest):
+        try:
+            imported_stickers = services.import_images.import_images(
+                list(request.file_paths)
+            )
+        except Exception as exc:
+            logger.exception("导入图片失败")
+            QMessageBox.critical(self, "导入失败", str(exc))
+            return
+
+        if imported_stickers:
             services.sticker_library_viewer_service.wiring.slot_refresh_content()
 
     def add_new_tab(self, request: MainWindowNewTabRequest):
