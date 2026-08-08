@@ -6,12 +6,13 @@ from typing import Optional
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QPoint, QEvent, Qt, QSize
 from PyQt6.QtWidgets import QMainWindow, QPushButton, QMessageBox, QWidget, QLabel, QVBoxLayout, \
     QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QLineEdit, QComboBox, QLayout, QCompleter, \
-    QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle
+    QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle, QFileDialog
 from PyQt6 import uic
 from PyQt6.QtGui import QFont, QPainter, QStandardItemModel, QStandardItem
 
 import apppath
 from commons.signal_objects import ImportImagesRequest, MainWindowNewTabRequest
+import services.export_library
 import services.global_instances
 import services.import_images
 import services.sticker_view_service_debug
@@ -59,6 +60,19 @@ class MainWindow(QMainWindow):
         )
         self._image_import_progress_dialog = None
 
+        self._library_export_service = services.export_library.LibraryExportService(
+            self
+        )
+        self._library_export_service.export_finished.connect(
+            self._on_export_library_finished
+        )
+        self._library_export_service.export_failed.connect(
+            self._on_export_library_failed
+        )
+        self._library_export_service.export_progress_changed.connect(
+            self._on_export_library_progress_changed
+        )
+
         self.setup_base_slots()
 
         # 初始化自定义搜索框，替换原有的 comboBox
@@ -105,6 +119,7 @@ class MainWindow(QMainWindow):
     def setup_base_slots(self):
         self.pushButtonAddSticker.clicked.connect(self.basic_import_files)
         self.actionImportImages.triggered.connect(self.basic_import_files)
+        self.actionExportLibrary.triggered.connect(self.export_library)
 
         self.signal_add_new_tab.connect(self.add_new_tab)
 
@@ -178,6 +193,50 @@ class MainWindow(QMainWindow):
         self._close_image_import_progress_dialog()
         self.statusBar().clearMessage()
         QMessageBox.critical(self, "导入失败", error_message)
+
+    def export_library(self):
+        destination = QFileDialog.getExistingDirectory(
+            self,
+            "选择导出目录",
+            "",
+        )
+        if not destination:
+            return
+
+        self.actionExportLibrary.setEnabled(False)
+        self.statusBar().showMessage("正在导出图库…")
+        try:
+            self._library_export_service.start_export(destination)
+        except Exception as exc:
+            self.actionExportLibrary.setEnabled(True)
+            self.statusBar().clearMessage()
+            QMessageBox.critical(self, "导出失败", str(exc))
+
+    @pyqtSlot(object)
+    def _on_export_library_progress_changed(self, progress):
+        message = progress.status
+        if progress.total:
+            message += f"（{progress.completed}/{progress.total}）"
+        self.statusBar().showMessage(message)
+
+    @pyqtSlot(object)
+    def _on_export_library_finished(self, result):
+        self.actionExportLibrary.setEnabled(True)
+        self.statusBar().showMessage(
+            f"已导出 {result.image_count} 个图片和 {result.tag_count} 个标签",
+            8000,
+        )
+        QMessageBox.information(
+            self,
+            "导出完成",
+            f"导出完成，已导出{result.image_count}个图片和{result.tag_count}个标签。",
+        )
+
+    @pyqtSlot(str)
+    def _on_export_library_failed(self, error_message: str):
+        self.actionExportLibrary.setEnabled(True)
+        self.statusBar().clearMessage()
+        QMessageBox.critical(self, "导出失败", error_message)
 
     def add_new_tab(self, request: MainWindowNewTabRequest):
         index = self.tabWidget.addTab(request.widget, request.title)
