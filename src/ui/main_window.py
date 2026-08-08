@@ -5,7 +5,7 @@ from typing import Optional
 
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QPoint, QEvent, Qt, QSize
 from PyQt6.QtWidgets import QMainWindow, QPushButton, QMessageBox, QWidget, QLabel, QVBoxLayout, \
-    QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QLineEdit, QComboBox, QLayout, QCompleter, \
+    QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QLineEdit, QLayout, QCompleter, \
     QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle, QFileDialog
 from PyQt6 import uic
 from PyQt6.QtGui import QFont, QPainter, QStandardItemModel, QStandardItem
@@ -18,7 +18,6 @@ import services.import_images
 import services.sticker_view_service_debug
 import services.sticker_library_viewer_service
 
-from .widgets.custom_search_box import CustomSearchBox
 from .widgets.custom_tag_widget import CustomTagWidget
 from .sticker_list_view_widget import StickerListView
 from .dialog_image_import import ImageImportDialog
@@ -76,9 +75,6 @@ class MainWindow(QMainWindow):
 
         self.setup_base_slots()
 
-        # 初始化自定义搜索框，替换原有的 comboBox
-        self._init_custom_search_box()
-
         # 加载启动时需要准备的视图
         # self.setup_startup_views()
         # self.debug_start_test_repo_view()
@@ -88,37 +84,9 @@ class MainWindow(QMainWindow):
         # self.populate_quick_launch_buttons(QUICK_LAUNCH_BUTTON_COUNT)
         self.debug_start_test_view()
 
-    def _init_custom_search_box(self):
-        """初始化自定义搜索框，替换原有的 comboBox"""
-        # 查找原有的 comboBox 控件
-        # old_combo_box = self.findChild(QComboBox, "comboBox")
-
-        # 创建自定义搜索框
-        self.comboBox = CustomSearchBox(self)
-
-        # if old_combo_box:
-        # 获取原有 comboBox 的父布局和索引
-        self.widgetUnifiedBar.layout().insertWidget(3, self.comboBox)
-        # parent_widget = old_combo_box.parentWidget()
-        # if parent_widget:
-        #    layout = parent_widget.layout()
-        #    if layout:
-        #        # 在布局中查找原有的 comboBox 位置
-        #        for i in range(layout.count()):
-        #            item = layout.itemAt(i)
-        #            if item and item.widget() == old_combo_box:
-        #                # 找到原有 comboBox，记录其位置
-        #                # 隐藏原有 comboBox
-        #                old_combo_box.hide()
-        #                # 在相同位置插入新的自定义搜索框
-        #                layout.insertWidget(i, self.comboBox)
-        #                break
-
-        # 连接搜索信号
-        self.comboBox.searched.connect(self.on_search_triggered)
-
     def setup_base_slots(self):
         self.pushButtonAddSticker.clicked.connect(self.basic_import_files)
+        self.customSearchBox.searched.connect(self.on_search_triggered)
         self.actionImportImages.triggered.connect(self.basic_import_files)
         self.actionExportLibrary.triggered.connect(self.export_library)
         self.actionOpenSettings.triggered.connect(self.open_settings)
