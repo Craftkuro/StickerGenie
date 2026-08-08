@@ -4,7 +4,7 @@ from traceback import format_tb
 from typing import Optional
 
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QPoint, QEvent, Qt, QSize
-from PyQt6.QtWidgets import QMainWindow, QPushButton, QFileDialog, QDialog, QMessageBox, QWidget, QLabel, QVBoxLayout, \
+from PyQt6.QtWidgets import QMainWindow, QPushButton, QDialog, QMessageBox, QWidget, QLabel, QVBoxLayout, \
     QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QLineEdit, QComboBox, QLayout, QCompleter, \
     QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle
 from PyQt6 import uic
@@ -12,7 +12,6 @@ from PyQt6.QtGui import QFont, QPainter, QStandardItemModel, QStandardItem
 
 import apppath
 from commons.signal_objects import MainWindowNewTabRequest
-import services.import_images
 import services.global_instances
 import services.sticker_view_service_debug
 import services.sticker_library_viewer_service
@@ -20,6 +19,7 @@ import services.sticker_library_viewer_service
 from .widgets.custom_search_box import CustomSearchBox
 from .widgets.custom_tag_widget import CustomTagWidget
 from .sticker_list_view_widget import StickerListView
+from .dialog_image_import import ImageImportDialog
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
 
     def setup_base_slots(self):
         self.pushButtonAddSticker.clicked.connect(self.basic_import_files)
+        self.actionImportImages.triggered.connect(self.basic_import_files)
 
         self.signal_add_new_tab.connect(self.add_new_tab)
 
@@ -98,14 +99,9 @@ class MainWindow(QMainWindow):
         # 这里可以添加搜索结果显示、标签过滤等功能
 
     def basic_import_files(self):
-        selected_files, _ = QFileDialog.getOpenFileNames(self, 'Select Files', '',
-            'All Files (*);;Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.heif *.heic *.avif)')
-
-        try:
-            if len(selected_files) > 0:
-                services.import_images.import_images(selected_files)
-        except Exception:
-            logger.exception('exception')
+        dialog = ImageImportDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            services.sticker_library_viewer_service.wiring.slot_refresh_content()
 
     def add_new_tab(self, request: MainWindowNewTabRequest):
         self.tabWidget.addTab(request.widget, request.title)
