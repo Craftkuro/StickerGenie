@@ -112,6 +112,32 @@ class StickerListViewTests(unittest.TestCase):
 
         self.assertTrue(model.item(0).toolTip().endswith("相似度：87.5%"))
 
+    def test_copy_uses_current_item_file_and_original_name(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "stored-hash.png"
+            image = QImage(2, 2, QImage.Format.Format_ARGB32)
+            image.fill(0xFFFFFFFF)
+            self.assertTrue(image.save(str(image_path)))
+
+            with patch(
+                "services.global_instances.current_blob_storage",
+                FakeBlobStorage(image_path),
+            ):
+                model = build_sticker_model([make_sticker()])
+
+            page = StickerLibraryViewPage(auto_refresh=False)
+            page.refresh_content(model)
+            with patch(
+                "services.image_clipboard_service.copy_image_to_clipboard"
+            ) as copy_image:
+                page._copy_sticker_for_index(model.index(0, 0))
+
+            copy_image.assert_called_once_with(
+                str(image_path),
+                "原始名称.png",
+            )
+            page.close()
+
 
 if __name__ == "__main__":
     unittest.main()

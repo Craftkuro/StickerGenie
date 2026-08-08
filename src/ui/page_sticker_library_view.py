@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QMenu, QMessageBox, QWidget
 import apppath
 import commons.constants
 #import commons.classes
+import services.image_clipboard_service
 import services.sticker_library_viewer_service
 
 from .dialog_image_viewer import ImageViewerDialog
@@ -68,6 +69,8 @@ class StickerLibraryViewPage(QWidget):
 
         self.listViewStickerList.setCurrentIndex(index)
         menu = QMenu(self)
+        copy_action = menu.addAction("复制到剪贴板")
+        menu.addSeparator()
         find_similar_action = menu.addAction("查找相似图片")
         menu.addSeparator()
         delete_action = menu.addAction("删除图片")
@@ -75,10 +78,31 @@ class StickerLibraryViewPage(QWidget):
             self.listViewStickerList.viewport().mapToGlobal(position)
         )
 
-        if selected_action is find_similar_action:
+        if selected_action is copy_action:
+            self._copy_sticker_for_index(index)
+        elif selected_action is find_similar_action:
             self._find_similar_for_index(index)
         elif selected_action is delete_action:
             self._delete_sticker_for_index(index)
+
+    def _copy_sticker_for_index(self, index: QModelIndex):
+        file_path = index.data(
+            services.sticker_library_viewer_service.ROLE_FILE_PATH
+        )
+        sticker = index.data(
+            services.sticker_library_viewer_service.ROLE_STICKER_IMAGE
+        )
+        if not file_path or sticker is None:
+            return
+
+        try:
+            services.image_clipboard_service.copy_image_to_clipboard(
+                file_path,
+                sticker.original_file_name,
+            )
+        except Exception as exc:
+            logger.exception("复制图片到剪贴板失败")
+            QMessageBox.warning(self, "复制失败", str(exc))
 
     def _find_similar_for_index(self, index: QModelIndex):
         sticker = index.data(
