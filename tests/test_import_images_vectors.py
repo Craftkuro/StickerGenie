@@ -13,8 +13,10 @@ import services.global_instances
 from blob_storage import BlobStorage
 from commons.signal_objects import ImportImagesRequest
 from image_features_extractor import ImageFeatureResult
+from image_features_extractor.models import ExtractionProgress
 from services.import_images import (
     ImageImportService,
+    ImportImagesProgress,
     ImportImagesResult,
     import_images_with_result,
 )
@@ -67,10 +69,19 @@ class ImportImagesVectorTests(unittest.TestCase):
 
     def test_vectorizes_blob_path_and_backfills_uuid(self):
         captured_paths = []
+        progress_events = []
 
         def extract(image_paths, **kwargs):
             captured_paths.extend(image_paths)
             vector = np.ones(768, dtype=np.float32)
+            kwargs["progress"](
+                ExtractionProgress(
+                    completed=1,
+                    total=1,
+                    succeeded=1,
+                    failed=0,
+                )
+            )
             return [ImageFeatureResult.succeeded(image_paths[0], vector)]
 
         with patch("services.import_images.extract_features", side_effect=extract), patch(
@@ -80,6 +91,7 @@ class ImportImagesVectorTests(unittest.TestCase):
             result = import_images_with_result(
                 [str(self.source_path)],
                 generate_vectors=True,
+                progress=progress_events.append,
             )
 
         self.assertEqual(1, len(result.imported_stickers))
@@ -94,6 +106,11 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual("vector-uuid-1", sticker.vectordb_id)
         self.assertEqual(sticker.id, self.vector_store.metadata[0].sqlite_id)
         self.assertEqual("test-model-hash", self.vector_store.metadata[0].model_hash)
+        percents = [event.percent for event in progress_events]
+        self.assertEqual(sorted(percents), percents)
+        self.assertEqual([0, 1], percents[:2])
+        self.assertEqual(100, percents[-1])
+        self.assertTrue(any(percent > 50 for percent in percents[2:-1]))
 
     def test_reimporting_the_same_hash_is_silently_ignored(self):
         vector = np.ones(768, dtype=np.float32)
@@ -118,6 +135,7 @@ class ImportImagesVectorTests(unittest.TestCase):
 
         self.assertEqual(1, len(first_result.imported_stickers))
         self.assertEqual((), second_result.imported_stickers)
+        self.assertEqual(1, second_result.duplicate_count)
         self.assertEqual(0, second_result.vectorized_count)
         self.assertEqual((), second_result.vector_errors)
         self.assertEqual(1, extract_features.call_count)
@@ -133,6 +151,28 @@ class ImportImagesVectorTests(unittest.TestCase):
 
         self.assertEqual(1, len(result.imported_stickers))
         self.assertEqual(1, len(self.db.list_stickers()))
+
+    def test_reports_preprocessing_import_and_completion_progress(self):
+        progress_events = []
+
+        result = import_images_with_result(
+            [str(self.source_path)],
+            progress=progress_events.append,
+        )
+
+        self.assertEqual(1, len(result.imported_stickers))
+        self.assertEqual(0, progress_events[0].percent)
+        self.assertEqual("正在预处理", progress_events[0].status)
+        self.assertEqual(1, progress_events[1].percent)
+        self.assertEqual("正在导入图片", progress_events[1].status)
+        self.assertEqual(100, progress_events[-1].percent)
+        self.assertEqual("导入完成", progress_events[-1].status)
+        self.assertTrue(
+            any(
+                event.last_file_name == self.source_path.name
+                for event in progress_events
+            )
+        )
 
     def test_vector_store_failure_does_not_report_the_image_import_as_failed(self):
         vector = np.ones(768, dtype=np.float32)
@@ -166,9 +206,12 @@ class ImportImagesVectorTests(unittest.TestCase):
         execution_threads = []
         received_results = []
         expected_result = ImportImagesResult(imported_stickers=())
+        expected_progress = ImportImagesProgress(0, "正在预处理")
+        received_progress = []
 
         def execute_request(*args, **kwargs):
             execution_threads.append(QThread.currentThread())
+            kwargs["progress"](expected_progress)
             return expected_result
 
         def finish(result):
@@ -176,6 +219,7 @@ class ImportImagesVectorTests(unittest.TestCase):
             loop.quit()
 
         service.import_finished.connect(finish)
+        service.import_progress_changed.connect(received_progress.append)
         request = ImportImagesRequest(file_paths=(str(self.source_path),))
         with patch(
             "services.import_images.import_images_with_result",
@@ -189,6 +233,7 @@ class ImportImagesVectorTests(unittest.TestCase):
             app.processEvents()
 
         self.assertEqual([expected_result], received_results)
+        self.assertEqual([expected_progress], received_progress)
         self.assertEqual(1, len(execution_threads))
         self.assertIsNot(execution_threads[0], app.thread())
 

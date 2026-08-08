@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from functools import lru_cache, partial
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
@@ -30,8 +30,48 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class ImportImagesResult:
     imported_stickers: tuple[StickerImage, ...]
+    duplicate_count: int = 0
     vectorized_count: int = 0
     vector_errors: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ImportImagesProgress:
+    percent: int
+    status: str
+    completed: int = 0
+    total: int = 0
+    last_file_name: str | None = None
+
+    def __post_init__(self):
+        if not 0 <= self.percent <= 100:
+            raise ValueError("percent must be between 0 and 100")
+        if self.completed < 0 or self.total < 0 or self.completed > self.total:
+            raise ValueError("invalid import progress counts")
+
+
+ProgressCallback = Callable[[ImportImagesProgress], None]
+
+
+def _report_progress(
+    callback: ProgressCallback | None,
+    percent: int,
+    status: str,
+    *,
+    completed: int = 0,
+    total: int = 0,
+    last_file_name: str | None = None,
+) -> None:
+    if callback is not None:
+        callback(
+            ImportImagesProgress(
+                percent=percent,
+                status=status,
+                completed=completed,
+                total=total,
+                last_file_name=last_file_name,
+            )
+        )
 
 
 @lru_cache(maxsize=4)
@@ -83,6 +123,7 @@ def _metadata_to_sticker_image(metadata: StickerImageMetadata, file_path: Path) 
 
 def _generate_vectors(
     stickers_and_blob_paths: list[tuple[StickerImage, str]],
+    progress_callback: ProgressCallback | None = None,
 ) -> tuple[int, tuple[str, ...]]:
     vector_store = services.global_instances.current_vector_store
     if vector_store is None:
@@ -93,11 +134,33 @@ def _generate_vectors(
         return 0, (f"特征提取模型不存在：{model_path}",)
 
     image_paths = [blob_path for _, blob_path in stickers_and_blob_paths]
+
+    def report_extraction_progress(extraction_progress):
+        completed = min(extraction_progress.completed, len(image_paths))
+        last_file_name = None
+        if completed:
+            last_file_name = stickers_and_blob_paths[
+                completed - 1
+            ][0].original_file_name
+        percent = min(
+            99,
+            1 + int(98 * (len(image_paths) + completed) / (2 * len(image_paths))),
+        )
+        _report_progress(
+            progress_callback,
+            percent,
+            "正在导入图片",
+            completed=completed,
+            total=len(image_paths),
+            last_file_name=last_file_name,
+        )
+
     try:
         feature_results = extract_features(
             image_paths,
             model_path=model_path,
             total=len(image_paths),
+            progress=report_extraction_progress,
         )
     except Exception as exc:
         logger.exception("图片特征提取任务失败")
@@ -162,6 +225,7 @@ def import_images_with_result(
     tags: Optional[List[Tag]] = None,
     *,
     generate_vectors: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> ImportImagesResult:
     """
     将多个图片文件导入数据库。
@@ -180,6 +244,14 @@ def import_images_with_result(
     current_blob_storage = services.global_instances.current_blob_storage
     candidates = []
     request_hashes = set()
+    duplicate_count = 0
+
+    _report_progress(
+        progress,
+        0,
+        "正在预处理",
+        total=len(file_paths),
+    )
     
     for file_path in file_paths:
         path = Path(file_path)
@@ -192,6 +264,7 @@ def import_images_with_result(
             metadata = get_image_metadata(path)
 
             if metadata.hash in request_hashes:
+                duplicate_count += 1
                 continue
             request_hashes.add(metadata.hash)
             
@@ -205,28 +278,59 @@ def import_images_with_result(
 
             candidates.append((sticker, file_path, metadata.hash))
             
-        except (FileNotFoundError, ValueError) as e:
+        except (OSError, ValueError) as e:
             # 跳过无法读取的图片文件
-            print(f"警告：无法读取文件 {file_path}: {e}")
+            logger.warning("无法读取图片 %s: %s", file_path, e)
             continue
 
     existing_hashes = current_library_db.get_existing_sticker_hashes(
         sticker.hash for sticker, _, _ in candidates
     )
+    duplicate_count += sum(
+        1 for sticker, _, _ in candidates if sticker.hash in existing_hashes
+    )
+    import_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate[0].hash not in existing_hashes
+    ]
+
+    _report_progress(
+        progress,
+        1,
+        "正在导入图片",
+        total=len(import_candidates),
+    )
+
     imported_stickers = []
     stickers_and_blob_paths = []
-    for sticker, file_path, file_hash in candidates:
-        if file_hash in existing_hashes:
-            continue
-
+    work_units_per_image = 2 if generate_vectors else 1
+    total_work_units = max(1, len(import_candidates) * work_units_per_image)
+    for completed, (sticker, file_path, file_hash) in enumerate(
+        import_candidates,
+        start=1,
+    ):
         # 只有新图片才需要进入 Blob 存储。
         blob_entity = current_blob_storage.store_file(file_path, file_hash)
         blob_path = current_blob_storage.read_file(blob_entity)
         imported_stickers.append(sticker)
         stickers_and_blob_paths.append((sticker, blob_path))
+        percent = min(99, 1 + int(98 * completed / total_work_units))
+        _report_progress(
+            progress,
+            percent,
+            "正在导入图片",
+            completed=completed,
+            total=len(import_candidates),
+            last_file_name=(
+                None if generate_vectors else sticker.original_file_name
+            ),
+        )
 
     if imported_stickers:
+        attempted_count = len(imported_stickers)
         inserted_stickers = current_library_db.add_stickers(imported_stickers)
+        duplicate_count += attempted_count - len(inserted_stickers)
         inserted_object_ids = {id(sticker) for sticker in inserted_stickers}
         imported_stickers = inserted_stickers
         stickers_and_blob_paths = [
@@ -240,14 +344,30 @@ def import_images_with_result(
     if generate_vectors and stickers_and_blob_paths:
         try:
             vectorized_count, vector_errors = _generate_vectors(
-                stickers_and_blob_paths
+                stickers_and_blob_paths,
+                progress,
             )
         except Exception as exc:
             logger.exception("写入图片向量失败")
             vector_errors = (f"向量写入失败：{exc}",)
 
+    last_file_name = (
+        imported_stickers[-1].original_file_name
+        if imported_stickers
+        else None
+    )
+    _report_progress(
+        progress,
+        100,
+        "导入完成",
+        completed=len(imported_stickers),
+        total=len(imported_stickers),
+        last_file_name=last_file_name,
+    )
+
     return ImportImagesResult(
         imported_stickers=tuple(imported_stickers),
+        duplicate_count=duplicate_count,
         vectorized_count=vectorized_count,
         vector_errors=vector_errors,
     )
@@ -273,6 +393,7 @@ def import_images(
 class _ImportImagesWorker(QObject):
     succeeded = pyqtSignal(object)
     failed = pyqtSignal(str)
+    progress_changed = pyqtSignal(object)
 
     def __init__(self, request: ImportImagesRequest):
         super().__init__()
@@ -284,6 +405,7 @@ class _ImportImagesWorker(QObject):
             result = import_images_with_result(
                 list(self._request.file_paths),
                 generate_vectors=self._request.generate_vectors,
+                progress=self.progress_changed.emit,
             )
         except Exception as exc:
             logger.exception("导入图片失败")
@@ -297,6 +419,7 @@ class ImageImportService(QObject):
 
     import_finished = pyqtSignal(object)
     import_failed = pyqtSignal(str)
+    import_progress_changed = pyqtSignal(object)
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
@@ -318,6 +441,7 @@ class ImageImportService(QObject):
         thread.started.connect(worker.run)
         worker.succeeded.connect(self.import_finished)
         worker.failed.connect(self.import_failed)
+        worker.progress_changed.connect(self.import_progress_changed)
         worker.succeeded.connect(thread.quit)
         worker.failed.connect(thread.quit)
         worker.succeeded.connect(worker.deleteLater)

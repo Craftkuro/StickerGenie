@@ -21,6 +21,7 @@ from .widgets.custom_search_box import CustomSearchBox
 from .widgets.custom_tag_widget import CustomTagWidget
 from .sticker_list_view_widget import StickerListView
 from .dialog_image_import import ImageImportDialog
+from .dialog_image_import_progress import ImageImportProgressDialog
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,10 @@ class MainWindow(QMainWindow):
         self._image_import_service.import_failed.connect(
             self._on_import_images_failed
         )
+        self._image_import_service.import_progress_changed.connect(
+            self._on_import_images_progress_changed
+        )
+        self._image_import_progress_dialog = None
 
         self.setup_base_slots()
 
@@ -119,11 +124,28 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(ImportImagesRequest)
     def handle_import_images_request(self, request: ImportImagesRequest):
+        progress_dialog = ImageImportProgressDialog(self)
+        self._image_import_progress_dialog = progress_dialog
+        progress_dialog.open()
         self._image_import_service.start_import(request)
         self.statusBar().showMessage("正在导入图片…")
 
     @pyqtSlot(object)
+    def _on_import_images_progress_changed(self, progress):
+        dialog = self._image_import_progress_dialog
+        if dialog is not None:
+            dialog.update_progress(progress)
+
+    def _close_image_import_progress_dialog(self):
+        dialog = self._image_import_progress_dialog
+        self._image_import_progress_dialog = None
+        if dialog is not None:
+            dialog.finish()
+            dialog.deleteLater()
+
+    @pyqtSlot(object)
     def _on_import_images_finished(self, result):
+        self._close_image_import_progress_dialog()
         imported_count = len(result.imported_stickers)
         if imported_count:
             services.sticker_library_viewer_service.wiring.slot_refresh_content()
@@ -132,6 +154,13 @@ class MainWindow(QMainWindow):
         if result.vectorized_count:
             message += f"，生成 {result.vectorized_count} 个向量"
         self.statusBar().showMessage(message, 8000)
+
+        QMessageBox.information(
+            self,
+            "导入完成",
+            f"已导入 {imported_count} 张图片，"
+            f"另有 {result.duplicate_count} 个重复图片未导入。",
+        )
 
         if result.vector_errors:
             details = "\n".join(result.vector_errors[:10])
@@ -146,6 +175,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_import_images_failed(self, error_message: str):
+        self._close_image_import_progress_dialog()
         self.statusBar().clearMessage()
         QMessageBox.critical(self, "导入失败", error_message)
 
