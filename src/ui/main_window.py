@@ -23,6 +23,7 @@ from .widgets.custom_tag_widget import CustomTagWidget
 from .sticker_list_view_widget import StickerListView
 from .dialog_image_import import ImageImportDialog
 from .dialog_image_import_progress import ImageImportProgressDialog
+from .dialog_settings import SettingsDialog
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +121,12 @@ class MainWindow(QMainWindow):
         self.pushButtonAddSticker.clicked.connect(self.basic_import_files)
         self.actionImportImages.triggered.connect(self.basic_import_files)
         self.actionExportLibrary.triggered.connect(self.export_library)
+        self.actionOpenSettings.triggered.connect(self.open_settings)
 
         self.signal_add_new_tab.connect(self.add_new_tab)
+
+    def open_settings(self):
+        SettingsDialog(self).exec()
 
     def on_search_triggered(self, query):
         """处理搜索触发事件"""

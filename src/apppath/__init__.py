@@ -25,4 +25,4 @@ def setup_data_path(_app_path):
     library_base_path = pathlib.Path(base_path, 'StickerGenie Library')
     library_base_path.mkdir(parents=True, exist_ok=True)
     default_library_path = library_base_path / 'Default Library'
-    #main_config_file_path = pathlib.Path(user_data_dir_path, 'config.toml')
+    main_config_file_path = pathlib.Path(user_data_dir_path, 'config.toml')
