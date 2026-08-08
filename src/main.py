@@ -1,58 +1,44 @@
-#coding=utf-8
-import logging
-import os.path
-import signal
-import sys
+# coding=utf-8
+"""StickerGenie application entry point."""
 
-import services.startup
+from __future__ import annotations
 
-logging.basicConfig()
-logging.root.setLevel(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+import multiprocessing
 
 
-import apppath
+def main() -> int:
+    import logging
+    import os.path
+    import signal
+    import sys
 
-# 尽早找到程序所在路径。需要使用此路径来初始化配置文件路径等信息。
-if getattr(sys, 'frozen', False):
-    app_path = sys._MEIPASS  # by pyinstaller
-    is_packaged_build = True
-else:
-    app_path = os.path.dirname(os.path.abspath(__file__))
+    import apppath
 
-# 配置apppath包中的各项路径
-apppath.setup_data_path(app_path)
+    logging.basicConfig()
+    logging.root.setLevel(level=logging.DEBUG)
 
+    if getattr(sys, "frozen", False):
+        application_path = sys._MEIPASS
+    else:
+        application_path = os.path.dirname(os.path.abspath(__file__))
+    apppath.setup_data_path(application_path)
 
-import ui.main_window
-from stickerdb.v1.sticker_db import StickerDBV1
-from commons.dto import StickerImage, Tag
+    import services.startup
+    import ui.main_window
+    from PyQt6.QtWidgets import QApplication
 
+    services.startup.run_startup_tasks()
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-from PyQt6.QtWidgets import QApplication
-
-def my_testing():
-    db_base_path = apppath.default_library_path / "db" / "v1"
-    db_file_path = db_base_path / "sticker.db"
-
-    db = StickerDBV1(str(db_file_path))
-
-services.startup.run_startup_tasks()
-
-
-if __name__ == "__main__":
-    signal.signal(signal.SIGINT, signal.SIG_DFL)  # Handle ctrl+c
-
-    app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(True)
-    app.setStyle('Fusion')   # Temporarily used in development
-    #utils.instance_tracker.application = app
+    application = QApplication(sys.argv)
+    application.setQuitOnLastWindowClosed(True)
+    application.setStyle("Fusion")
 
     main_window = ui.main_window.MainWindow()
     main_window.show()
+    return application.exec()
 
 
-
-    sys.exit(app.exec())
-
-
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    raise SystemExit(main())
