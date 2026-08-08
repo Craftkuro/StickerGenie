@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import chromadb
+from chromadb.api.client import Client as ChromaClient
+from chromadb.api.models.Collection import Collection as ChromaCollection
 from chromadb.config import Settings
 
 from .config import ChromaDBConfig
@@ -21,7 +23,6 @@ from .exceptions import (
     VectorNotFoundError,
     VectorDBConnectionError,
     MetadataValidationError,
-    DuplicateVectorError,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,8 +71,8 @@ class ChromaVectorStore:
         self.config = config or ChromaDBConfig()
         self.config.validate()
         
-        self._client: Optional[chromadb.Client] = None
-        self._collection: Optional[chromadb.Collection] = None
+        self._client: Optional[ChromaClient] = None
+        self._collection: Optional[ChromaCollection] = None
         
         logger.info(f"ChromaVectorStore 初始化: {self.config}")
     
@@ -85,32 +86,24 @@ class ChromaVectorStore:
         抛出:
             VectorDBConnectionError: 如果初始化失败
         """
+        if self._client is not None:
+            return
+
         try:
             # 创建持久化目录
             self.persist_directory.mkdir(parents=True, exist_ok=True)
             
-            # 创建 ChromaDB 客户端
-            settings = Settings(
-                persist_directory=str(self.persist_directory),
-                anonymized_telemetry=self.config.anonymized_telemetry,
-                allow_reset=self.config.allow_reset,
+            settings = Settings(**self.config.get_client_settings())
+            self._client = chromadb.PersistentClient(
+                path=str(self.persist_directory),
+                settings=settings,
             )
-            
-            self._client = chromadb.Client(settings)
-            
-            # 获取或创建集合
-            try:
-                self._collection = self._client.get_collection(
-                    name=self.config.collection_name
-                )
-                logger.info(f"获取现有集合: {self.config.collection_name}")
-            except Exception:
-                # 集合不存在，创建新集合
-                self._collection = self._client.create_collection(
-                    name=self.config.collection_name,
-                    metadata=self.config.get_collection_metadata()
-                )
-                logger.info(f"创建新集合: {self.config.collection_name}")
+
+            self._collection = self._client.get_or_create_collection(
+                name=self.config.collection_name,
+                configuration=self.config.get_collection_configuration(),
+                embedding_function=None,
+            )
             
             logger.info(
                 f"ChromaDB 初始化成功，集合: {self.config.collection_name}, "
@@ -118,6 +111,12 @@ class ChromaVectorStore:
             )
             
         except Exception as e:
+            client = self._client
+            self._collection = None
+            self._client = None
+            if client is not None:
+                client.close()
+
             error_msg = f"ChromaDB 初始化失败: {str(e)}"
             logger.error(error_msg, exc_info=True)
             raise VectorDBConnectionError(error_msg) from e
@@ -126,13 +125,16 @@ class ChromaVectorStore:
         """
         关闭连接
         
-        ChromaDB 嵌入式模式会自动持久化，无需显式关闭。
-        此方法主要用于清理资源和日志记录。
+        ChromaDB 会自动持久化。显式关闭客户端可释放 SQLite 文件锁和
+        其他本地资源，尤其适用于 Windows 环境。
         """
-        if self._client is not None:
+        client = self._client
+        self._collection = None
+        self._client = None
+
+        if client is not None:
             logger.info("关闭 ChromaDB 连接")
-            self._client = None
-            self._collection = None
+            client.close()
     
     def reset(self) -> None:
         """
@@ -144,17 +146,21 @@ class ChromaVectorStore:
         抛出:
             VectorDBConnectionError: 如果重置失败
         """
+        if self._client is None:
+            raise VectorDBConnectionError("客户端未初始化")
+
+        if not self.config.allow_reset:
+            raise VectorDBConnectionError("当前配置不允许重置集合")
+
         try:
-            if self._client is None:
-                raise VectorDBConnectionError("客户端未初始化")
-            
             # 删除现有集合
             self._client.delete_collection(name=self.config.collection_name)
             
             # 重新创建集合
             self._collection = self._client.create_collection(
                 name=self.config.collection_name,
-                metadata=self.config.get_collection_metadata()
+                configuration=self.config.get_collection_configuration(),
+                embedding_function=None,
             )
             
             logger.warning(f"集合已重置: {self.config.collection_name}")
@@ -357,12 +363,11 @@ class ChromaVectorStore:
             raise VectorDBConnectionError("集合未初始化")
         
         try:
-            # 检查记录是否存在
-            if not self.exists(vector_id):
+            existing = self._collection.get(ids=[vector_id], include=[])
+            if not existing["ids"]:
                 logger.warning(f"向量不存在，无法删除: {vector_id}")
                 return False
-            
-            # 删除记录
+
             self._collection.delete(ids=[vector_id])
             logger.debug(f"删除向量: {vector_id}")
             return True
@@ -389,14 +394,14 @@ class ChromaVectorStore:
             return 0
         
         try:
-            # 过滤存在的ID
-            existing_ids = [vid for vid in vector_ids if self.exists(vid)]
-            
-            if len(existing_ids) == 0:
+            unique_ids = list(dict.fromkeys(vector_ids))
+            existing = self._collection.get(ids=unique_ids, include=[])
+            existing_ids = existing["ids"]
+
+            if not existing_ids:
                 logger.warning("所有向量ID都不存在")
                 return 0
-            
-            # 批量删除
+
             self._collection.delete(ids=existing_ids)
             logger.info(f"批量删除 {len(existing_ids)} 个向量")
             return len(existing_ids)
@@ -571,7 +576,7 @@ class ChromaVectorStore:
         try:
             # 查询元数据
             result = self._collection.get(
-                where={"sqlite_id": str(sqlite_id)},
+                where={"sqlite_id": sqlite_id},
                 include=["embeddings", "metadatas"]
             )
             
@@ -609,8 +614,10 @@ class ChromaVectorStore:
         try:
             result = self._collection.get(ids=[vector_id])
             return len(result["ids"]) > 0
-        except Exception:
-            return False
+        except Exception as e:
+            error_msg = f"检查向量是否存在失败: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            raise VectorDBException(error_msg) from e
     
     def search_by_id(
         self,
@@ -637,12 +644,12 @@ class ChromaVectorStore:
         if record is None:
             raise VectorNotFoundError(vector_id)
         
-        # 使用向量进行搜索
-        return self.search_by_vector(
+        results = self.search_by_vector(
             record.vector,
             top_k=top_k + 1,  # +1 因为可能包含自己
             include_distances=include_distances
-        )[1:]  # 排除第一个（自己）
+        )
+        return [result for result in results if result.id != vector_id][:top_k]
     
     def search_by_vector(
         self,

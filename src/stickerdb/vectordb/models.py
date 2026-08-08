@@ -40,8 +40,7 @@ class VectorMetadata:
         """
         转换为字典格式（用于ChromaDB存储）
         
-        注意: ChromaDB 要求元数据值必须是基本类型（str, int, float, bool）
-        因此 sqlite_id 会被转换为字符串
+        ChromaDB 元数据值使用基本类型（str, int, float, bool）。
         
         返回:
             元数据字典
@@ -49,7 +48,7 @@ class VectorMetadata:
         metadata = {
             "image_filename": self.image_filename,
             "model_hash": self.model_hash,
-            "sqlite_id": str(self.sqlite_id),  # ChromaDB 限制：转为字符串
+            "sqlite_id": self.sqlite_id,
             "extraction_timestamp": self.extraction_timestamp,
             "image_width": self.image_width,
             "image_height": self.image_height,
@@ -84,7 +83,7 @@ class VectorMetadata:
         return cls(
             image_filename=data["image_filename"],
             model_hash=data["model_hash"],
-            sqlite_id=int(data["sqlite_id"]),  # 转回整数
+            sqlite_id=int(data["sqlite_id"]),
             extraction_timestamp=float(data["extraction_timestamp"]),
             image_width=int(data["image_width"]),
             image_height=int(data["image_height"]),

@@ -5,8 +5,10 @@
 """
 
 from dataclasses import dataclass
-from typing import Dict, Any
+from typing import Any, Dict
+
 import numpy as np
+from chromadb.api.collection_configuration import CreateCollectionConfiguration
 
 
 # ============================================================================
@@ -34,10 +36,9 @@ BATCH_SIZE = 100
 # ============================================================================
 
 # HNSW 索引参数（ChromaDB 默认使用 HNSW）
-HNSW_SPACE = "cosine"        # 距离度量空间
 HNSW_CONSTRUCTION_EF = 100   # 构建时的 ef 参数
 HNSW_SEARCH_EF = 100         # 搜索时的 ef 参数
-HNSW_M = 16                  # 每个节点的最大连接数
+HNSW_MAX_NEIGHBORS = 16      # 每个节点的最大连接数
 
 # ============================================================================
 # 元数据模式
@@ -57,7 +58,7 @@ REQUIRED_METADATA_FIELDS = [
 METADATA_FIELD_TYPES = {
     "image_filename": str,
     "model_hash": str,
-    "sqlite_id": str,  # ChromaDB 中存储为字符串
+    "sqlite_id": int,
     "extraction_timestamp": float,
     "image_width": int,
     "image_height": int,
@@ -76,10 +77,9 @@ class ChromaDBConfig:
         dimension: 向量维度
         distance_metric: 距离度量方式
         batch_size: 批量操作的批次大小
-        hnsw_space: HNSW 距离度量空间
         hnsw_construction_ef: HNSW 构建时的 ef 参数
         hnsw_search_ef: HNSW 搜索时的 ef 参数
-        hnsw_m: HNSW 每个节点的最大连接数
+        hnsw_max_neighbors: HNSW 每个节点的最大连接数
         anonymized_telemetry: 是否启用匿名遥测
         allow_reset: 是否允许重置数据库
     """
@@ -88,27 +88,28 @@ class ChromaDBConfig:
     dimension: int = VECTOR_DIMENSION
     distance_metric: str = DISTANCE_METRIC
     batch_size: int = BATCH_SIZE
-    hnsw_space: str = HNSW_SPACE
     hnsw_construction_ef: int = HNSW_CONSTRUCTION_EF
     hnsw_search_ef: int = HNSW_SEARCH_EF
-    hnsw_m: int = HNSW_M
+    hnsw_max_neighbors: int = HNSW_MAX_NEIGHBORS
     anonymized_telemetry: bool = False
     allow_reset: bool = True
     
-    def get_collection_metadata(self) -> Dict[str, Any]:
+    def get_collection_configuration(self) -> CreateCollectionConfiguration:
         """
-        获取集合元数据配置
+        获取集合索引配置
         
-        返回 ChromaDB 集合创建时需要的元数据字典。
+        返回 ChromaDB 1.x 集合创建时使用的 configuration 字典。
         
         返回:
-            ChromaDB 集合元数据字典
+            ChromaDB 集合 configuration
         """
         return {
-            "hnsw:space": self.hnsw_space,
-            "hnsw:construction_ef": self.hnsw_construction_ef,
-            "hnsw:search_ef": self.hnsw_search_ef,
-            "hnsw:M": self.hnsw_m,
+            "hnsw": {
+                "space": self.distance_metric,
+                "ef_construction": self.hnsw_construction_ef,
+                "ef_search": self.hnsw_search_ef,
+                "max_neighbors": self.hnsw_max_neighbors,
+            }
         }
     
     def get_client_settings(self) -> Dict[str, Any]:
@@ -155,8 +156,11 @@ class ChromaDBConfig:
                 f"HNSW search_ef 必须为正数，当前值: {self.hnsw_search_ef}"
             )
         
-        if self.hnsw_m <= 0:
-            raise ValueError(f"HNSW M 必须为正数，当前值: {self.hnsw_m}")
+        if self.hnsw_max_neighbors <= 0:
+            raise ValueError(
+                "HNSW max_neighbors 必须为正数，"
+                f"当前值: {self.hnsw_max_neighbors}"
+            )
         
         return True
     
