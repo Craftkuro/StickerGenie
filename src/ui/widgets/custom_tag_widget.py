@@ -21,6 +21,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QAction, QPainter, QStandardItemModel, QPen, QBrush, QColor
 
 
+TAG_ACCENT_COLOR_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
 class TagItemDelegate(QStyledItemDelegate):
     """
     标签项的自定义委托
@@ -94,17 +97,29 @@ class TagItemDelegate(QStyledItemDelegate):
         is_selected = option.state & QStyle.StateFlag.State_Selected
         is_hovered = option.state & QStyle.StateFlag.State_MouseOver
         
+        accent_value = index.data(TAG_ACCENT_COLOR_ROLE)
+        accent_color = QColor(accent_value) if accent_value else QColor()
+        has_accent = accent_color.isValid()
+
+        border_color = QColor(accent_color) if has_accent else self._border_color
+        text_color = option.palette.text().color() if has_accent else self._text_color
+
         # 设置背景颜色
         if is_selected:
-            bg_color = self._border_color.lighter(130)
+            bg_color = QColor(border_color)
+            bg_color.setAlpha(90)
         elif is_hovered:
-            bg_color = self._bg_color.lighter(110)
+            bg_color = QColor(border_color)
+            bg_color.setAlpha(55)
+        elif has_accent:
+            bg_color = QColor(border_color)
+            bg_color.setAlpha(35)
         else:
             bg_color = self._bg_color
             
         # 绘制圆角矩形背景
         painter.setBrush(QBrush(bg_color))
-        painter.setPen(QPen(self._border_color, 1))
+        painter.setPen(QPen(border_color, 1))
         painter.drawRoundedRect(tag_rect, self._corner_radius, self._corner_radius)
         
         # 获取文本
@@ -113,7 +128,7 @@ class TagItemDelegate(QStyledItemDelegate):
             text = index.data(Qt.ItemDataRole.EditRole) or ""
         
         # 绘制文本
-        painter.setPen(self._text_color)
+        painter.setPen(text_color)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         
         # 文本在标签内部居中
@@ -282,6 +297,10 @@ class CustomTagWidget(QWidget):
         返回内部 QListView 当前使用的模型
         """
         return self._list_view.model()
+
+    def selectedIndexes(self):
+        """返回当前选中的标签索引。"""
+        return self._list_view.selectedIndexes()
     
     @pyqtSlot()
     def _on_model_data_changed(self):

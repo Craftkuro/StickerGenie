@@ -46,5 +46,6 @@ class StickerLibraryViewPage(QWidget):
             return
 
         dialog = ImageViewerDialog(self)
-        dialog.load_image(file_path, index.data())
+        sticker = index.data(services.sticker_library_viewer_service.ROLE_STICKER_IMAGE)
+        dialog.load_image(file_path, index.data(), sticker)
         dialog.exec()

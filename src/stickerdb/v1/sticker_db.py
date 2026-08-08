@@ -163,6 +163,20 @@ class StickerDBV1:
             
             # 转换为 DTO 并返回
             return [self._export_sticker(sticker) for sticker in db_stickers]
+
+    def list_tags(self, enabled_only: bool = False) -> List[Tag]:
+        """
+        列出全局标签，按名称排序。
+        :param enabled_only: 为 True 时只返回启用的标签
+        :return: Tag DTO 列表
+        """
+        with self._get_session() as session:
+            stmt = select(DBTag).order_by(DBTag.name.asc())
+            if enabled_only:
+                stmt = stmt.where(DBTag.enabled.is_(True))
+
+            db_tags = session.execute(stmt).scalars().all()
+            return [self._export_tag(tag) for tag in db_tags]
     
     # ==================== 增删改接口 ====================
     
@@ -215,24 +229,20 @@ class StickerDBV1:
                 # 更新属性
                 db_sticker.load_from_dto(dto)
                 
-                # 处理标签关联
-                if dto.tags:
-                    # 清空现有标签关联
-                    db_sticker.tags = []
-                    
-                    for tag_dto in dto.tags:
-                        # 查找或创建标签
-                        db_tag = session.execute(
-                            select(DBTag).where(DBTag.name == tag_dto.name)
-                        ).scalar_one_or_none()
-                        
-                        if db_tag is None:
-                            # 创建新标签
-                            db_tag = self._import_tag(tag_dto)
-                            session.add(db_tag)
-                            session.flush()  # 获取 id
-                        
-                        db_sticker.tags.append(db_tag)
+                # DTO 表示图片的完整状态，空列表也应清除现有标签关联。
+                db_sticker.tags = []
+
+                for tag_dto in dto.tags:
+                    db_tag = session.execute(
+                        select(DBTag).where(DBTag.name == tag_dto.name)
+                    ).scalar_one_or_none()
+
+                    if db_tag is None:
+                        db_tag = self._import_tag(tag_dto)
+                        session.add(db_tag)
+                        session.flush()
+
+                    db_sticker.tags.append(db_tag)
             
             session.commit()
     
@@ -252,14 +262,14 @@ class StickerDBV1:
             
             session.commit()
     
-    def add_or_modify_tag(self, tag: Tag):
+    def add_or_modify_tag(self, tag: Tag) -> Tag:
         """
         新增一个标签。
         如果与现有的 id 重复则覆盖其属性，可使用这种方式来实现修改。
         :param tag: Tag DTO 对象
         """
         with self._get_session() as session:
-            if tag.id:
+            if tag.id is not None:
                 # 尝试根据 id 查找现有标签
                 db_tag = session.get(DBTag, tag.id)
                 
@@ -285,6 +295,7 @@ class StickerDBV1:
                     session.add(db_tag)
             
             session.commit()
+            return self._export_tag(db_tag)
     
     def delete_tag(self, tag: Tag):
         """
@@ -304,3 +315,32 @@ class StickerDBV1:
             # 删除标签（关联表的记录会级联删除）
             session.delete(db_tag)
             session.commit()
+
+    def set_sticker_tags(self, sticker_id: int, tag_ids: List[int]) -> StickerImage:
+        """
+        使用给定的全局标签 ID 替换一张图片的全部标签关联。
+
+        空列表会清除全部关联；不存在的图片或标签会抛出 ValueError，
+        事务不会留下部分更新。
+        """
+        unique_tag_ids = list(dict.fromkeys(tag_ids))
+
+        with self._get_session() as session:
+            db_sticker = session.get(DBStickerImage, sticker_id)
+            if db_sticker is None:
+                raise ValueError(f"不存在的表情包，id={sticker_id}")
+
+            db_tags = []
+            if unique_tag_ids:
+                found_tags = session.execute(
+                    select(DBTag).where(DBTag.id.in_(unique_tag_ids))
+                ).scalars().all()
+                tags_by_id = {tag.id: tag for tag in found_tags}
+                missing_ids = [tag_id for tag_id in unique_tag_ids if tag_id not in tags_by_id]
+                if missing_ids:
+                    raise ValueError(f"不存在的标签，id={missing_ids}")
+                db_tags = [tags_by_id[tag_id] for tag_id in unique_tag_ids]
+
+            db_sticker.tags = db_tags
+            session.commit()
+            return self._export_sticker(db_sticker)
