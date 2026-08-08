@@ -48,6 +48,18 @@ class StickerDBTagTests(unittest.TestCase):
         self.assertEqual(["Alpha", "Zulu"], [tag.name for tag in self.db.list_tags()])
         self.assertEqual(["Zulu"], [tag.name for tag in self.db.list_tags(enabled_only=True)])
 
+    def test_add_stickers_silently_ignores_duplicate_hashes(self):
+        first = make_sticker()
+        duplicate = make_sticker()
+        duplicate.original_file_name = "duplicate-name.png"
+
+        inserted = self.db.add_stickers([first, duplicate])
+        inserted_again = self.db.add_stickers([duplicate])
+
+        self.assertEqual([first], inserted)
+        self.assertEqual([], inserted_again)
+        self.assertEqual(1, len(self.db.list_stickers()))
+
     def test_set_sticker_tags_replaces_and_clears_associations(self):
         first = self.db.add_or_modify_tag(make_tag("First", color="#112233"))
         second = self.db.add_or_modify_tag(make_tag("Second", color="#445566"))

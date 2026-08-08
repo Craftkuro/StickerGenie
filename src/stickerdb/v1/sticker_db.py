@@ -1,7 +1,8 @@
 # coding=utf-8
 import logging
 import pathlib
-from typing import List, Optional
+import threading
+from typing import Iterable, List, Optional
 
 from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import sessionmaker, Session
@@ -10,6 +11,22 @@ from commons.dto import StickerImage, Tag
 from .db_classes import DBStickerImage, DBTag, association_table, Base
 
 logger = logging.getLogger(__name__)
+
+
+def _existing_hashes_in_session(
+    session: Session,
+    hashes: Iterable[str],
+) -> set[str]:
+    unique_hashes = list(dict.fromkeys(hashes))
+    existing_hashes = set()
+    for offset in range(0, len(unique_hashes), 500):
+        chunk = unique_hashes[offset:offset + 500]
+        existing_hashes.update(
+            session.execute(
+                select(DBStickerImage.hash).where(DBStickerImage.hash.in_(chunk))
+            ).scalars().all()
+        )
+    return existing_hashes
 
 
 class StickerDBV1:
@@ -43,6 +60,7 @@ class StickerDBV1:
         Base.metadata.create_all(self.engine)
         # 创建 session factory
         self.SessionLocal = sessionmaker(bind=self.engine, autoflush=False, autocommit=False, expire_on_commit=False)
+        self._write_lock = threading.RLock()
     
     def _get_session(self) -> Session:
         """获取一个新的 session"""
@@ -184,6 +202,11 @@ class StickerDBV1:
                 if sticker_id in stickers_by_id
             ]
 
+    def get_existing_sticker_hashes(self, hashes: Iterable[str]) -> set[str]:
+        """返回已存在于图库中的图片 hash。"""
+        with self._get_session() as session:
+            return _existing_hashes_in_session(session, hashes)
+
     def list_tags(self, enabled_only: bool = False) -> List[Tag]:
         """
         列出全局标签，按名称排序。
@@ -200,15 +223,23 @@ class StickerDBV1:
     
     # ==================== 增删改接口 ====================
     
-    def add_stickers(self, stickers: List[StickerImage]):
-        """
-        新增表情包。
-        文件名和 hash 无冲突由其他模块保证。
-        :param stickers: StickerImage DTO 列表
-        """
-        with self._get_session() as session:
+    def add_stickers(self, stickers: List[StickerImage]) -> List[StickerImage]:
+        """新增图片，忽略重复 hash，并返回实际插入的 DTO。"""
+        if not stickers:
+            return []
+
+        with self._write_lock, self._get_session() as session:
+            existing_hashes = _existing_hashes_in_session(
+                session,
+                (sticker.hash for sticker in stickers),
+            )
+            seen_hashes = set(existing_hashes)
             inserted_pairs = []
             for dto in stickers:
+                if dto.hash in seen_hashes:
+                    continue
+                seen_hashes.add(dto.hash)
+
                 # 创建新的 ORM 对象
                 db_sticker = self._import_sticker(dto)
                 
@@ -235,6 +266,7 @@ class StickerDBV1:
             for dto, db_sticker in inserted_pairs:
                 dto.id = db_sticker.id
             session.commit()
+            return [dto for dto, _ in inserted_pairs]
 
     def set_sticker_vector_ids(self, vector_ids_by_sticker_id: dict[int, str]) -> None:
         """批量回填图片关联的 Chroma UUID。"""

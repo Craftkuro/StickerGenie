@@ -178,8 +178,8 @@ def import_images_with_result(
 
     current_library_db = services.global_instances.current_library_db
     current_blob_storage = services.global_instances.current_blob_storage
-    imported_stickers = []
-    stickers_and_blob_paths = []
+    candidates = []
+    request_hashes = set()
     
     for file_path in file_paths:
         path = Path(file_path)
@@ -190,6 +190,10 @@ def import_images_with_result(
         try:
             # 使用工具函数获取图片元数据
             metadata = get_image_metadata(path)
+
+            if metadata.hash in request_hashes:
+                continue
+            request_hashes.add(metadata.hash)
             
             # 转换为 StickerImage DTO
             sticker = _metadata_to_sticker_image(metadata, path)
@@ -198,22 +202,38 @@ def import_images_with_result(
             if tags:
                 for tag in tags:
                     sticker.tags.append(tag)
-            
-            imported_stickers.append(sticker)
 
-            # 将图片复制到blob存储中
-            blob_entity = current_blob_storage.store_file(file_path, metadata.hash)
-            blob_path = current_blob_storage.read_file(blob_entity)
-            stickers_and_blob_paths.append((sticker, blob_path))
+            candidates.append((sticker, file_path, metadata.hash))
             
         except (FileNotFoundError, ValueError) as e:
             # 跳过无法读取的图片文件
             print(f"警告：无法读取文件 {file_path}: {e}")
             continue
-    
-    # 批量插入数据库
+
+    existing_hashes = current_library_db.get_existing_sticker_hashes(
+        sticker.hash for sticker, _, _ in candidates
+    )
+    imported_stickers = []
+    stickers_and_blob_paths = []
+    for sticker, file_path, file_hash in candidates:
+        if file_hash in existing_hashes:
+            continue
+
+        # 只有新图片才需要进入 Blob 存储。
+        blob_entity = current_blob_storage.store_file(file_path, file_hash)
+        blob_path = current_blob_storage.read_file(blob_entity)
+        imported_stickers.append(sticker)
+        stickers_and_blob_paths.append((sticker, blob_path))
+
     if imported_stickers:
-        current_library_db.add_stickers(imported_stickers)
+        inserted_stickers = current_library_db.add_stickers(imported_stickers)
+        inserted_object_ids = {id(sticker) for sticker in inserted_stickers}
+        imported_stickers = inserted_stickers
+        stickers_and_blob_paths = [
+            (sticker, blob_path)
+            for sticker, blob_path in stickers_and_blob_paths
+            if id(sticker) in inserted_object_ids
+        ]
 
     vectorized_count = 0
     vector_errors = ()

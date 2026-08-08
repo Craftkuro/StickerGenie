@@ -95,6 +95,45 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(sticker.id, self.vector_store.metadata[0].sqlite_id)
         self.assertEqual("test-model-hash", self.vector_store.metadata[0].model_hash)
 
+    def test_reimporting_the_same_hash_is_silently_ignored(self):
+        vector = np.ones(768, dtype=np.float32)
+
+        with patch(
+            "services.import_images.extract_features",
+            return_value=[
+                ImageFeatureResult.succeeded(str(self.source_path), vector)
+            ],
+        ) as extract_features, patch(
+            "services.import_images._get_model_hash",
+            return_value="test-model-hash",
+        ):
+            first_result = import_images_with_result(
+                [str(self.source_path)],
+                generate_vectors=True,
+            )
+            second_result = import_images_with_result(
+                [str(self.source_path)],
+                generate_vectors=True,
+            )
+
+        self.assertEqual(1, len(first_result.imported_stickers))
+        self.assertEqual((), second_result.imported_stickers)
+        self.assertEqual(0, second_result.vectorized_count)
+        self.assertEqual((), second_result.vector_errors)
+        self.assertEqual(1, extract_features.call_count)
+        self.assertEqual(1, len(self.db.list_stickers()))
+
+    def test_duplicate_hashes_inside_one_request_are_imported_once(self):
+        duplicate_path = self.root / "duplicate.png"
+        duplicate_path.write_bytes(self.source_path.read_bytes())
+
+        result = import_images_with_result(
+            [str(self.source_path), str(duplicate_path)]
+        )
+
+        self.assertEqual(1, len(result.imported_stickers))
+        self.assertEqual(1, len(self.db.list_stickers()))
+
     def test_vector_store_failure_does_not_report_the_image_import_as_failed(self):
         vector = np.ones(768, dtype=np.float32)
         self.vector_store.add_batch = Mock(
