@@ -35,7 +35,7 @@ class DBStickerImage(Base):
     size_height: Mapped[int] = mapped_column(Integer, nullable=False)
     
     # 向量库中存储的 ID
-    vectordb_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    vectordb_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     
     # 图片中的文字
     text_in_image: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

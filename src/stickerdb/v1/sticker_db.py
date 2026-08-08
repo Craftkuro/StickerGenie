@@ -164,6 +164,26 @@ class StickerDBV1:
             # 转换为 DTO 并返回
             return [self._export_sticker(sticker) for sticker in db_stickers]
 
+    def get_stickers_by_ids(self, sticker_ids: List[int]) -> List[StickerImage]:
+        """批量按 ID 查询图片，并保持输入 ID 的顺序。"""
+        unique_ids = list(dict.fromkeys(sticker_ids))
+        if not unique_ids:
+            return []
+
+        with self._get_session() as session:
+            db_stickers = session.execute(
+                select(DBStickerImage).where(DBStickerImage.id.in_(unique_ids))
+            ).scalars().all()
+            stickers_by_id = {
+                sticker.id: self._export_sticker(sticker)
+                for sticker in db_stickers
+            }
+            return [
+                stickers_by_id[sticker_id]
+                for sticker_id in unique_ids
+                if sticker_id in stickers_by_id
+            ]
+
     def list_tags(self, enabled_only: bool = False) -> List[Tag]:
         """
         列出全局标签，按名称排序。
@@ -187,6 +207,7 @@ class StickerDBV1:
         :param stickers: StickerImage DTO 列表
         """
         with self._get_session() as session:
+            inserted_pairs = []
             for dto in stickers:
                 # 创建新的 ORM 对象
                 db_sticker = self._import_sticker(dto)
@@ -208,7 +229,26 @@ class StickerDBV1:
                         db_sticker.tags.append(db_tag)
                 
                 session.add(db_sticker)
-            
+                inserted_pairs.append((dto, db_sticker))
+
+            session.flush()
+            for dto, db_sticker in inserted_pairs:
+                dto.id = db_sticker.id
+            session.commit()
+
+    def set_sticker_vector_ids(self, vector_ids_by_sticker_id: dict[int, str]) -> None:
+        """批量回填图片关联的 Chroma UUID。"""
+        if not vector_ids_by_sticker_id:
+            return
+
+        with self._get_session() as session:
+            db_stickers = session.execute(
+                select(DBStickerImage).where(
+                    DBStickerImage.id.in_(vector_ids_by_sticker_id)
+                )
+            ).scalars().all()
+            for db_sticker in db_stickers:
+                db_sticker.vectordb_id = vector_ids_by_sticker_id[db_sticker.id]
             session.commit()
     
     def modify_stickers(self, stickers: List[StickerImage]):

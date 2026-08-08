@@ -44,6 +44,16 @@ class MainWindow(QMainWindow):
         ui_file_path = apppath.app_path / 'ui' / 'main_window.ui'
         uic.loadUi(ui_file_path, self)
 
+        self._image_import_service = services.import_images.ImageImportService(
+            self
+        )
+        self._image_import_service.import_finished.connect(
+            self._on_import_images_finished
+        )
+        self._image_import_service.import_failed.connect(
+            self._on_import_images_failed
+        )
+
         self.setup_base_slots()
 
         # 初始化自定义搜索框，替换原有的 comboBox
@@ -109,20 +119,39 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(ImportImagesRequest)
     def handle_import_images_request(self, request: ImportImagesRequest):
-        try:
-            imported_stickers = services.import_images.import_images(
-                list(request.file_paths)
-            )
-        except Exception as exc:
-            logger.exception("导入图片失败")
-            QMessageBox.critical(self, "导入失败", str(exc))
-            return
+        self._image_import_service.start_import(request)
+        self.statusBar().showMessage("正在导入图片…")
 
-        if imported_stickers:
+    @pyqtSlot(object)
+    def _on_import_images_finished(self, result):
+        imported_count = len(result.imported_stickers)
+        if imported_count:
             services.sticker_library_viewer_service.wiring.slot_refresh_content()
 
+        message = f"已导入 {imported_count} 张图片"
+        if result.vectorized_count:
+            message += f"，生成 {result.vectorized_count} 个向量"
+        self.statusBar().showMessage(message, 8000)
+
+        if result.vector_errors:
+            details = "\n".join(result.vector_errors[:10])
+            remaining = len(result.vector_errors) - 10
+            if remaining > 0:
+                details += f"\n另有 {remaining} 项未显示。"
+            QMessageBox.warning(
+                self,
+                "部分向量未生成",
+                details,
+            )
+
+    @pyqtSlot(str)
+    def _on_import_images_failed(self, error_message: str):
+        self.statusBar().clearMessage()
+        QMessageBox.critical(self, "导入失败", error_message)
+
     def add_new_tab(self, request: MainWindowNewTabRequest):
-        self.tabWidget.addTab(request.widget, request.title)
+        index = self.tabWidget.addTab(request.widget, request.title)
+        self.tabWidget.setCurrentIndex(index)
 
     def add_new_tab_debug(self, center_widget, tab_title: Optional[str] = None):
         """
@@ -146,7 +175,7 @@ class MainWindow(QMainWindow):
 
         services.sticker_library_viewer_service.open_sticker_library_view_tab()
 
-        self.custom_tag_widget_test()
+        # self.custom_tag_widget_test()
 
     def custom_tag_widget_test(self):
         """

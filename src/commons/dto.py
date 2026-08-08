@@ -13,7 +13,7 @@ class StickerImage:
     modification_date: datetime.datetime
     size_width: int
     size_height: int
-    vectordb_id: Optional[int]
+    vectordb_id: Optional[str]
     text_in_image: Optional[str]
 
     tags: list['Tag']
