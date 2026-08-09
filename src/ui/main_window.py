@@ -141,7 +141,13 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(int)
     def _on_search_type_changed(self, _index: int):
-        if self._current_search_type() is services.search.SearchType.TAG:
+        is_tag_search = (
+            self._current_search_type() is services.search.SearchType.TAG
+        )
+        self.customSearchBox.set_submit_first_suggestion_when_unselected(
+            is_tag_search
+        )
+        if is_tag_search:
             placeholder = "搜索标签..."
         else:
             placeholder = "搜索图片文本..."

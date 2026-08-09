@@ -44,6 +44,7 @@ class CustomSearchBoxTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        cls.app.setQuitOnLastWindowClosed(False)
 
     def setUp(self):
         self.provider = ControlledSuggestionsProvider()
@@ -64,11 +65,17 @@ class CustomSearchBoxTests(unittest.TestCase):
         QApplication.processEvents()
         QTest.qWait(5)
 
+    def _emit_pending_suggestions_request(self) -> None:
+        self.assertTrue(self.search_box._debounce_timer.isActive())
+        self.search_box._debounce_timer.stop()
+        self.search_box._emit_suggestions_request()
+        QApplication.processEvents()
+
     def _prepare_suggestions(self, query: str = "raw query") -> None:
         self._show_and_focus()
         self.provider.requests.clear()
         QTest.keyClicks(self.search_box.line_edit, query)
-        QTest.qWait(30)
+        self._emit_pending_suggestions_request()
         request_id, requested_query = self.provider.requests[-1]
         self.provider.suggestions_ready.emit(
             request_id,
@@ -80,6 +87,9 @@ class CustomSearchBoxTests(unittest.TestCase):
         )
         QApplication.processEvents()
         self.assertTrue(self.search_box.completer.popup().isVisible())
+        self.assertFalse(
+            self.search_box.completer.popup().currentIndex().isValid()
+        )
 
     def test_layout_expands_input_and_keeps_button_fixed(self):
         self._show_and_focus()
@@ -123,19 +133,25 @@ class CustomSearchBoxTests(unittest.TestCase):
         self.search_box._debounce_timer.setInterval(80)
 
         QTest.keyClicks(self.search_box.line_edit, "abc")
-        QTest.qWait(20)
         self.assertEqual([], self.provider.requests)
-        QTest.qWait(70)
+        self.assertEqual("abc", self.search_box._latest_query_text)
+        self._emit_pending_suggestions_request()
 
         self.assertEqual(1, len(self.provider.requests))
         self.assertEqual("abc", self.provider.requests[0][1])
+
+    def test_focus_alone_does_not_request_suggestions(self):
+        self._show_and_focus()
+
+        self.assertEqual([], self.provider.requests)
+        self.assertFalse(self.search_box._debounce_timer.isActive())
 
     def test_result_is_rejected_as_soon_as_new_text_is_entered(self):
         self._show_and_focus()
         self.provider.requests.clear()
 
         QTest.keyClicks(self.search_box.line_edit, "a")
-        QTest.qWait(25)
+        self._emit_pending_suggestions_request()
         old_request_id, old_query = self.provider.requests[-1]
 
         QTest.keyClicks(self.search_box.line_edit, "b")
@@ -147,7 +163,7 @@ class CustomSearchBoxTests(unittest.TestCase):
         QApplication.processEvents()
         self.assertEqual(0, self.search_box.completer_model.rowCount())
 
-        QTest.qWait(25)
+        self._emit_pending_suggestions_request()
         new_request_id, new_query = self.provider.requests[-1]
         self.provider.suggestions_ready.emit(
             new_request_id,
@@ -163,7 +179,7 @@ class CustomSearchBoxTests(unittest.TestCase):
         self.search_box.line_edit.setText("current query")
 
         self.search_box.refresh_suggestions()
-        QTest.qWait(5)
+        self._emit_pending_suggestions_request()
 
         self.assertEqual("current query", self.provider.requests[-1][1])
 
@@ -173,7 +189,7 @@ class CustomSearchBoxTests(unittest.TestCase):
         spy = QSignalSpy(self.search_box.searched)
 
         QTest.keyClicks(self.search_box.line_edit, "query")
-        QTest.qWait(25)
+        self._emit_pending_suggestions_request()
         request_id, requested_query = self.provider.requests[-1]
         QTest.keyClick(self.search_box.line_edit, Qt.Key.Key_Return)
         self.provider.suggestions_ready.emit(
@@ -191,7 +207,6 @@ class CustomSearchBoxTests(unittest.TestCase):
         self.search_box.line_edit.clear()
         QTest.keyClicks(self.search_box.line_edit, "pending")
         QTest.keyClick(self.search_box.line_edit, Qt.Key.Key_Return)
-        QTest.qWait(25)
         self.assertEqual([], self.provider.requests)
 
     def test_default_provider_displays_nonempty_recent_searches(self):
@@ -199,13 +214,20 @@ class CustomSearchBoxTests(unittest.TestCase):
         try:
             search_box.show()
             search_box.line_edit.setFocus()
-            QTest.qWait(10)
+            search_box.refresh_suggestions()
+            search_box._debounce_timer.stop()
+            request_id = search_box._latest_query_id
+            query = search_box._latest_query_text
+            suggestions = (
+                search_box._suggestions_provider._build_suggestions(query)
+            )
+            search_box.apply_suggestions(request_id, query, suggestions)
             self.assertGreater(search_box.completer_model.rowCount(), 0)
             self.assertEqual("最近搜索", search_box.completer_model.item(0).data(SUBTITLE_ROLE))
         finally:
             search_box.close()
 
-    def test_direct_return_uses_raw_text_even_with_auto_highlight(self):
+    def test_direct_return_uses_raw_text_without_explicit_selection(self):
         self._prepare_suggestions()
         spy = QSignalSpy(self.search_box.searched)
 
@@ -217,15 +239,42 @@ class CustomSearchBoxTests(unittest.TestCase):
     def test_keyboard_navigation_then_return_uses_selected_suggestion(self):
         self._prepare_suggestions()
         spy = QSignalSpy(self.search_box.searched)
+        request_count = len(self.provider.requests)
 
         QTest.keyClick(self.search_box.line_edit, Qt.Key.Key_Down)
+        QApplication.processEvents()
         selected_index = self.search_box.completer.popup().currentIndex()
         self.assertTrue(selected_index.isValid())
         expected = selected_index.data(SEARCH_TEXT_ROLE)
+        self.assertEqual("raw query", self.search_box.line_edit.text())
+        self.assertEqual(request_count, len(self.provider.requests))
         QTest.keyClick(self.search_box.line_edit, Qt.Key.Key_Return)
 
         self.assertEqual(1, len(spy))
         self.assertEqual(expected, spy[0][0])
+        self.assertEqual(expected, self.search_box.line_edit.text())
+
+    def test_tag_policy_submits_first_suggestion_without_selection(self):
+        self._prepare_suggestions()
+        self.search_box.set_submit_first_suggestion_when_unselected(True)
+        spy = QSignalSpy(self.search_box.searched)
+
+        QTest.keyClick(self.search_box.line_edit, Qt.Key.Key_Return)
+
+        self.assertEqual(1, len(spy))
+        self.assertEqual("first-value", spy[0][0])
+        self.assertEqual("first-value", self.search_box.line_edit.text())
+
+    def test_tag_policy_uses_raw_text_when_there_are_no_suggestions(self):
+        self._show_and_focus()
+        self.search_box.set_submit_first_suggestion_when_unselected(True)
+        self.search_box.line_edit.setText("raw tag query")
+        spy = QSignalSpy(self.search_box.searched)
+
+        QTest.keyClick(self.search_box.line_edit, Qt.Key.Key_Return)
+
+        self.assertEqual(1, len(spy))
+        self.assertEqual("raw tag query", spy[0][0])
 
     def test_escape_resets_keyboard_selection(self):
         self._prepare_suggestions()
@@ -238,16 +287,29 @@ class CustomSearchBoxTests(unittest.TestCase):
         self.assertEqual(1, len(spy))
         self.assertEqual("raw query", spy[0][0])
 
-    def test_popup_hiding_cancels_preview_and_restores_raw_text(self):
+    def test_popup_hiding_keeps_raw_text_and_clears_selection(self):
         self._prepare_suggestions()
 
         QTest.keyClick(self.search_box.line_edit, Qt.Key.Key_Down)
-        self.assertNotEqual("raw query", self.search_box.line_edit.text())
+        self.assertEqual("raw query", self.search_box.line_edit.text())
         self.search_box.completer.popup().hide()
         QApplication.processEvents()
 
         self.assertEqual("raw query", self.search_box.line_edit.text())
         self.assertFalse(self.search_box._completion_selection_explicit)
+
+    def test_search_button_ignores_first_suggestion_policy(self):
+        self._prepare_suggestions()
+        self.search_box.set_submit_first_suggestion_when_unselected(True)
+        spy = QSignalSpy(self.search_box.searched)
+
+        QTest.mouseClick(
+            self.search_box.search_button,
+            Qt.MouseButton.LeftButton,
+        )
+
+        self.assertEqual(1, len(spy))
+        self.assertEqual("raw query", spy[0][0])
 
     def test_mouse_candidate_submission_emits_once(self):
         self._prepare_suggestions()

@@ -56,6 +56,10 @@ class MainWindowSearchBoxTests(unittest.TestCase):
             self.window.widgetUnifiedBar.layout().itemAt(2).widget(),
         )
         self.assertEqual("tag", self.window.searchTypeComboBox.currentData())
+        self.assertTrue(
+            self.window.customSearchBox
+            ._submit_first_suggestion_when_unselected
+        )
         self.assertIsNone(
             self.window.findChild(QObject, "pushButtonStartSearch")
         )
@@ -75,6 +79,11 @@ class MainWindowSearchBoxTests(unittest.TestCase):
 
     def test_text_search_routes_with_text_type(self):
         self.window.searchTypeComboBox.setCurrentIndex(1)
+
+        self.assertFalse(
+            self.window.customSearchBox
+            ._submit_first_suggestion_when_unselected
+        )
 
         with patch(
             "ui.main_window.services.search.open_search_results",

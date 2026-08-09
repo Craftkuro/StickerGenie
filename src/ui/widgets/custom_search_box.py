@@ -10,6 +10,7 @@ from PyQt6.QtCore import (
     QObject,
     QPoint,
     QRect,
+    QSignalBlocker,
     QSize,
     QTimer,
     Qt,
@@ -358,6 +359,8 @@ class CustomSearchBox(QWidget):
         self._last_applied_query_id = 0
         self._completion_selection_explicit = False
         self._completion_submission_in_progress = False
+        self._completion_navigation_in_progress = False
+        self._submit_first_suggestion_when_unselected = False
         self._suggestions_provider: QObject | None = None
 
         layout = QHBoxLayout(self)
@@ -412,6 +415,9 @@ class CustomSearchBox(QWidget):
         self.search_button.clicked.connect(self._trigger_search)
         self.line_edit.returnPressed.connect(self._on_return_pressed)
         self.line_edit.textEdited.connect(self._on_search_text_edited)
+        self.completer.highlighted[QModelIndex].connect(
+            self._on_completion_highlighted
+        )
         self.completer.popup().clicked.connect(self._on_popup_clicked)
 
         if suggestions_provider is None:
@@ -454,6 +460,10 @@ class CustomSearchBox(QWidget):
         self.suggestions_requested.connect(provider.request_suggestions)
         provider.suggestions_ready.connect(self.apply_suggestions)
 
+    def set_submit_first_suggestion_when_unselected(self, enabled: bool) -> None:
+        """Set whether Enter commits the first visible suggestion by default."""
+        self._submit_first_suggestion_when_unselected = bool(enabled)
+
     def refresh_suggestions(self) -> None:
         """立即按当前文本重新请求候选。"""
         self.completer.popup().hide()
@@ -462,8 +472,15 @@ class CustomSearchBox(QWidget):
 
     @pyqtSlot(str)
     def _on_search_text_edited(self, text: str) -> None:
-        self._reset_completion_selection()
+        if self._completion_navigation_in_progress:
+            return
         self._schedule_suggestions(text, self._debounce_timer.interval())
+        self._reset_completion_selection()
+
+    @pyqtSlot(QModelIndex)
+    def _on_completion_highlighted(self, _index: QModelIndex) -> None:
+        if not self._completion_submission_in_progress:
+            self._restore_query_text()
 
     def _schedule_suggestions(self, text: str, delay_ms: int) -> None:
         self._query_sequence += 1
@@ -506,6 +523,10 @@ class CustomSearchBox(QWidget):
         if normalized and self.line_edit.hasFocus():
             self.completer.setCompletionPrefix(query)
             self.completer.complete()
+            self._set_popup_current_index(
+                QModelIndex(),
+                preserve_query_text=True,
+            )
         else:
             self.completer.popup().hide()
 
@@ -548,8 +569,7 @@ class CustomSearchBox(QWidget):
         self.completer.popup().hide()
         self._completion_submission_in_progress = False
         self._reset_completion_selection()
-        self.line_edit.setText(text)
-        self.line_edit.setCursorPosition(len(text))
+        self._set_committed_text(text)
         self._search_for_text(text)
 
     @pyqtSlot()
@@ -584,11 +604,51 @@ class CustomSearchBox(QWidget):
 
     def _reset_completion_selection(self) -> None:
         self._completion_selection_explicit = False
+        self._set_popup_current_index(QModelIndex())
+
+    def _restore_query_text(self) -> None:
+        if self.line_edit.text() == self._latest_query_text:
+            return
+        blocker = QSignalBlocker(self.line_edit)
+        try:
+            self.line_edit.setText(self._latest_query_text)
+            self.line_edit.setCursorPosition(len(self._latest_query_text))
+        finally:
+            del blocker
+
+    def _set_committed_text(self, text: str) -> None:
+        self.line_edit.setText(text)
+        self.line_edit.setCursorPosition(len(text))
+
+    def _set_popup_current_index(
+        self,
+        index: QModelIndex,
+        *,
+        preserve_query_text: bool = False,
+    ) -> None:
+        popup = self.completer.popup()
+        selection_model = popup.selectionModel()
+        self._completion_navigation_in_progress = True
+        try:
+            if selection_model is None:
+                popup.setCurrentIndex(index)
+            else:
+                blocker = QSignalBlocker(selection_model)
+                try:
+                    if not index.isValid():
+                        selection_model.clearSelection()
+                    popup.setCurrentIndex(index)
+                finally:
+                    del blocker
+            if preserve_query_text:
+                self._restore_query_text()
+            popup.viewport().update()
+        finally:
+            self._completion_navigation_in_progress = False
 
     def _cancel_completion_selection(self) -> None:
         if self._completion_selection_explicit:
-            self.line_edit.setText(self._latest_query_text)
-            self.line_edit.setCursorPosition(len(self._latest_query_text))
+            self._restore_query_text()
         self._reset_completion_selection()
 
     def _submit_from_popup(self) -> None:
@@ -596,12 +656,20 @@ class CustomSearchBox(QWidget):
         index = popup.currentIndex()
         if self._completion_selection_explicit and index.isValid():
             text = self._completion_text_from_index(index)
+        elif (
+            self._submit_first_suggestion_when_unselected
+            and popup.model().rowCount() > 0
+        ):
+            index = popup.model().index(0, 0)
+            text = self._completion_text_from_index(index)
         else:
             text = self.line_edit.text()
         self._completion_submission_in_progress = True
         popup.hide()
         self._completion_submission_in_progress = False
         self._reset_completion_selection()
+        if index.isValid():
+            self._set_committed_text(text)
         self._search_for_text(text)
 
     def _navigate_popup(self, key: Qt.Key) -> bool:
@@ -611,7 +679,11 @@ class CustomSearchBox(QWidget):
         if row_count == 0:
             return False
 
-        current_row = popup.currentIndex().row()
+        current_row = (
+            popup.currentIndex().row()
+            if self._completion_selection_explicit
+            else -1
+        )
         if key == Qt.Key.Key_Down:
             target_row = 0 if current_row < 0 else min(current_row + 1, row_count - 1)
         elif key == Qt.Key.Key_Up:
@@ -636,7 +708,7 @@ class CustomSearchBox(QWidget):
                 return False
 
         index = model.index(target_row, 0)
-        popup.setCurrentIndex(index)
+        self._set_popup_current_index(index, preserve_query_text=True)
         popup.scrollTo(index)
         self._completion_selection_explicit = True
         return True
@@ -645,10 +717,6 @@ class CustomSearchBox(QWidget):
         popup = self.completer.popup()
         popup_visible = popup.isVisible()
         event_type = event.type()
-
-        if obj is self.line_edit and event_type == QEvent.Type.FocusIn:
-            if self.completer_model.rowCount() == 0:
-                self._schedule_suggestions(self.line_edit.text(), 0)
 
         if event_type in (QEvent.Type.FocusOut, QEvent.Type.WindowDeactivate):
             self._cancel_completion_selection()
