@@ -14,7 +14,11 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 import apppath
 import services.global_instances
 from blob_storage import BlobFileEntity
-from image_features_extractor import ExtractionCancelledError, extract_features
+from image_features_extractor import (
+    ExtractionCancelledError,
+    iter_features,
+    normalize_image_path,
+)
 from services.image_vector_model import get_model_hash
 from stickerdb.v1.sticker_db import StickerMaintenanceRecord
 from stickerdb.vectordb import VectorMetadata, VectorRecord
@@ -22,6 +26,7 @@ from stickerdb.vectordb import VectorMetadata, VectorRecord
 logger = logging.getLogger(__name__)
 
 VECTOR_BATCH_SIZE = 32
+VECTOR_PREP_FRACTION = 0.3
 
 
 class VectorMaintenanceScope(str, Enum):
@@ -218,176 +223,6 @@ def _generate_vectors(
     skipped_count = 0
     errors: list[str] = []
 
-    _report_progress(
-        progress,
-        task_index=task_index,
-        task_count=task_count,
-        task_fraction=0.0,
-        task_name=task_name,
-        status="正在检查图片向量",
-        completed=0,
-        total=total,
-        cancellable=True,
-    )
-
-    for batch_start in range(0, total, VECTOR_BATCH_SIZE):
-        if cancel_event is not None and cancel_event.is_set():
-            return vectorized_count, relinked_count, skipped_count, tuple(errors), True
-
-        batch = records[batch_start:batch_start + VECTOR_BATCH_SIZE]
-        existing_by_sticker_id: dict[int, VectorRecord | None] = {}
-        with services.global_instances.vector_store_lock:
-            for sticker in batch:
-                existing_by_sticker_id[sticker.id] = _existing_vector_for_sticker(
-                    vector_store,
-                    sticker,
-                )
-
-        relink_ids: dict[int, str] = {}
-        candidates: list[StickerMaintenanceRecord] = []
-        old_vector_ids: dict[int, str] = {}
-        for sticker in batch:
-            existing = existing_by_sticker_id[sticker.id]
-            if scope is VectorMaintenanceScope.MISSING and existing is not None:
-                if sticker.vectordb_id != existing.id:
-                    relink_ids[sticker.id] = existing.id
-                else:
-                    skipped_count += 1
-                continue
-
-            candidates.append(sticker)
-            if existing is not None:
-                old_vector_ids[sticker.id] = existing.id
-
-        extract_records: list[StickerMaintenanceRecord] = []
-        image_paths: list[str] = []
-        for sticker in candidates:
-            try:
-                image_path = blob_storage.read_file(
-                    BlobFileEntity(sticker.hash, sticker.extension)
-                )
-            except FileNotFoundError as exc:
-                errors.append(f"{sticker.original_file_name}：{exc}")
-                continue
-            extract_records.append(sticker)
-            image_paths.append(image_path)
-
-        if cancel_event is not None and cancel_event.is_set():
-            return vectorized_count, relinked_count, skipped_count, tuple(errors), True
-
-        def report_extraction(extraction_progress) -> None:
-            current = min(len(batch), extraction_progress.completed)
-            completed = min(total, batch_start + current)
-            _report_progress(
-                progress,
-                task_index=task_index,
-                task_count=task_count,
-                task_fraction=completed / total if total else 1.0,
-                task_name=task_name,
-                status="正在生成图片向量",
-                completed=completed,
-                total=total,
-                cancellable=True,
-            )
-
-        try:
-            feature_results = (
-                extract_features(
-                    image_paths,
-                    model_path=model_path,
-                    total=len(image_paths),
-                    progress=report_extraction,
-                    cancel_event=cancel_event,
-                )
-                if image_paths
-                else []
-            )
-        except ExtractionCancelledError:
-            return vectorized_count, relinked_count, skipped_count, tuple(errors), True
-
-        successful_records: list[StickerMaintenanceRecord] = []
-        vectors = []
-        metadata_list = []
-        for sticker, feature_result in zip(extract_records, feature_results):
-            if not feature_result.success:
-                errors.append(
-                    f"{sticker.original_file_name}：{feature_result.error}"
-                )
-                continue
-            successful_records.append(sticker)
-            vectors.append(feature_result.vector)
-            metadata_list.append(
-                VectorMetadata(
-                    image_filename=sticker.original_file_name,
-                    model_hash=model_hash,
-                    sqlite_id=sticker.id,
-                    extraction_timestamp=time.time(),
-                    image_width=sticker.size_width,
-                    image_height=sticker.size_height,
-                )
-            )
-
-        new_vector_ids: list[str] = []
-        if vectors:
-            with services.global_instances.vector_store_lock:
-                new_vector_ids = vector_store.add_batch(vectors, metadata_list)
-            if len(new_vector_ids) != len(successful_records):
-                try:
-                    with services.global_instances.vector_store_lock:
-                        vector_store.delete_batch(new_vector_ids)
-                finally:
-                    raise RuntimeError("向量数据库返回的ID数量与图片数量不一致")
-
-        vector_ids_by_sticker_id = dict(relink_ids)
-        vector_ids_by_sticker_id.update(
-            {
-                sticker.id: vector_id
-                for sticker, vector_id in zip(successful_records, new_vector_ids)
-            }
-        )
-        try:
-            database.replace_sticker_vector_ids(vector_ids_by_sticker_id)
-        except Exception:
-            if new_vector_ids:
-                try:
-                    with services.global_instances.vector_store_lock:
-                        vector_store.delete_batch(new_vector_ids)
-                except Exception:
-                    logger.exception("SQLite回填失败后清理新向量失败")
-            raise
-
-        vectorized_count += len(new_vector_ids)
-        relinked_count += len(relink_ids)
-
-        replaced_old_ids = [
-            old_vector_ids[sticker.id]
-            for sticker in successful_records
-            if sticker.id in old_vector_ids
-        ]
-        if replaced_old_ids:
-            try:
-                with services.global_instances.vector_store_lock:
-                    vector_store.delete_batch(replaced_old_ids)
-            except Exception as exc:
-                logger.exception("清理被替换的旧向量失败")
-                errors.append(f"旧向量清理失败：{exc}")
-
-        completed = min(total, batch_start + len(batch))
-        _report_progress(
-            progress,
-            task_index=task_index,
-            task_count=task_count,
-            task_fraction=completed / total if total else 1.0,
-            task_name=task_name,
-            status="正在生成图片向量",
-            completed=completed,
-            total=total,
-            cancellable=True,
-        )
-
-        if cancel_event is not None and cancel_event.is_set():
-            return vectorized_count, relinked_count, skipped_count, tuple(errors), True
-
     if not records:
         _report_progress(
             progress,
@@ -400,6 +235,208 @@ def _generate_vectors(
             total=0,
             cancellable=True,
         )
+        return vectorized_count, relinked_count, skipped_count, tuple(errors), False
+
+    if scope is VectorMaintenanceScope.ALL:
+        prep_status = "正在准备图片向量"
+    else:
+        prep_status = "正在检查图片向量"
+
+    _report_progress(
+        progress,
+        task_index=task_index,
+        task_count=task_count,
+        task_fraction=0.0,
+        task_name=task_name,
+        status=prep_status,
+        completed=0,
+        total=total,
+        cancellable=True,
+    )
+
+    if cancel_event is not None and cancel_event.is_set():
+        return vectorized_count, relinked_count, skipped_count, tuple(errors), True
+
+    if scope is VectorMaintenanceScope.ALL:
+        with services.global_instances.vector_store_lock:
+            vector_store.reset()
+
+    relink_ids: dict[int, str] = {}
+    candidates: list[StickerMaintenanceRecord] = []
+    image_paths: list[str] = []
+
+    def add_candidate(sticker: StickerMaintenanceRecord) -> None:
+        try:
+            image_path = blob_storage.read_file(
+                BlobFileEntity(sticker.hash, sticker.extension)
+            )
+        except FileNotFoundError as exc:
+            errors.append(f"{sticker.original_file_name}：{exc}")
+            return
+        candidates.append(sticker)
+        image_paths.append(image_path)
+
+    for batch_start in range(0, total, VECTOR_BATCH_SIZE):
+        if cancel_event is not None and cancel_event.is_set():
+            return vectorized_count, relinked_count, skipped_count, tuple(errors), True
+
+        batch = records[batch_start:batch_start + VECTOR_BATCH_SIZE]
+
+        if scope is VectorMaintenanceScope.MISSING:
+            existing_by_sticker_id: dict[int, VectorRecord | None] = {}
+            with services.global_instances.vector_store_lock:
+                for sticker in batch:
+                    existing_by_sticker_id[sticker.id] = _existing_vector_for_sticker(
+                        vector_store,
+                        sticker,
+                    )
+
+            for sticker in batch:
+                existing = existing_by_sticker_id[sticker.id]
+                if existing is not None:
+                    if sticker.vectordb_id != existing.id:
+                        relink_ids[sticker.id] = existing.id
+                    else:
+                        skipped_count += 1
+                    continue
+                add_candidate(sticker)
+        else:
+            for sticker in batch:
+                add_candidate(sticker)
+
+        checked = min(total, batch_start + len(batch))
+        completed = min(total, checked - len(candidates))
+        _report_progress(
+            progress,
+            task_index=task_index,
+            task_count=task_count,
+            task_fraction=VECTOR_PREP_FRACTION * checked / total,
+            task_name=task_name,
+            status=prep_status,
+            completed=completed,
+            total=total,
+            cancellable=True,
+        )
+
+    if cancel_event is not None and cancel_event.is_set():
+        return vectorized_count, relinked_count, skipped_count, tuple(errors), True
+
+    if relink_ids:
+        try:
+            database.replace_sticker_vector_ids(relink_ids)
+        except Exception as exc:
+            logger.exception("SQLite回填向量关联失败")
+            errors.append(f"向量关联修复失败：{exc}")
+        else:
+            relinked_count += len(relink_ids)
+
+    candidate_total = len(image_paths)
+    if not candidate_total:
+        _report_progress(
+            progress,
+            task_index=task_index,
+            task_count=task_count,
+            task_fraction=1.0,
+            task_name=task_name,
+            status="向量生成完成",
+            completed=total,
+            total=total,
+            cancellable=True,
+        )
+        return vectorized_count, relinked_count, skipped_count, tuple(errors), False
+
+    sticker_by_path = {
+        normalize_image_path(blob_path): sticker
+        for sticker, blob_path in zip(candidates, image_paths)
+    }
+
+    try:
+        for result_batch in iter_features(
+            image_paths,
+            model_path=model_path,
+            batch_size=VECTOR_BATCH_SIZE,
+            total=candidate_total,
+            cancel_event=cancel_event,
+        ):
+            batch_stickers: list[StickerMaintenanceRecord] = []
+            batch_vectors = []
+            batch_metadata = []
+            for feature_result in result_batch.results:
+                sticker = sticker_by_path.get(feature_result.image_path)
+                if sticker is None:
+                    errors.append(
+                        f"{feature_result.image_path}：缺少对应的维护记录"
+                    )
+                    continue
+                if not feature_result.success:
+                    errors.append(
+                        f"{sticker.original_file_name}：{feature_result.error}"
+                    )
+                    continue
+                batch_stickers.append(sticker)
+                batch_vectors.append(feature_result.vector)
+                batch_metadata.append(
+                    VectorMetadata(
+                        image_filename=sticker.original_file_name,
+                        model_hash=model_hash,
+                        sqlite_id=sticker.id,
+                        extraction_timestamp=time.time(),
+                        image_width=sticker.size_width,
+                        image_height=sticker.size_height,
+                    )
+                )
+
+            if batch_stickers:
+                try:
+                    with services.global_instances.vector_store_lock:
+                        new_vector_ids = vector_store.add_batch(
+                            batch_vectors,
+                            batch_metadata,
+                        )
+                    if len(new_vector_ids) != len(batch_stickers):
+                        raise RuntimeError(
+                            "向量数据库返回的ID数量与图片数量不一致"
+                        )
+                    database.replace_sticker_vector_ids(
+                        {
+                            sticker.id: vector_id
+                            for sticker, vector_id in zip(
+                                batch_stickers,
+                                new_vector_ids,
+                            )
+                        }
+                    )
+                except Exception as exc:
+                    logger.exception("写入图片向量失败")
+                    errors.append(f"向量写入失败：{exc}")
+                else:
+                    vectorized_count += len(new_vector_ids)
+
+            completed = min(
+                total,
+                total - candidate_total + result_batch.progress.completed,
+            )
+            extraction_ratio = result_batch.progress.completed / candidate_total
+            if extraction_ratio >= 1.0:
+                task_fraction = 1.0
+            else:
+                task_fraction = (
+                    VECTOR_PREP_FRACTION
+                    + (1 - VECTOR_PREP_FRACTION) * extraction_ratio
+                )
+            _report_progress(
+                progress,
+                task_index=task_index,
+                task_count=task_count,
+                task_fraction=task_fraction,
+                task_name=task_name,
+                status="正在生成图片向量",
+                completed=completed,
+                total=total,
+                cancellable=True,
+            )
+    except ExtractionCancelledError:
+        return vectorized_count, relinked_count, skipped_count, tuple(errors), True
 
     return vectorized_count, relinked_count, skipped_count, tuple(errors), False
 

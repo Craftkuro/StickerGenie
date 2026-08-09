@@ -47,6 +47,22 @@ class FakeVectorStore:
     def __init__(self, results=()):
         self.results = list(results)
         self.deleted = []
+        self.by_sqlite_id = {}
+
+    def add_existing(self, vector_id, sticker_id):
+        self.by_sqlite_id[sticker_id] = vector_id
+
+    def delete(self, vector_id):
+        self.deleted.append(vector_id)
+        return vector_id in self.by_sqlite_id.values()
+
+    def delete_by_sqlite_id(self, sticker_id):
+        vector_id = self.by_sqlite_id.get(sticker_id)
+        if vector_id is None:
+            return False
+        del self.by_sqlite_id[sticker_id]
+        self.deleted.append(vector_id)
+        return True
 
     def get(self, vector_id):
         if vector_id == "source-vector":
@@ -58,10 +74,6 @@ class FakeVectorStore:
 
     def search_by_id(self, vector_id, top_k):
         return self.results[:top_k]
-
-    def delete(self, vector_id):
-        self.deleted.append(vector_id)
-        return True
 
 
 class SimilarImagesServiceTests(unittest.TestCase):
@@ -118,6 +130,25 @@ class SimilarImagesServiceTests(unittest.TestCase):
             self.assertEqual([self.second], self.db.deleted)
             self.assertEqual(["second-vector"], self.vector_store.deleted)
             self.assertFalse(blob_storage.exists(entity))
+
+    def test_delete_falls_back_to_sqlite_id_when_stored_id_is_stale(self):
+        stale = make_sticker(7, "stale.png", "stale-vector")
+        self.vector_store.add_existing("actual-vector", 7)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            blob_storage = BlobStorage(temp_dir)
+            source_file = Path(temp_dir) / "stale.png"
+            source_file.write_bytes(b"image")
+            entity = blob_storage.store_file(str(source_file), stale.hash)
+            services.global_instances.current_blob_storage = blob_storage
+
+            errors = viewer_service.delete_sticker(stale)
+
+        self.assertEqual((), errors)
+        self.assertIn("stale-vector", self.vector_store.deleted)
+        self.assertIn("actual-vector", self.vector_store.deleted)
+        self.assertNotIn(7, self.vector_store.by_sqlite_id)
+        self.assertFalse(blob_storage.exists(entity))
 
 
 if __name__ == "__main__":

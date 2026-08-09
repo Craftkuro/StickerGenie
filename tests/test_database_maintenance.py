@@ -3,7 +3,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 from PIL import Image
@@ -13,7 +13,7 @@ import services.global_instances
 from blob_storage import BlobFileEntity, BlobStorage
 from commons.dto import StickerImage
 from image_features_extractor import ExtractionCancelledError, ImageFeatureResult
-from image_features_extractor.models import ExtractionProgress
+from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
 from services.database_maintenance import (
     DatabaseMaintenanceOptions,
     VectorMaintenanceScope,
@@ -26,6 +26,14 @@ from utils.image_metadata import get_image_metadata
 
 class FakeVectorStore:
     def __init__(self):
+        self.records = {}
+        self.added_ids = []
+        self.deleted_ids = []
+        self.reset_calls = 0
+        self._next_id = 1
+
+    def reset(self):
+        self.reset_calls += 1
         self.records = {}
         self.added_ids = []
         self.deleted_ids = []
@@ -123,26 +131,22 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         return self.db.add_stickers([sticker])[0]
 
     @staticmethod
-    def _successful_extract(image_paths, **kwargs):
-        progress = kwargs.get("progress")
-        results = []
+    def _successful_iter_features(image_paths, **kwargs):
         for index, image_path in enumerate(image_paths, start=1):
-            results.append(
-                ImageFeatureResult.succeeded(
-                    image_path,
-                    np.full(768, index, dtype=np.float32),
-                )
+            yield FeatureResultBatch(
+                results=(
+                    ImageFeatureResult.succeeded(
+                        image_path,
+                        np.full(768, index, dtype=np.float32),
+                    ),
+                ),
+                progress=ExtractionProgress(
+                    completed=index,
+                    total=len(image_paths),
+                    succeeded=index,
+                    failed=0,
+                ),
             )
-            if progress is not None:
-                progress(
-                    ExtractionProgress(
-                        completed=index,
-                        total=len(image_paths),
-                        succeeded=index,
-                        failed=0,
-                    )
-                )
-        return results
 
     def test_deletes_only_managed_blobs_missing_from_sqlite(self):
         sticker = self._add_sticker("kept.png", "white")
@@ -178,8 +182,8 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         self.db.set_sticker_vector_ids({valid.id: "valid-vector"})
 
         with patch(
-            "services.database_maintenance.extract_features",
-            side_effect=self._successful_extract,
+            "services.database_maintenance.iter_features",
+            side_effect=self._successful_iter_features,
         ), patch(
             "services.database_maintenance.get_model_hash",
             return_value="current-model",
@@ -200,14 +204,14 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         self.assertEqual("unlinked-vector", stickers[unlinked.id].vectordb_id)
         self.assertEqual("new-vector-1", stickers[absent.id].vectordb_id)
 
-    def test_all_scope_replaces_and_then_deletes_owned_old_vector(self):
+    def test_all_scope_resets_and_regenerates_all_vectors(self):
         sticker = self._add_sticker("replace.png", "purple")
         self.vector_store.add_existing("old-vector", sticker)
         self.db.set_sticker_vector_ids({sticker.id: "old-vector"})
 
         with patch(
-            "services.database_maintenance.extract_features",
-            side_effect=self._successful_extract,
+            "services.database_maintenance.iter_features",
+            side_effect=self._successful_iter_features,
         ), patch(
             "services.database_maintenance.get_model_hash",
             return_value="current-model",
@@ -223,15 +227,16 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         stored = self.db.list_stickers()[0]
         self.assertEqual(1, result.vectorized_count)
         self.assertEqual("new-vector-1", stored.vectordb_id)
-        self.assertIn("old-vector", self.vector_store.deleted_ids)
+        self.assertEqual(1, self.vector_store.reset_calls)
+        self.assertEqual([], self.vector_store.deleted_ids)
         self.assertNotIn("old-vector", self.vector_store.records)
 
-    def test_sqlite_failure_removes_new_vectors(self):
+    def test_sqlite_failure_keeps_new_vectors_for_later_repair(self):
         self._add_sticker("rollback.png", "orange")
 
         with patch(
-            "services.database_maintenance.extract_features",
-            side_effect=self._successful_extract,
+            "services.database_maintenance.iter_features",
+            side_effect=self._successful_iter_features,
         ), patch(
             "services.database_maintenance.get_model_hash",
             return_value="current-model",
@@ -240,16 +245,20 @@ class DatabaseMaintenanceTests(unittest.TestCase):
             "replace_sticker_vector_ids",
             side_effect=RuntimeError("sqlite failed"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "sqlite failed"):
-                run_database_maintenance(
-                    DatabaseMaintenanceOptions(
-                        delete_orphan_blobs=False,
-                        generate_vectors=True,
-                    )
+            result = run_database_maintenance(
+                DatabaseMaintenanceOptions(
+                    delete_orphan_blobs=False,
+                    generate_vectors=True,
                 )
+            )
 
-        self.assertEqual(["new-vector-1"], self.vector_store.deleted_ids)
-        self.assertEqual({}, self.vector_store.records)
+        self.assertEqual(0, result.vectorized_count)
+        self.assertTrue(
+            any("sqlite failed" in error for error in result.vector_errors)
+        )
+        self.assertEqual([], self.vector_store.deleted_ids)
+        self.assertIn("new-vector-1", self.vector_store.records)
+        self.assertIsNone(self.db.list_stickers()[0].vectordb_id)
 
     def test_cancel_during_extraction_does_not_commit_current_batch(self):
         self._add_sticker("cancel.png", "yellow")
@@ -261,7 +270,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
             raise ExtractionCancelledError("cancelled")
 
         with patch(
-            "services.database_maintenance.extract_features",
+            "services.database_maintenance.iter_features",
             side_effect=cancel_extract,
         ), patch(
             "services.database_maintenance.get_model_hash",
@@ -284,8 +293,8 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         progress_events = []
 
         with patch(
-            "services.database_maintenance.extract_features",
-            side_effect=self._successful_extract,
+            "services.database_maintenance.iter_features",
+            side_effect=self._successful_iter_features,
         ), patch(
             "services.database_maintenance.get_model_hash",
             return_value="current-model",
@@ -302,6 +311,62 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         ]
         self.assertEqual(50, blob_events[-1].percent)
         self.assertEqual(100, progress_events[-1].percent)
+
+    def test_multiple_vector_batches_share_one_extraction_job(self):
+        self._add_sticker("first.png", "white")
+        self._add_sticker("second.png", "red")
+        self._add_sticker("third.png", "blue")
+        progress_events = []
+        captured_paths = []
+
+        def fake_iter_features(image_paths, **kwargs):
+            captured_paths.extend(image_paths)
+            vector = np.ones(768, dtype=np.float32)
+            for completed, image_path in enumerate(image_paths, start=1):
+                yield FeatureResultBatch(
+                    results=(
+                        ImageFeatureResult.succeeded(image_path, vector),
+                    ),
+                    progress=ExtractionProgress(
+                        completed=completed,
+                        total=len(image_paths),
+                        succeeded=completed,
+                        failed=0,
+                    ),
+                )
+
+        iter_features_mock = Mock(side_effect=fake_iter_features)
+        with patch("services.database_maintenance.VECTOR_BATCH_SIZE", 1), patch(
+            "services.database_maintenance.iter_features",
+            iter_features_mock,
+        ), patch(
+            "services.database_maintenance.get_model_hash",
+            return_value="current-model",
+        ):
+            result = run_database_maintenance(
+                DatabaseMaintenanceOptions(
+                    delete_orphan_blobs=False,
+                    generate_vectors=True,
+                    vector_scope=VectorMaintenanceScope.MISSING,
+                ),
+                progress=progress_events.append,
+            )
+
+        self.assertEqual(1, iter_features_mock.call_count)
+        self.assertEqual(3, len(captured_paths))
+        self.assertEqual(3, result.vectorized_count)
+        vector_task_percents = [
+            event.percent
+            for event in progress_events
+            if event.task_name == "生成图片特征向量"
+        ]
+        self.assertEqual([0, 10, 20, 30, 53, 76, 100], vector_task_percents)
+        vector_task_completed = [
+            event.completed
+            for event in progress_events
+            if event.task_name == "生成图片特征向量"
+        ]
+        self.assertEqual(sorted(vector_task_completed), vector_task_completed)
 
 
 if __name__ == "__main__":

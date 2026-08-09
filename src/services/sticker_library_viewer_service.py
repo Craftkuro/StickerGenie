@@ -177,7 +177,9 @@ def delete_sticker(sticker: StickerImage) -> tuple[str, ...]:
         try:
             with services.global_instances.vector_store_lock:
                 if sticker.vectordb_id:
-                    vector_store.delete(str(sticker.vectordb_id))
+                    deleted = vector_store.delete(str(sticker.vectordb_id))
+                    if not deleted:
+                        vector_store.delete_by_sqlite_id(sticker.id)
                 else:
                     vector_store.delete_by_sqlite_id(sticker.id)
         except Exception as exc:
