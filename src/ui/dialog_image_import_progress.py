@@ -1,6 +1,6 @@
 # coding=utf-8
 from PyQt6 import uic
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QKeyEvent, QResizeEvent
 from PyQt6.QtWidgets import QDialog
 
@@ -11,9 +11,12 @@ from services.import_images import ImportImagesProgress
 class ImageImportProgressDialog(QDialog):
     """展示单次图片导入任务的状态与进度。"""
 
+    cancel_requested = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._can_close = False
+        self._cancel_requested = False
         self._last_file_name: str | None = None
         self._detail_placeholder = "正在检查文件和重复项"
 
@@ -23,22 +26,38 @@ class ImageImportProgressDialog(QDialog):
         self.setModal(True)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+        self.pushButtonCancel.clicked.connect(self._request_cancel)
 
     def update_progress(self, progress: ImportImagesProgress) -> None:
         if not isinstance(progress, ImportImagesProgress):
             raise TypeError("progress must be an ImportImagesProgress")
 
-        status = progress.status
+        status = "正在中止" if self._cancel_requested else progress.status
         self.labelStatus.setText(status)
         self.progressBar.setValue(progress.percent)
         self._last_file_name = progress.last_file_name
-        if progress.status == "正在预处理":
+        if self._cancel_requested:
+            self._detail_placeholder = "正在等待当前操作结束"
+        elif progress.status == "正在预处理":
             self._detail_placeholder = "正在检查文件和重复项"
         elif progress.status == "正在导入图片":
             self._detail_placeholder = "正在处理图片数据"
+        elif progress.status == "正在生成图片向量":
+            self._detail_placeholder = "正在生成图片向量"
         else:
             self._detail_placeholder = ""
         self._render_detail()
+
+    def _request_cancel(self) -> None:
+        if self._cancel_requested:
+            return
+
+        self._cancel_requested = True
+        self.pushButtonCancel.setEnabled(False)
+        self.labelStatus.setText("正在中止")
+        self._detail_placeholder = "正在等待当前操作结束"
+        self._render_detail()
+        self.cancel_requested.emit()
 
     def finish(self) -> None:
         self._can_close = True

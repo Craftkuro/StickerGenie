@@ -61,6 +61,9 @@ class MainWindow(QMainWindow):
         self._image_import_service.import_finished.connect(
             self._on_import_images_finished
         )
+        self._image_import_service.import_cancelled.connect(
+            self._on_import_images_cancelled
+        )
         self._image_import_service.import_failed.connect(
             self._on_import_images_failed
         )
@@ -220,8 +223,15 @@ class MainWindow(QMainWindow):
     def handle_import_images_request(self, request: ImportImagesRequest):
         progress_dialog = ImageImportProgressDialog(self)
         self._image_import_progress_dialog = progress_dialog
+        progress_dialog.cancel_requested.connect(
+            self._image_import_service.cancel_import
+        )
         progress_dialog.open()
-        self._image_import_service.start_import(request)
+        try:
+            self._image_import_service.start_import(request)
+        except Exception as exc:
+            self._on_import_images_failed(str(exc))
+            return
         self.statusBar().showMessage("正在导入图片…")
 
     @pyqtSlot(object)
@@ -266,6 +276,17 @@ class MainWindow(QMainWindow):
                 "部分向量未生成",
                 details,
             )
+
+    @pyqtSlot(object)
+    def _on_import_images_cancelled(self, result):
+        self._close_image_import_progress_dialog()
+        imported_count = len(result.imported_stickers)
+        if imported_count:
+            services.sticker_library_viewer_service.wiring.slot_refresh_content()
+
+        message = f"导入已中止，已导入 {imported_count} 张图片。"
+        self.statusBar().showMessage(message, 8000)
+        QMessageBox.information(self, "导入已中止", message)
 
     @pyqtSlot(str)
     def _on_import_images_failed(self, error_message: str):

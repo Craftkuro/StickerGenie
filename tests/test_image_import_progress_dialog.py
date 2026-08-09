@@ -54,6 +54,32 @@ class ImageImportProgressDialogTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(self.dialog.isVisible())
 
+    def test_cancel_button_emits_once_and_keeps_the_dialog_open(self):
+        cancel_requests = []
+        self.dialog.cancel_requested.connect(lambda: cancel_requests.append(True))
+
+        self.dialog.pushButtonCancel.click()
+        self.app.processEvents()
+        self.dialog.pushButtonCancel.click()
+        self.app.processEvents()
+
+        self.assertEqual([True], cancel_requests)
+        self.assertFalse(self.dialog.pushButtonCancel.isEnabled())
+        self.assertEqual("正在中止", self.dialog.labelStatus.text())
+        self.assertTrue(self.dialog.isVisible())
+
+        self.dialog.update_progress(
+            ImportImagesProgress(
+                percent=50,
+                status="正在导入图片",
+                completed=1,
+                total=2,
+                last_file_name="first.png",
+            )
+        )
+        self.assertEqual("正在中止", self.dialog.labelStatus.text())
+        self.assertEqual(50, self.dialog.progressBar.value())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,6 +32,9 @@ class MainWindowImageImportTests(unittest.TestCase):
             MainWindow.handle_import_images_request(window, request)
 
         progress_dialog_class.assert_called_once_with(window)
+        progress_dialog.cancel_requested.connect.assert_called_once_with(
+            import_service.cancel_import
+        )
         progress_dialog.open.assert_called_once_with()
         self.assertIs(progress_dialog, window._image_import_progress_dialog)
         import_service.start_import.assert_called_once_with(request)
@@ -119,6 +122,73 @@ class MainWindowImageImportTests(unittest.TestCase):
             "导入失败",
             "database unavailable",
         )
+
+    def test_cancelled_import_refreshes_only_when_sqlite_rows_were_added(self):
+        status_bar = Mock()
+        close_progress_dialog = Mock()
+        window = SimpleNamespace(
+            statusBar=lambda: status_bar,
+            _close_image_import_progress_dialog=close_progress_dialog,
+        )
+        result = ImportImagesResult(
+            imported_stickers=(object(),),
+            cancelled=True,
+        )
+
+        with patch(
+            "ui.main_window.services.sticker_library_viewer_service.wiring.slot_refresh_content",
+        ) as refresh_content, patch(
+            "ui.main_window.QMessageBox.information"
+        ) as information:
+            MainWindow._on_import_images_cancelled(window, result)
+
+        close_progress_dialog.assert_called_once_with()
+        refresh_content.assert_called_once_with()
+        status_bar.showMessage.assert_called_once_with(
+            "导入已中止，已导入 1 张图片。",
+            8000,
+        )
+        information.assert_called_once_with(
+            window,
+            "导入已中止",
+            "导入已中止，已导入 1 张图片。",
+        )
+
+    def test_cancelled_import_does_not_refresh_when_no_rows_were_added(self):
+        window = SimpleNamespace(
+            statusBar=Mock(return_value=Mock()),
+            _close_image_import_progress_dialog=Mock(),
+        )
+        result = ImportImagesResult(imported_stickers=(), cancelled=True)
+
+        with patch(
+            "ui.main_window.services.sticker_library_viewer_service.wiring.slot_refresh_content",
+        ) as refresh_content, patch("ui.main_window.QMessageBox.information"):
+            MainWindow._on_import_images_cancelled(window, result)
+
+        refresh_content.assert_not_called()
+
+    def test_start_failure_routes_through_the_normal_failure_handler(self):
+        request = ImportImagesRequest(file_paths=("first.png",))
+        import_service = Mock()
+        import_service.start_import.side_effect = RuntimeError("已有图片导入任务正在进行")
+        progress_dialog = Mock()
+        failure_handler = Mock()
+        window = SimpleNamespace(
+            _image_import_service=import_service,
+            _image_import_progress_dialog=None,
+            _on_import_images_failed=failure_handler,
+            statusBar=Mock(return_value=Mock()),
+        )
+
+        with patch(
+            "ui.main_window.ImageImportProgressDialog",
+            return_value=progress_dialog,
+        ):
+            MainWindow.handle_import_images_request(window, request)
+
+        failure_handler.assert_called_once_with("已有图片导入任务正在进行")
+        window.statusBar.return_value.showMessage.assert_not_called()
 
 
 if __name__ == "__main__":

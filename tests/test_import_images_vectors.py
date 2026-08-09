@@ -1,5 +1,6 @@
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -69,10 +70,13 @@ class ImportImagesVectorTests(unittest.TestCase):
 
     def test_vectorizes_blob_path_and_backfills_uuid(self):
         captured_paths = []
+        captured_cancel_events = []
         progress_events = []
+        cancel_event = threading.Event()
 
         def extract(image_paths, **kwargs):
             captured_paths.extend(image_paths)
+            captured_cancel_events.append(kwargs["cancel_event"])
             vector = np.ones(768, dtype=np.float32)
             kwargs["progress"](
                 ExtractionProgress(
@@ -92,6 +96,7 @@ class ImportImagesVectorTests(unittest.TestCase):
                 [str(self.source_path)],
                 generate_vectors=True,
                 progress=progress_events.append,
+                cancel_event=cancel_event,
             )
 
         self.assertEqual(1, len(result.imported_stickers))
@@ -106,11 +111,19 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual("vector-uuid-1", sticker.vectordb_id)
         self.assertEqual(sticker.id, self.vector_store.metadata[0].sqlite_id)
         self.assertEqual("test-model-hash", self.vector_store.metadata[0].model_hash)
+        self.assertEqual([cancel_event], captured_cancel_events)
         percents = [event.percent for event in progress_events]
         self.assertEqual(sorted(percents), percents)
-        self.assertEqual([0, 1], percents[:2])
+        self.assertEqual([0, 0], percents[:2])
         self.assertEqual(100, percents[-1])
-        self.assertTrue(any(percent > 50 for percent in percents[2:-1]))
+        vector_progress = [
+            event
+            for event in progress_events
+            if event.status == "正在生成图片向量"
+        ]
+        self.assertTrue(vector_progress)
+        self.assertTrue(all(event.percent == 100 for event in vector_progress))
+        self.assertTrue(all(event.completed == 1 for event in vector_progress))
 
     def test_reimporting_the_same_hash_is_silently_ignored(self):
         vector = np.ones(768, dtype=np.float32)
@@ -163,7 +176,7 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(1, len(result.imported_stickers))
         self.assertEqual(0, progress_events[0].percent)
         self.assertEqual("正在预处理", progress_events[0].status)
-        self.assertEqual(1, progress_events[1].percent)
+        self.assertEqual(0, progress_events[1].percent)
         self.assertEqual("正在导入图片", progress_events[1].status)
         self.assertEqual(100, progress_events[-1].percent)
         self.assertEqual("导入完成", progress_events[-1].status)
@@ -236,6 +249,8 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual([expected_progress], received_progress)
         self.assertEqual(1, len(execution_threads))
         self.assertIsNot(execution_threads[0], app.thread())
+        self.assertEqual(0, service.active_job_count)
+        self.assertFalse(service.cancel_import())
 
     @unittest.skipUnless(
         os.environ.get("STICKERGENIE_RUN_MODEL_TESTS") == "1",
