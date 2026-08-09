@@ -30,6 +30,18 @@
     <item>
      <widget class="QWidget" name="widgetUnifiedBar" native="true">
       <layout class="QHBoxLayout" name="horizontalLayout">
+       <property name="leftMargin">
+        <number>4</number>
+       </property>
+       <property name="topMargin">
+        <number>4</number>
+       </property>
+       <property name="rightMargin">
+        <number>4</number>
+       </property>
+       <property name="bottomMargin">
+        <number>4</number>
+       </property>
        <item>
         <widget class="QPushButton" name="pushButtonAddSticker">
          <property name="maximumSize">
@@ -51,7 +63,7 @@
         </widget>
        </item>
        <item>
-        <widget class="CustomSearchBox" name="customSearchBox">
+        <widget class="CustomSearchBox" name="customSearchBox" native="true">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
            <horstretch>0</horstretch>

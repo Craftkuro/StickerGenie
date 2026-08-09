@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>684</width>
-    <height>501</height>
+    <width>597</width>
+    <height>480</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -20,7 +20,20 @@
       <enum>Qt::Orientation::Vertical</enum>
      </property>
      <widget class="QWidget" name="widgetImageViewer" native="true">
-      <layout class="QVBoxLayout" name="verticalLayout_2"/>
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+      </layout>
      </widget>
      <widget class="QTabWidget" name="tabWidgetBottom">
       <property name="currentIndex">
@@ -33,7 +46,20 @@
        <layout class="QVBoxLayout" name="verticalLayout_4">
         <item>
          <widget class="QWidget" name="widgetTagEditor" native="true">
-          <layout class="QVBoxLayout" name="verticalLayout_3"/>
+          <layout class="QVBoxLayout" name="verticalLayout_3">
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+          </layout>
          </widget>
         </item>
        </layout>
