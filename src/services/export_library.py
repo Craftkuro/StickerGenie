@@ -271,6 +271,10 @@ def _exported_at_value(value: datetime.datetime | None) -> str:
     return rendered[:-6] + "Z" if rendered.endswith("+00:00") else rendered
 
 
+def _tag_sort_key(tag: Tag) -> tuple[int, int]:
+    return tag.order, int(tag.id or 0)
+
+
 def _tag_metadata(tags: Sequence[Tag]) -> list[dict[str, object]]:
     return [
         {
@@ -280,24 +284,27 @@ def _tag_metadata(tags: Sequence[Tag]) -> list[dict[str, object]]:
             "description": tag.description,
             "enabled": tag.enabled,
         }
-        for tag in tags
+        for tag in sorted(tags, key=_tag_sort_key)
     ]
 
 
-def _image_tag_names(sticker: StickerImage, global_tag_order: dict[str, int]) -> list[str]:
+def _image_tag_names(
+    sticker: StickerImage,
+    global_tag_order: dict[str, tuple[int, int]],
+) -> list[str]:
+    def sort_key(name: str) -> tuple[bool, int, int, str]:
+        order_and_id = global_tag_order.get(name)
+        if order_and_id is None:
+            return True, 0, 0, _filename_collision_key(name)
+        return False, *order_and_id, _filename_collision_key(name)
+
     unique_names = {tag.name for tag in sticker.tags}
-    return sorted(
-        unique_names,
-        key=lambda name: (
-            global_tag_order.get(name, len(global_tag_order)),
-            _filename_collision_key(name),
-        ),
-    )
+    return sorted(unique_names, key=sort_key)
 
 
 def _image_metadata(
     planned_image: PlannedExportImage,
-    global_tag_order: dict[str, int],
+    global_tag_order: dict[str, tuple[int, int]],
 ) -> dict[str, object]:
     sticker = planned_image.sticker
     return {
@@ -460,7 +467,7 @@ def export_library(
                 last_file_name=sticker.original_file_name,
             )
 
-        tag_order = {tag.name: tag.order for tag in tags}
+        tag_order = {tag.name: _tag_sort_key(tag) for tag in tags}
         metadata = {
             "$schema": "metadata.schema.json",
             "format_version": 1,

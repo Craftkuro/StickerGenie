@@ -105,7 +105,7 @@ class StickerDBV1:
     @staticmethod
     def _next_tag_order(session: Session) -> int:
         next_order = session.execute(
-            select(func.coalesce(func.max(DBTag.order), -1) + 1)
+            select(func.coalesce(func.max(DBTag.order), 0))
         ).scalar_one()
         return int(next_order)
 

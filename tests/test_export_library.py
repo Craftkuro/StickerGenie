@@ -123,7 +123,7 @@ class ExportLibraryTests(unittest.TestCase):
         sticker = self._add_sticker(
             "示例.png",
             content,
-            tags=[zulu, alpha],
+            tags=[alpha, zulu],
             text_in_image="图片文字",
             modification_date=modification_date,
         )
@@ -131,15 +131,20 @@ class ExportLibraryTests(unittest.TestCase):
         destination.mkdir()
 
         progress_events = []
-        result = export_library(
-            self.db,
-            self.blob_storage,
-            destination,
-            progress=progress_events.append,
-            exported_at=datetime.datetime(
-                2026, 8, 9, 4, 0, tzinfo=datetime.timezone.utc
-            ),
-        )
+        sticker.tags = [alpha, zulu]
+        with (
+            patch.object(self.db, "list_tags", return_value=[alpha, zulu]),
+            patch.object(self.db, "list_stickers", return_value=[sticker]),
+        ):
+            result = export_library(
+                self.db,
+                self.blob_storage,
+                destination,
+                progress=progress_events.append,
+                exported_at=datetime.datetime(
+                    2026, 8, 9, 4, 0, tzinfo=datetime.timezone.utc
+                ),
+            )
 
         self.assertEqual(1, result.image_count)
         self.assertEqual(2, result.tag_count)
@@ -166,7 +171,7 @@ class ExportLibraryTests(unittest.TestCase):
                 {
                     "name": "Alpha",
                     "rgb": "#AABBCC",
-                    "order": 1,
+                    "order": 0,
                     "description": "首个标签",
                     "enabled": True,
                 },

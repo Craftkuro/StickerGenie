@@ -83,7 +83,8 @@ class DBStickerImage(Base):
         dto.text_in_image = self.text_in_image
         
         # 导出关联的 tags
-        dto.tags = [tag.export() for tag in self.tags]
+        ordered_tags = sorted(self.tags, key=lambda tag: (tag.order, tag.id))
+        dto.tags = [tag.export() for tag in ordered_tags]
         
         return dto
 

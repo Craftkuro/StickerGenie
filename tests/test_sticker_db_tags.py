@@ -52,9 +52,26 @@ class StickerDBTagTests(unittest.TestCase):
         zulu = self.db.add_or_modify_tag(make_tag("Zulu"))
         alpha = self.db.add_or_modify_tag(make_tag("Alpha", enabled=False))
 
-        self.assertEqual([0, 1], [zulu.order, alpha.order])
+        self.assertEqual([0, 0], [zulu.order, alpha.order])
         self.assertEqual(["Zulu", "Alpha"], [tag.name for tag in self.db.list_tags()])
         self.assertEqual(["Zulu"], [tag.name for tag in self.db.list_tags(enabled_only=True)])
+
+    def test_list_tags_sorts_by_order_then_id(self):
+        later_order = self.db.add_or_modify_tag(make_tag("Later order"))
+        first_tied = self.db.add_or_modify_tag(make_tag("First tied"))
+        second_tied = self.db.add_or_modify_tag(make_tag("Second tied"))
+
+        later_order.order = 5
+        first_tied.order = 2
+        second_tied.order = 2
+        self.db.add_or_modify_tag(later_order)
+        self.db.add_or_modify_tag(first_tied)
+        self.db.add_or_modify_tag(second_tied)
+
+        self.assertEqual(
+            ["First tied", "Second tied", "Later order"],
+            [tag.name for tag in self.db.list_tags()],
+        )
 
     def test_name_based_tag_update_preserves_order(self):
         self.db.add_or_modify_tag(make_tag("First"))
@@ -66,8 +83,10 @@ class StickerDBTagTests(unittest.TestCase):
         self.assertEqual(second.order, stored.order)
         self.assertEqual("#112233", stored.color_rgb)
 
-    def test_implicit_tag_creation_uses_next_order(self):
-        self.db.add_or_modify_tag(make_tag("First"))
+    def test_implicit_tag_creation_uses_current_max_order(self):
+        first = self.db.add_or_modify_tag(make_tag("First"))
+        first.order = 4
+        self.db.add_or_modify_tag(first)
         second = make_tag("Second")
         sticker = self.db.add_stickers(
             [make_sticker([second], hash_value="implicit-hash")]
@@ -79,18 +98,60 @@ class StickerDBTagTests(unittest.TestCase):
 
         stored_tags = self.db.list_tags()
         self.assertEqual(
-            [("First", 0), ("Second", 1), ("Third", 2)],
+            [("First", 4), ("Second", 4), ("Third", 4)],
             [(tag.name, tag.order) for tag in stored_tags],
         )
 
-    def test_search_tags_uses_substring_order_limit_and_enabled_filter(self):
-        self.db.add_or_modify_tag(make_tag("Zulu match"))
-        self.db.add_or_modify_tag(make_tag("Alpha match"))
-        self.db.add_or_modify_tag(make_tag("Disabled match", enabled=False))
+    def test_search_tags_uses_substring_order_id_limit_and_enabled_filter(self):
+        zulu = self.db.add_or_modify_tag(make_tag("Zulu match"))
+        alpha = self.db.add_or_modify_tag(make_tag("Alpha match"))
+        beta = self.db.add_or_modify_tag(make_tag("Beta match"))
+        disabled = self.db.add_or_modify_tag(
+            make_tag("Disabled match", enabled=False)
+        )
 
-        tags = self.db.search_tags("match", limit=1)
+        zulu.order = 2
+        alpha.order = 1
+        beta.order = 1
+        disabled.order = 0
+        self.db.add_or_modify_tag(zulu)
+        self.db.add_or_modify_tag(alpha)
+        self.db.add_or_modify_tag(beta)
+        self.db.add_or_modify_tag(disabled)
 
-        self.assertEqual(["Zulu match"], [tag.name for tag in tags])
+        tags = self.db.search_tags("match", limit=2)
+
+        self.assertEqual(
+            ["Alpha match", "Beta match"],
+            [tag.name for tag in tags],
+        )
+
+    def test_sticker_export_sorts_tags_by_order_then_id(self):
+        later_order = self.db.add_or_modify_tag(make_tag("Later order"))
+        first_tied = self.db.add_or_modify_tag(make_tag("First tied"))
+        second_tied = self.db.add_or_modify_tag(make_tag("Second tied"))
+
+        later_order.order = 5
+        first_tied.order = 2
+        second_tied.order = 2
+        self.db.add_or_modify_tag(later_order)
+        self.db.add_or_modify_tag(first_tied)
+        self.db.add_or_modify_tag(second_tied)
+        self.db.add_stickers(
+            [
+                make_sticker(
+                    [later_order, second_tied, first_tied],
+                    hash_value="ordered-tags-hash",
+                )
+            ]
+        )
+
+        sticker = self.db.list_stickers()[0]
+
+        self.assertEqual(
+            ["First tied", "Second tied", "Later order"],
+            [tag.name for tag in sticker.tags],
+        )
 
     def test_search_stickers_by_tag_deduplicates_and_sorts_newest_first(self):
         happy = self.db.add_or_modify_tag(make_tag("Happy"))
