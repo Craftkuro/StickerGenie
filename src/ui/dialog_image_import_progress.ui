@@ -43,7 +43,7 @@
       </font>
      </property>
      <property name="text">
-      <string>正在预处理</string>
+      <string>正在预处理图片</string>
      </property>
     </widget>
    </item>

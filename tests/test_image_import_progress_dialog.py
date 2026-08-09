@@ -30,7 +30,7 @@ class ImageImportProgressDialogTests(unittest.TestCase):
     def test_displays_status_counts_progress_and_last_file(self):
         progress = ImportImagesProgress(
             percent=51,
-            status="正在导入图片",
+            status="正在写入图库",
             completed=3,
             total=8,
             last_file_name="a-very-long-image-file-name.png",
@@ -39,7 +39,7 @@ class ImageImportProgressDialogTests(unittest.TestCase):
         self.dialog.update_progress(progress)
 
         self.assertEqual(51, self.dialog.progressBar.value())
-        self.assertEqual("正在导入图片", self.dialog.labelStatus.text())
+        self.assertEqual("正在写入图库", self.dialog.labelStatus.text())
         self.assertIn(
             "a-very-long-image-file-name.png",
             self.dialog.labelDetail.toolTip(),
@@ -71,7 +71,7 @@ class ImageImportProgressDialogTests(unittest.TestCase):
         self.dialog.update_progress(
             ImportImagesProgress(
                 percent=50,
-                status="正在导入图片",
+                status="正在写入图库",
                 completed=1,
                 total=2,
                 last_file_name="first.png",

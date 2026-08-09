@@ -392,11 +392,17 @@ class MainWindow(QMainWindow):
             message += f"，生成 {result.vectorized_count} 个向量"
         self.statusBar().showMessage(message, 8000)
 
+        detail_parts = [f"已导入 {imported_count} 张图片"]
+        if result.vectorized_count:
+            detail_parts.append(f"生成 {result.vectorized_count} 个向量")
+        if result.duplicate_count:
+            detail_parts.append(
+                f"另有 {result.duplicate_count} 个重复图片未导入"
+            )
         QMessageBox.information(
             self,
             "导入完成",
-            f"已导入 {imported_count} 张图片，"
-            f"另有 {result.duplicate_count} 个重复图片未导入。",
+            "，".join(detail_parts) + "。",
         )
 
         if result.vector_errors:
@@ -417,7 +423,14 @@ class MainWindow(QMainWindow):
         if imported_count:
             services.sticker_library_viewer_service.wiring.slot_refresh_content()
 
-        message = f"导入已中止，已导入 {imported_count} 张图片。"
+        message = "导入已中止"
+        if imported_count:
+            message += f"，已导入 {imported_count} 张图片"
+        if result.vectorized_count:
+            message += f"，已生成 {result.vectorized_count} 个向量"
+        if not imported_count and not result.vectorized_count:
+            message += "，未导入图片"
+        message += "。"
         self.statusBar().showMessage(message, 8000)
         QMessageBox.information(self, "导入已中止", message)
 

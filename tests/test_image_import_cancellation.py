@@ -14,6 +14,7 @@ import services.global_instances
 from blob_storage import BlobStorage
 from commons.signal_objects import ImportImagesRequest
 from image_features_extractor import ExtractionCancelledError, ImageFeatureResult
+from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
 from services.import_images import (
     ImageImportService,
     ImportImagesResult,
@@ -155,14 +156,14 @@ class ImageImportCancellationTests(unittest.TestCase):
     def test_cancel_during_feature_extraction_keeps_sqlite_without_vector(self):
         cancel_event = threading.Event()
 
-        def extract_features(_image_paths, **kwargs):
+        def fake_iter_features(_image_paths, **kwargs):
             self.assertIs(cancel_event, kwargs["cancel_event"])
             cancel_event.set()
             raise ExtractionCancelledError("cancelled")
 
         with patch(
-            "services.import_images.extract_features",
-            side_effect=extract_features,
+            "services.import_images.iter_features",
+            side_effect=fake_iter_features,
         ):
             result = import_images_with_result(
                 [str(self.first_path)],
@@ -181,11 +182,22 @@ class ImageImportCancellationTests(unittest.TestCase):
         vector = np.ones(768, dtype=np.float32)
         self.vector_store.on_add = cancel_event.set
 
+        def fake_iter_features(image_paths, **kwargs):
+            yield FeatureResultBatch(
+                results=(
+                    ImageFeatureResult.succeeded(image_paths[0], vector),
+                ),
+                progress=ExtractionProgress(
+                    completed=1,
+                    total=1,
+                    succeeded=1,
+                    failed=0,
+                ),
+            )
+
         with patch(
-            "services.import_images.extract_features",
-            return_value=[
-                ImageFeatureResult.succeeded(str(self.first_path), vector)
-            ],
+            "services.import_images.iter_features",
+            side_effect=fake_iter_features,
         ), patch(
             "services.import_images._get_model_hash",
             return_value="test-model-hash",

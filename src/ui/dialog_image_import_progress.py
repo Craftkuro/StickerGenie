@@ -38,10 +38,10 @@ class ImageImportProgressDialog(QDialog):
         self._last_file_name = progress.last_file_name
         if self._cancel_requested:
             self._detail_placeholder = "正在等待当前操作结束"
-        elif progress.status == "正在预处理":
+        elif progress.status == "正在预处理图片":
             self._detail_placeholder = "正在检查文件和重复项"
-        elif progress.status == "正在导入图片":
-            self._detail_placeholder = "正在处理图片数据"
+        elif progress.status == "正在写入图库":
+            self._detail_placeholder = "正在保存图片到图库"
         elif progress.status == "正在生成图片向量":
             self._detail_placeholder = "正在生成图片向量"
         else:

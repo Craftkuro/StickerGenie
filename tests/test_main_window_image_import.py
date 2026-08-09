@@ -45,7 +45,7 @@ class MainWindowImageImportTests(unittest.TestCase):
         window = SimpleNamespace(_image_import_progress_dialog=progress_dialog)
         progress = ImportImagesProgress(
             percent=38,
-            status="正在导入图片",
+            status="正在写入图库",
             completed=2,
             total=5,
             last_file_name="second.png",
@@ -80,7 +80,7 @@ class MainWindowImageImportTests(unittest.TestCase):
         information.assert_called_once_with(
             window,
             "导入完成",
-            "已导入 1 张图片，另有 2 个重复图片未导入。",
+            "已导入 1 张图片，生成 1 个向量，另有 2 个重复图片未导入。",
         )
         status_bar.showMessage.assert_called_once_with(
             "已导入 1 张图片，生成 1 个向量",
@@ -133,6 +133,7 @@ class MainWindowImageImportTests(unittest.TestCase):
         result = ImportImagesResult(
             imported_stickers=(object(),),
             cancelled=True,
+            vectorized_count=1,
         )
 
         with patch(
@@ -145,13 +146,13 @@ class MainWindowImageImportTests(unittest.TestCase):
         close_progress_dialog.assert_called_once_with()
         refresh_content.assert_called_once_with()
         status_bar.showMessage.assert_called_once_with(
-            "导入已中止，已导入 1 张图片。",
+            "导入已中止，已导入 1 张图片，已生成 1 个向量。",
             8000,
         )
         information.assert_called_once_with(
             window,
             "导入已中止",
-            "导入已中止，已导入 1 张图片。",
+            "导入已中止，已导入 1 张图片，已生成 1 个向量。",
         )
 
     def test_cancelled_import_does_not_refresh_when_no_rows_were_added(self):

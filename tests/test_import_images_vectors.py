@@ -14,7 +14,7 @@ import services.global_instances
 from blob_storage import BlobStorage
 from commons.signal_objects import ImportImagesRequest
 from image_features_extractor import ImageFeatureResult
-from image_features_extractor.models import ExtractionProgress
+from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
 from services.import_images import (
     ImageImportService,
     ImportImagesProgress,
@@ -23,6 +23,18 @@ from services.import_images import (
 )
 from stickerdb.v1.sticker_db import StickerDBV1
 from stickerdb.vectordb import ChromaVectorStore
+
+
+def _single_result_batch(image_path, vector):
+    return FeatureResultBatch(
+        results=(ImageFeatureResult.succeeded(image_path, vector),),
+        progress=ExtractionProgress(
+            completed=1,
+            total=1,
+            succeeded=1,
+            failed=0,
+        ),
+    )
 
 
 class FakeVectorStore:
@@ -78,17 +90,9 @@ class ImportImagesVectorTests(unittest.TestCase):
             captured_paths.extend(image_paths)
             captured_cancel_events.append(kwargs["cancel_event"])
             vector = np.ones(768, dtype=np.float32)
-            kwargs["progress"](
-                ExtractionProgress(
-                    completed=1,
-                    total=1,
-                    succeeded=1,
-                    failed=0,
-                )
-            )
-            return [ImageFeatureResult.succeeded(image_paths[0], vector)]
+            yield _single_result_batch(image_paths[0], vector)
 
-        with patch("services.import_images.extract_features", side_effect=extract), patch(
+        with patch("services.import_images.iter_features", side_effect=extract), patch(
             "services.import_images._get_model_hash",
             return_value="test-model-hash",
         ):
@@ -114,7 +118,7 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual([cancel_event], captured_cancel_events)
         percents = [event.percent for event in progress_events]
         self.assertEqual(sorted(percents), percents)
-        self.assertEqual([0, 0], percents[:2])
+        self.assertEqual([0, 1], percents[:2])
         self.assertEqual(100, percents[-1])
         vector_progress = [
             event
@@ -122,18 +126,23 @@ class ImportImagesVectorTests(unittest.TestCase):
             if event.status == "正在生成图片向量"
         ]
         self.assertTrue(vector_progress)
-        self.assertTrue(all(event.percent == 100 for event in vector_progress))
-        self.assertTrue(all(event.completed == 1 for event in vector_progress))
+        self.assertEqual([30, 100], [
+            event.percent for event in vector_progress
+        ])
+        self.assertEqual([0, 1], [
+            event.completed for event in vector_progress
+        ])
 
     def test_reimporting_the_same_hash_is_silently_ignored(self):
         vector = np.ones(768, dtype=np.float32)
 
+        def fake_iter_features(image_paths, **kwargs):
+            yield _single_result_batch(image_paths[0], vector)
+
         with patch(
-            "services.import_images.extract_features",
-            return_value=[
-                ImageFeatureResult.succeeded(str(self.source_path), vector)
-            ],
-        ) as extract_features, patch(
+            "services.import_images.iter_features",
+            side_effect=fake_iter_features,
+        ) as iter_features_call, patch(
             "services.import_images._get_model_hash",
             return_value="test-model-hash",
         ):
@@ -151,7 +160,7 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(1, second_result.duplicate_count)
         self.assertEqual(0, second_result.vectorized_count)
         self.assertEqual((), second_result.vector_errors)
-        self.assertEqual(1, extract_features.call_count)
+        self.assertEqual(1, iter_features_call.call_count)
         self.assertEqual(1, len(self.db.list_stickers()))
 
     def test_duplicate_hashes_inside_one_request_are_imported_once(self):
@@ -165,6 +174,59 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(1, len(result.imported_stickers))
         self.assertEqual(1, len(self.db.list_stickers()))
 
+    def test_multiple_import_batches_share_one_extraction_job(self):
+        second_path = self.root / "second.png"
+        third_path = self.root / "third.png"
+        Image.new("RGB", (12, 8), "red").save(second_path)
+        Image.new("RGB", (12, 8), "blue").save(third_path)
+        progress_events = []
+        captured_paths = []
+
+        def fake_iter_features(image_paths, **kwargs):
+            captured_paths.extend(image_paths)
+            vector = np.ones(768, dtype=np.float32)
+            for completed, image_path in enumerate(image_paths, 1):
+                yield FeatureResultBatch(
+                    results=(
+                        ImageFeatureResult.succeeded(image_path, vector),
+                    ),
+                    progress=ExtractionProgress(
+                        completed=completed,
+                        total=len(image_paths),
+                        succeeded=completed,
+                        failed=0,
+                    ),
+                )
+
+        iter_features_mock = Mock(side_effect=fake_iter_features)
+        with patch("services.import_images.IMPORT_BATCH_SIZE", 1), patch(
+            "services.import_images.iter_features",
+            iter_features_mock,
+        ), patch(
+            "services.import_images._get_model_hash",
+            return_value="test-model-hash",
+        ):
+            result = import_images_with_result(
+                [
+                    str(self.source_path),
+                    str(second_path),
+                    str(third_path),
+                ],
+                generate_vectors=True,
+                progress=progress_events.append,
+            )
+
+        self.assertEqual(1, iter_features_mock.call_count)
+        self.assertEqual(3, len(captured_paths))
+        self.assertEqual(3, len(result.imported_stickers))
+        self.assertEqual(3, result.vectorized_count)
+        vector_progress = [
+            event.percent
+            for event in progress_events
+            if event.status == "正在生成图片向量"
+        ]
+        self.assertEqual([30, 53, 76, 100], vector_progress)
+
     def test_reports_preprocessing_import_and_completion_progress(self):
         progress_events = []
 
@@ -175,9 +237,9 @@ class ImportImagesVectorTests(unittest.TestCase):
 
         self.assertEqual(1, len(result.imported_stickers))
         self.assertEqual(0, progress_events[0].percent)
-        self.assertEqual("正在预处理", progress_events[0].status)
-        self.assertEqual(0, progress_events[1].percent)
-        self.assertEqual("正在导入图片", progress_events[1].status)
+        self.assertEqual("正在预处理图片", progress_events[0].status)
+        self.assertEqual(1, progress_events[1].percent)
+        self.assertEqual("正在写入图库", progress_events[1].status)
         self.assertEqual(100, progress_events[-1].percent)
         self.assertEqual("导入完成", progress_events[-1].status)
         self.assertTrue(
@@ -193,11 +255,12 @@ class ImportImagesVectorTests(unittest.TestCase):
             side_effect=RuntimeError("vector store unavailable")
         )
 
+        def fake_iter_features(image_paths, **kwargs):
+            yield _single_result_batch(image_paths[0], vector)
+
         with patch(
-            "services.import_images.extract_features",
-            return_value=[
-                ImageFeatureResult.succeeded(str(self.source_path), vector)
-            ],
+            "services.import_images.iter_features",
+            side_effect=fake_iter_features,
         ), patch(
             "services.import_images._get_model_hash",
             return_value="test-model-hash",
@@ -219,7 +282,7 @@ class ImportImagesVectorTests(unittest.TestCase):
         execution_threads = []
         received_results = []
         expected_result = ImportImagesResult(imported_stickers=())
-        expected_progress = ImportImagesProgress(0, "正在预处理")
+        expected_progress = ImportImagesProgress(0, "正在预处理图片")
         received_progress = []
 
         def execute_request(*args, **kwargs):
