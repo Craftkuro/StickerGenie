@@ -127,6 +127,7 @@
     <addaction name="separator"/>
     <addaction name="actionManageLoadedRepos"/>
     <addaction name="actionOpenTagManager"/>
+    <addaction name="actionStartDatabaseMaintenance"/>
     <addaction name="separator"/>
     <addaction name="actionImportRepoBackup"/>
    </widget>
@@ -216,6 +217,14 @@
   <action name="actionOpenTagManager">
    <property name="text">
     <string>标签管理器</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionStartDatabaseMaintenance">
+   <property name="text">
+    <string>开始数据库维护</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>

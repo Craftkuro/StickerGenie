@@ -5,12 +5,11 @@
 """
 
 import datetime
-import hashlib
 import logging
 import threading
 import time
 from dataclasses import dataclass
-from functools import lru_cache, partial
+from functools import partial
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -18,6 +17,10 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 import apppath
 import services.global_instances
+from services.image_vector_model import (
+    calculate_model_hash as _calculate_shared_model_hash,
+    get_model_hash as _get_shared_model_hash,
+)
 from commons.dto import StickerImage, Tag
 from commons.image_metadata import StickerImageMetadata
 from commons.signal_objects import ImportImagesRequest
@@ -82,27 +85,20 @@ def _report_progress(
         )
 
 
-@lru_cache(maxsize=4)
 def _calculate_model_hash(
     model_path: str,
     file_size: int,
     modification_time_ns: int,
 ) -> str:
-    del file_size, modification_time_ns
-    digest = hashlib.sha256()
-    with open(model_path, "rb") as model_file:
-        for chunk in iter(lambda: model_file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return f"vit_b_16_{digest.hexdigest()[:16]}"
+    return _calculate_shared_model_hash(
+        model_path,
+        file_size,
+        modification_time_ns,
+    )
 
 
 def _get_model_hash(model_path: Path) -> str:
-    stat = model_path.stat()
-    return _calculate_model_hash(
-        str(model_path.resolve()),
-        stat.st_size,
-        stat.st_mtime_ns,
-    )
+    return _get_shared_model_hash(model_path)
 
 def _metadata_to_sticker_image(metadata: StickerImageMetadata, file_path: Path) -> StickerImage:
     """

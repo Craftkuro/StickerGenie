@@ -60,7 +60,7 @@ class ImageImportDialogTests(unittest.TestCase):
         self.assertTrue(self.dialog.pushButtonOk.isEnabled())
         self.assertEqual(next_button_geometry, self.dialog.pushButtonOk.geometry())
 
-    def test_recursively_adds_supported_images_without_duplicate_paths(self):
+    def test_adds_directory_without_scanning_until_confirmation(self):
         first = self._make_image("first.png")
         second = self._make_image("nested/second.webp")
         (self.temp_path / "not-an-image.txt").write_text("text", encoding="utf-8")
@@ -71,11 +71,43 @@ class ImageImportDialogTests(unittest.TestCase):
         ):
             self.dialog._add_directory()
 
-        self.dialog._add_paths([first])
+        self.assertEqual(
+            [str(self.temp_path.resolve())],
+            self.dialog.selected_file_paths,
+        )
+        self.assertEqual([], self.dialog.prepared_file_paths)
+        self.assertEqual(1, self.dialog.listWidget.count())
+
+        self.dialog._show_confirmation_page()
+
         self.assertEqual(
             {str(first.resolve()), str(second.resolve())},
-            set(self.dialog.selected_file_paths),
+            set(self.dialog.prepared_file_paths),
         )
+        self.assertEqual(
+            "\n".join(self.dialog.prepared_file_paths),
+            self.dialog.textEditNonDuplicateFiles.toPlainText(),
+        )
+
+    def test_deduplicates_files_from_overlapping_sources_on_confirmation(self):
+        first = self._make_image("first.png")
+        second = self._make_image("nested/second.webp")
+
+        with patch(
+            "ui.dialog_image_import.QFileDialog.getExistingDirectory",
+            side_effect=[str(self.temp_path), str(self.temp_path / "nested")],
+        ):
+            self.dialog._add_directory()
+            self.dialog._add_directory()
+
+        self.dialog._add_paths([first])
+        self.dialog._show_confirmation_page()
+
+        self.assertEqual(
+            {str(first.resolve()), str(second.resolve())},
+            set(self.dialog.prepared_file_paths),
+        )
+        self.assertEqual(2, len(self.dialog.prepared_file_paths))
 
     def test_only_deduplicates_normalized_absolute_paths(self):
         first = self.temp_path / "first.png"

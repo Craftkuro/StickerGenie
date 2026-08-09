@@ -2,6 +2,7 @@
 import logging
 import pathlib
 import threading
+from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
 from sqlalchemy import create_engine, select, func
@@ -11,6 +12,17 @@ from commons.dto import StickerImage, Tag
 from .db_classes import DBStickerImage, DBTag, association_table, Base
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class StickerMaintenanceRecord:
+    id: int
+    original_file_name: str
+    hash: str
+    extension: str
+    size_width: int
+    size_height: int
+    vectordb_id: str | None
 
 
 def _existing_hashes_in_session(
@@ -223,6 +235,22 @@ class StickerDBV1:
         with self._get_session() as session:
             return _existing_hashes_in_session(session, hashes)
 
+    def list_maintenance_records(self) -> list[StickerMaintenanceRecord]:
+        """返回维护任务需要的轻量图片记录，不加载标签关系。"""
+        with self._get_session() as session:
+            rows = session.execute(
+                select(
+                    DBStickerImage.id,
+                    DBStickerImage.original_file_name,
+                    DBStickerImage.hash,
+                    DBStickerImage.extension,
+                    DBStickerImage.size_width,
+                    DBStickerImage.size_height,
+                    DBStickerImage.vectordb_id,
+                ).order_by(DBStickerImage.id.asc())
+            ).all()
+        return [StickerMaintenanceRecord(*row) for row in rows]
+
     def list_tags(self, enabled_only: bool = False) -> List[Tag]:
         """
         列出全局标签，按用户定义顺序排序。
@@ -365,6 +393,28 @@ class StickerDBV1:
                     DBStickerImage.id.in_(vector_ids_by_sticker_id)
                 )
             ).scalars().all()
+            for db_sticker in db_stickers:
+                db_sticker.vectordb_id = vector_ids_by_sticker_id[db_sticker.id]
+            session.commit()
+
+    def replace_sticker_vector_ids(
+        self,
+        vector_ids_by_sticker_id: dict[int, str],
+    ) -> None:
+        """严格批量替换向量 ID；任一图片不存在时不提交。"""
+        if not vector_ids_by_sticker_id:
+            return
+
+        sticker_ids = set(vector_ids_by_sticker_id)
+        with self._write_lock, self._get_session() as session:
+            db_stickers = session.execute(
+                select(DBStickerImage).where(DBStickerImage.id.in_(sticker_ids))
+            ).scalars().all()
+            found_ids = {db_sticker.id for db_sticker in db_stickers}
+            missing_ids = sorted(sticker_ids - found_ids)
+            if missing_ids:
+                raise ValueError(f"图片记录不存在：{missing_ids}")
+
             for db_sticker in db_stickers:
                 db_sticker.vectordb_id = vector_ids_by_sticker_id[db_sticker.id]
             session.commit()

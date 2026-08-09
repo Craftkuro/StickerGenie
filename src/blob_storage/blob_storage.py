@@ -8,6 +8,7 @@ Blob Storage
 import os
 import shutil
 import hashlib
+from collections.abc import Iterator
 from pathlib import Path
 
 from blob_storage.entities import BlobFileEntity
@@ -206,3 +207,31 @@ class BlobStorage:
         """
         file_path = self._get_file_path(blob_file_entity.hash, blob_file_entity.extension)
         return file_path.exists()
+
+    def iter_file_entities(self) -> Iterator[BlobFileEntity]:
+        """遍历由当前 BlobStorage 命名规则管理的文件。"""
+        if not self.base_path.exists():
+            return
+
+        hexadecimal = set("0123456789abcdef")
+        for subdir in sorted(self.base_path.iterdir()):
+            if (
+                not subdir.is_dir()
+                or len(subdir.name) != 2
+                or any(char not in hexadecimal for char in subdir.name)
+            ):
+                continue
+
+            for file_path in sorted(subdir.iterdir()):
+                if not file_path.is_file() or not file_path.suffix:
+                    continue
+
+                file_hash = file_path.stem
+                if (
+                    len(file_hash) != 40
+                    or any(char not in hexadecimal for char in file_hash)
+                    or file_hash[:2] != subdir.name
+                ):
+                    continue
+
+                yield BlobFileEntity(file_hash, file_path.suffix.lower())

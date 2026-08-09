@@ -14,6 +14,7 @@ from PyQt6.QtGui import QAction, QCloseEvent, QFont, QPainter, QStandardItemMode
 
 import apppath
 from commons.signal_objects import ImportImagesRequest, MainWindowNewTabRequest
+import services.database_maintenance
 import services.export_library
 import services.global_instances
 import services.import_images
@@ -25,6 +26,7 @@ from .widgets.custom_tag_widget import CustomTagWidget
 from .sticker_list_view_widget import StickerListView
 from .dialog_image_import import ImageImportDialog
 from .dialog_image_import_progress import ImageImportProgressDialog
+from .dialog_database_maintenance import DatabaseMaintenanceDialog
 from .dialog_settings import SettingsDialog, create_settings_manager
 from .dialog_tag_manager import TagManagerDialog
 
@@ -87,6 +89,23 @@ class MainWindow(QMainWindow):
             self._on_export_library_progress_changed
         )
 
+        self._database_maintenance_service = (
+            services.database_maintenance.DatabaseMaintenanceService(self)
+        )
+        self._database_maintenance_service.maintenance_finished.connect(
+            self._on_database_maintenance_finished
+        )
+        self._database_maintenance_service.maintenance_cancelled.connect(
+            self._on_database_maintenance_cancelled
+        )
+        self._database_maintenance_service.maintenance_failed.connect(
+            self._on_database_maintenance_failed
+        )
+        self._database_maintenance_service.maintenance_progress_changed.connect(
+            self._on_database_maintenance_progress_changed
+        )
+        self._database_maintenance_dialog = None
+
         self.setup_base_slots()
 
         # 加载启动时需要准备的视图
@@ -117,6 +136,9 @@ class MainWindow(QMainWindow):
         self.actionExportLibrary.triggered.connect(self.export_library)
         self.actionOpenSettings.triggered.connect(self.open_settings)
         self.actionOpenTagManager.triggered.connect(self.open_tag_manager)
+        self.actionStartDatabaseMaintenance.triggered.connect(
+            self.open_database_maintenance
+        )
 
         self.signal_add_new_tab.connect(self.add_new_tab)
         self.tabWidget.tabCloseRequested.connect(self._on_tab_close_requested)
@@ -190,6 +212,103 @@ class MainWindow(QMainWindow):
 
         TagManagerDialog(self, database=database).exec()
         self.customSearchBox.refresh_suggestions()
+
+    def open_database_maintenance(self):
+        if services.global_instances.current_library_db is None:
+            QMessageBox.warning(self, "无法打开", "仓库数据库尚未初始化。")
+            return
+        if services.global_instances.current_blob_storage is None:
+            QMessageBox.warning(self, "无法打开", "Blob存储尚未初始化。")
+            return
+
+        if self._database_maintenance_dialog is not None:
+            self._database_maintenance_dialog.raise_()
+            self._database_maintenance_dialog.activateWindow()
+            return
+
+        dialog = DatabaseMaintenanceDialog(self)
+        self._database_maintenance_dialog = dialog
+        dialog.maintenance_requested.connect(self.start_database_maintenance)
+        dialog.cancel_requested.connect(
+            self._database_maintenance_service.cancel_maintenance
+        )
+        dialog.finished.connect(
+            lambda _result, current=dialog: self._release_database_maintenance_dialog(
+                current
+            )
+        )
+        dialog.open()
+
+    @pyqtSlot(object)
+    def start_database_maintenance(self, options):
+        self.actionStartDatabaseMaintenance.setEnabled(False)
+        self.statusBar().showMessage("正在进行数据库维护…")
+        try:
+            self._database_maintenance_service.start_maintenance(options)
+        except Exception as exc:
+            self._on_database_maintenance_failed(str(exc))
+
+    @pyqtSlot(object)
+    def _on_database_maintenance_progress_changed(self, progress):
+        dialog = self._database_maintenance_dialog
+        if dialog is not None:
+            dialog.update_progress(progress)
+
+        message = progress.status
+        if progress.total:
+            message += f"（{progress.completed}/{progress.total}）"
+        self.statusBar().showMessage(message)
+
+    def _close_database_maintenance_dialog(self):
+        dialog = self._database_maintenance_dialog
+        self._database_maintenance_dialog = None
+        if dialog is not None:
+            dialog.finish()
+            dialog.deleteLater()
+
+    def _release_database_maintenance_dialog(self, dialog):
+        if self._database_maintenance_dialog is dialog:
+            self._database_maintenance_dialog = None
+        dialog.deleteLater()
+
+    @staticmethod
+    def _database_maintenance_summary(result) -> str:
+        return (
+            f"已删除 {result.deleted_blob_count} 个未引用Blob，"
+            f"生成 {result.vectorized_count} 个向量，"
+            f"修复 {result.relinked_vector_count} 个向量关联。"
+        )
+
+    @pyqtSlot(object)
+    def _on_database_maintenance_finished(self, result):
+        self.actionStartDatabaseMaintenance.setEnabled(True)
+        self._close_database_maintenance_dialog()
+        message = self._database_maintenance_summary(result)
+        self.statusBar().showMessage(message, 8000)
+        QMessageBox.information(self, "数据库维护完成", message)
+
+        errors = result.blob_errors + result.vector_errors
+        if errors:
+            details = "\n".join(errors[:10])
+            remaining = len(errors) - 10
+            if remaining > 0:
+                details += f"\n另有 {remaining} 项未显示。"
+            QMessageBox.warning(self, "部分维护操作失败", details)
+
+    @pyqtSlot(object)
+    def _on_database_maintenance_cancelled(self, result):
+        self.actionStartDatabaseMaintenance.setEnabled(True)
+        self._close_database_maintenance_dialog()
+        message = "数据库维护已中止。" + self._database_maintenance_summary(result)
+        self.statusBar().showMessage(message, 8000)
+        QMessageBox.information(self, "数据库维护已中止", message)
+
+    @pyqtSlot(str)
+    def _on_database_maintenance_failed(self, error_message: str):
+        self.actionStartDatabaseMaintenance.setEnabled(True)
+        self._close_database_maintenance_dialog()
+        self.statusBar().clearMessage()
+        QMessageBox.critical(self, "数据库维护失败", error_message)
 
     def on_search_triggered(self, query):
         """处理搜索触发事件"""

@@ -37,6 +37,9 @@ IMAGE_FILE_FILTER = (
     "*.heif *.heic *.avif);;所有文件 (*)"
 )
 FILE_PATH_ROLE = Qt.ItemDataRole.UserRole
+SOURCE_TYPE_ROLE = Qt.ItemDataRole.UserRole + 1
+FILE_SOURCE = "file"
+DIRECTORY_SOURCE = "directory"
 
 
 class ImageImportDialog(QDialog):
@@ -101,23 +104,14 @@ class ImageImportDialog(QDialog):
         if not directory:
             return
 
-        try:
-            file_paths = sorted(
-                (
-                    path
-                    for path in Path(directory).rglob("*")
-                    if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
-                ),
-                key=lambda path: str(path).casefold(),
-            )
-        except OSError as exc:
-            logger.exception("扫描图片目录失败: %s", directory)
-            QMessageBox.critical(self, "读取目录失败", str(exc))
-            return
+        self._add_paths([directory], source_type=DIRECTORY_SOURCE)
 
-        self._add_paths(file_paths)
-
-    def _add_paths(self, file_paths: Iterable[str | Path]):
+    def _add_paths(
+        self,
+        file_paths: Iterable[str | Path],
+        *,
+        source_type: str = FILE_SOURCE,
+    ):
         known_paths = {
             self._path_key(path) for path in self.selected_file_paths
         }
@@ -130,6 +124,7 @@ class ImageImportDialog(QDialog):
 
             item = QListWidgetItem(normalized_path)
             item.setData(FILE_PATH_ROLE, normalized_path)
+            item.setData(SOURCE_TYPE_ROLE, source_type)
             item.setToolTip(normalized_path)
             self.listWidget.addItem(item)
             known_paths.add(path_key)
@@ -157,7 +152,13 @@ class ImageImportDialog(QDialog):
         self.stackedWidget.setCurrentIndex(self.SELECTION_PAGE)
 
     def _show_confirmation_page(self):
-        self._prepared_file_paths = self.selected_file_paths
+        try:
+            self._prepared_file_paths = self._prepare_file_paths()
+        except OSError as exc:
+            logger.exception("扫描图片目录失败")
+            QMessageBox.critical(self, "读取目录失败", str(exc))
+            return
+
         self.textEditNonDuplicateFiles.setPlainText(
             "\n".join(self._prepared_file_paths)
         )
@@ -166,6 +167,37 @@ class ImageImportDialog(QDialog):
             '点击"确定"开始导入。'
         )
         self.stackedWidget.setCurrentIndex(self.CONFIRMATION_PAGE)
+
+    def _prepare_file_paths(self) -> list[str]:
+        prepared_paths: list[str] = []
+        known_paths: set[str] = set()
+
+        for row in range(self.listWidget.count()):
+            item = self.listWidget.item(row)
+            source_path = item.data(FILE_PATH_ROLE)
+            if item.data(SOURCE_TYPE_ROLE) == DIRECTORY_SOURCE:
+                candidates: Iterable[str | Path] = sorted(
+                    (
+                        path
+                        for path in Path(source_path).rglob("*")
+                        if path.is_file()
+                        and path.suffix.lower() in IMAGE_EXTENSIONS
+                    ),
+                    key=lambda path: str(path).casefold(),
+                )
+            else:
+                candidates = (source_path,)
+
+            for candidate in candidates:
+                normalized_path = self._normalize_path(candidate)
+                path_key = self._path_key(normalized_path)
+                if path_key in known_paths:
+                    continue
+
+                prepared_paths.append(normalized_path)
+                known_paths.add(path_key)
+
+        return prepared_paths
 
     def _send_import_request(self):
         if not self._prepared_file_paths:
