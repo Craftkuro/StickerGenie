@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -29,30 +30,63 @@ class SettingsDialogTests(unittest.TestCase):
         self.temporary_directory.cleanup()
 
     def test_loads_saved_values_and_switches_categories(self):
-        self.manager.set("theme", "dark")
-        self.manager.set("thumbnail_size", 208)
+        self.manager.set("recent_search_limit", 8)
+        self.manager.set("tag_suggestion_limit", 12)
         self.manager.save()
 
         dialog = SettingsDialog(config_manager=self.manager)
 
-        self.assertEqual(2, dialog.listWidget.count())
+        self.assertEqual(1, dialog.listWidget.count())
+        self.assertEqual("搜索", dialog.listWidget.item(0).text())
         self.assertEqual(0, dialog.stackedWidget.currentIndex())
-        self.assertEqual("dark", dialog.comboBoxTheme.currentData())
-        self.assertEqual(208, dialog.spinBoxThumbnailSize.value())
+        self.assertEqual(8, dialog.spinBoxRecentSearchLimit.value())
+        self.assertEqual(12, dialog.spinBoxTagSuggestionLimit.value())
 
-        dialog.listWidget.setCurrentRow(1)
+        dialog.listWidget.setCurrentRow(0)
 
-        self.assertEqual(1, dialog.stackedWidget.currentIndex())
+        self.assertEqual(0, dialog.stackedWidget.currentIndex())
+
+    def test_schema_contains_only_active_settings_and_internal_history(self):
+        self.assertEqual(
+            [
+                "recent_search_limit",
+                "tag_suggestion_limit",
+                "recent_searches",
+            ],
+            self.manager.schema.keys,
+        )
+
+    def test_user_facing_settings_are_declared_in_ui_file(self):
+        ui_path = apppath.app_path / "ui" / "dialog_settings.ui"
+        root = ElementTree.parse(ui_path).getroot()
+        widget_names = {
+            widget.attrib["name"]
+            for widget in root.iter("widget")
+            if "name" in widget.attrib
+        }
+
+        self.assertTrue(
+            {
+                "spinBoxRecentSearchLimit",
+                "spinBoxTagSuggestionLimit",
+            }.issubset(widget_names)
+        )
+        self.assertTrue(
+            {
+                "checkBoxRestoreLastSession",
+                "checkBoxConfirmBeforeDelete",
+                "comboBoxDefaultView",
+                "comboBoxTheme",
+                "spinBoxThumbnailSize",
+                "checkBoxShowTagCounts",
+            }.isdisjoint(widget_names)
+        )
 
     def test_apply_saves_values_without_closing_dialog(self):
         dialog = SettingsDialog(config_manager=self.manager)
         dialog.show()
-        dialog.checkBoxRestoreLastSession.setChecked(False)
         dialog.spinBoxRecentSearchLimit.setValue(24)
         dialog.spinBoxTagSuggestionLimit.setValue(7)
-        dialog.comboBoxDefaultView.setCurrentIndex(
-            dialog.comboBoxDefaultView.findData("list")
-        )
 
         apply_button = dialog.buttonBox.button(
             QDialogButtonBox.StandardButton.Apply
@@ -61,44 +95,40 @@ class SettingsDialogTests(unittest.TestCase):
         apply_button.click()
 
         saved_manager = create_settings_manager(self.config_path)
-        self.assertFalse(saved_manager.get("restore_last_session"))
         self.assertEqual(24, saved_manager.get("recent_search_limit"))
         self.assertEqual(7, saved_manager.get("tag_suggestion_limit"))
-        self.assertEqual("list", saved_manager.get("default_view"))
         self.assertFalse(apply_button.isEnabled())
         self.assertTrue(dialog.isVisible())
         dialog.close()
 
     def test_cancel_discards_unapplied_changes(self):
         dialog = SettingsDialog(config_manager=self.manager)
-        dialog.comboBoxTheme.setCurrentIndex(
-            dialog.comboBoxTheme.findData("dark")
-        )
+        dialog.spinBoxRecentSearchLimit.setValue(20)
 
         dialog.buttonBox.button(
             QDialogButtonBox.StandardButton.Cancel
         ).click()
 
         saved_manager = create_settings_manager(self.config_path)
-        self.assertEqual("system", saved_manager.get("theme"))
+        self.assertEqual(3, saved_manager.get("recent_search_limit"))
         self.assertEqual(QDialog.DialogCode.Rejected, dialog.result())
 
     def test_ok_saves_changes_and_accepts_dialog(self):
         dialog = SettingsDialog(config_manager=self.manager)
-        dialog.spinBoxThumbnailSize.setValue(192)
+        dialog.spinBoxTagSuggestionLimit.setValue(18)
 
         dialog.buttonBox.button(
             QDialogButtonBox.StandardButton.Ok
         ).click()
 
         saved_manager = create_settings_manager(self.config_path)
-        self.assertEqual(192, saved_manager.get("thumbnail_size"))
+        self.assertEqual(18, saved_manager.get("tag_suggestion_limit"))
         self.assertEqual(QDialog.DialogCode.Accepted, dialog.result())
 
     def test_save_failure_keeps_dialog_open(self):
         dialog = SettingsDialog(config_manager=self.manager)
         dialog.show()
-        dialog.spinBoxThumbnailSize.setValue(192)
+        dialog.spinBoxRecentSearchLimit.setValue(20)
 
         with patch.object(
             self.manager,
@@ -112,7 +142,7 @@ class SettingsDialogTests(unittest.TestCase):
             ).click()
 
         self.assertTrue(dialog.isVisible())
-        self.assertEqual(144, self.manager.get("thumbnail_size"))
+        self.assertEqual(3, self.manager.get("recent_search_limit"))
         critical.assert_called_once_with(dialog, "保存设置失败", "磁盘不可写")
         dialog.close()
 
