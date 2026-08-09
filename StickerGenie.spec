@@ -37,7 +37,9 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # 排除 torch 系依赖：运行时只使用 onnxruntime，torch 仅是测试/调试链被
+    # PyInstaller 静态分析误收集，剔除后体积可减少约 477 MB。
+    excludes=["torch", "torchvision", "functorch"],
     noarchive=False,
     optimize=0,
 )
