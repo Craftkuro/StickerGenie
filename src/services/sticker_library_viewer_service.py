@@ -155,8 +155,9 @@ def open_sticker_results_tab(
     if main_window is None:
         raise RuntimeError("主窗口尚未初始化。")
     request = MainWindowNewTabRequest(
-        page,
-        title,
+        widget=page,
+        title=title,
+        closable=True,
     )
     main_window.signal_add_new_tab.emit(request)
 
@@ -198,6 +199,10 @@ def open_sticker_library_view_tab():
     page = StickerLibraryViewPage()
     main_window = services.global_instances.main_window
 
-    _signal = MainWindowNewTabRequest(page, "图库浏览")
-    main_window.signal_add_new_tab.emit(_signal)
+    request = MainWindowNewTabRequest(
+        widget=page,
+        title="图库浏览",
+        closable=False,
+    )
+    main_window.signal_add_new_tab.emit(request)
 

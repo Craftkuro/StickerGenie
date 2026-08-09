@@ -14,6 +14,8 @@ class MainWindowNewTabRequest:
     widget: QWidget
     # 新标签页标题
     title: str | None
+    # 用户是否可以关闭这个标签页
+    closable: bool = True
 
 @dataclass
 class CallbackObjHolder:

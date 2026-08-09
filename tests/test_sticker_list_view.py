@@ -7,8 +7,9 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QSize
-from PyQt6.QtGui import QImage
+from PyQt6 import sip
+from PyQt6.QtCore import QCoreApplication, QEvent, QSize
+from PyQt6.QtGui import QImage, QStandardItemModel
 from PyQt6.QtWidgets import QApplication, QAbstractItemView, QListView
 
 import apppath
@@ -78,6 +79,26 @@ class StickerListViewTests(unittest.TestCase):
             page.listViewStickerList.dragDropMode(),
         )
         page.close()
+
+    def test_page_owns_models_and_disposes_replaced_model(self):
+        page = StickerLibraryViewPage(auto_refresh=False)
+        first_model = QStandardItemModel()
+        second_model = QStandardItemModel()
+
+        page.refresh_content(first_model)
+        self.assertIs(page.listViewStickerList, first_model.parent())
+
+        page.refresh_content(second_model)
+        self.assertIs(page.listViewStickerList, second_model.parent())
+        self.assertIs(second_model, page.listViewStickerList.model())
+
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertTrue(sip.isdeleted(first_model))
+        self.assertFalse(sip.isdeleted(second_model))
+
+        page.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertTrue(sip.isdeleted(second_model))
 
     def test_model_hides_text_and_exposes_metadata_in_tooltip(self):
         with tempfile.TemporaryDirectory() as temp_dir:

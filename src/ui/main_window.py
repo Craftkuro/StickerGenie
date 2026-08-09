@@ -6,7 +6,8 @@ from typing import Optional
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QPoint, QEvent, Qt, QSize
 from PyQt6.QtWidgets import QMainWindow, QPushButton, QMessageBox, QWidget, QLabel, QVBoxLayout, \
     QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QLineEdit, QLayout, QCompleter, \
-    QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle, QFileDialog, QComboBox, QSizePolicy
+    QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle, QFileDialog, QComboBox, QSizePolicy, \
+    QTabBar
 from PyQt6 import uic
 from PyQt6.QtGui import QCloseEvent, QFont, QPainter, QStandardItemModel, QStandardItem
 
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
         self.actionOpenTagManager.triggered.connect(self.open_tag_manager)
 
         self.signal_add_new_tab.connect(self.add_new_tab)
+        self.tabWidget.tabCloseRequested.connect(self._on_tab_close_requested)
 
     def _init_search_controls(self):
         self.searchTypeComboBox = QComboBox(self.widgetUnifiedBar)
@@ -317,7 +319,36 @@ class MainWindow(QMainWindow):
 
     def add_new_tab(self, request: MainWindowNewTabRequest):
         index = self.tabWidget.addTab(request.widget, request.title)
+        tab_bar = self.tabWidget.tabBar()
+        tab_bar.setTabData(index, request.closable)
+        if not request.closable:
+            self._remove_tab_close_button(index)
         self.tabWidget.setCurrentIndex(index)
+
+    def _remove_tab_close_button(self, index: int):
+        tab_bar = self.tabWidget.tabBar()
+        for position in (
+            QTabBar.ButtonPosition.LeftSide,
+            QTabBar.ButtonPosition.RightSide,
+        ):
+            button = tab_bar.tabButton(index, position)
+            if button is None:
+                continue
+            tab_bar.setTabButton(index, position, None)
+            button.deleteLater()
+
+    @pyqtSlot(int)
+    def _on_tab_close_requested(self, index: int):
+        if index < 0 or index >= self.tabWidget.count():
+            return
+
+        if not bool(self.tabWidget.tabBar().tabData(index)):
+            return
+
+        page = self.tabWidget.widget(index)
+        self.tabWidget.removeTab(index)
+        if page is not None:
+            page.deleteLater()
 
     def add_new_tab_debug(self, center_widget, tab_title: Optional[str] = None):
         """

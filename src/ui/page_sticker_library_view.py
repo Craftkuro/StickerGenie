@@ -47,7 +47,16 @@ class StickerLibraryViewPage(QWidget):
             self.signal_refresh_content.emit()
 
     def refresh_content(self, model: QStandardItemModel):
+        previous_model = self.listViewStickerList.model()
+        if model.parent() is None:
+            model.setParent(self.listViewStickerList)
         self.listViewStickerList.setModel(model)
+        if (
+            previous_model is not None
+            and previous_model is not model
+            and previous_model.parent() is self.listViewStickerList
+        ):
+            previous_model.deleteLater()
 
     def _on_sticker_double_clicked(self, index: QModelIndex):
         if not index.isValid():
