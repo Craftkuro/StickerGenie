@@ -2,7 +2,7 @@
 import logging
 
 from PyQt6.QtCore import QModelIndex, QSize, Qt
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QStandardItemModel
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QListView,
@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
 )
 
 import commons.constants
+from commons.roles import ROLE_FILE_PATH
+from services.thumbnail_provider import ThumbnailProvider
 #import commons.classes
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,46 @@ class StickerItemDelegate(QStyledItemDelegate):
 
     PADDING = 8
     ITEM_SIZE = 160
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        thumbnail_provider: ThumbnailProvider | None = None,
+    ):
+        super().__init__(parent)
+        self._thumbnail_provider = thumbnail_provider or ThumbnailProvider()
+
+    def set_thumbnail_provider(self, thumbnail_provider: ThumbnailProvider) -> None:
+        self._thumbnail_provider = thumbnail_provider
+
+    def _pixmap_for_index(
+        self,
+        index: QModelIndex,
+        requested_size: QSize,
+        mode: QIcon.Mode,
+    ) -> QPixmap:
+        file_path = index.data(ROLE_FILE_PATH)
+        if isinstance(file_path, str) and file_path:
+            return self._thumbnail_provider.get_thumbnail(file_path)
+
+        icon_data = index.data(Qt.ItemDataRole.DecorationRole)
+        if isinstance(icon_data, QIcon):
+            available_sizes = icon_data.availableSizes()
+            if available_sizes:
+                source_size = max(
+                    available_sizes,
+                    key=lambda size: size.width() * size.height(),
+                )
+                pixmap = icon_data.pixmap(source_size, mode, QIcon.State.Off)
+            else:
+                pixmap = icon_data.pixmap(
+                    requested_size,
+                    mode,
+                    QIcon.State.Off,
+                )
+            if not pixmap.isNull():
+                return pixmap
+        return QPixmap()
 
     def paint(
         self,
@@ -44,9 +86,6 @@ class StickerItemDelegate(QStyledItemDelegate):
                 fill_color.setAlpha(18)
                 painter.fillRect(option.rect, fill_color)
 
-            icon_data = index.data(Qt.ItemDataRole.DecorationRole)
-            icon = icon_data if isinstance(icon_data, QIcon) else QIcon()
-
             icon_rect = option.rect.adjusted(
                 self.PADDING,
                 self.PADDING,
@@ -58,7 +97,9 @@ class StickerItemDelegate(QStyledItemDelegate):
                 if option.state & QStyle.StateFlag.State_Enabled
                 else QIcon.Mode.Disabled
             )
-            pixmap = icon.pixmap(icon_rect.size(), mode, QIcon.State.Off)
+            pixmap = self._pixmap_for_index(index, icon_rect.size(), mode)
+            if pixmap.isNull():
+                return
             pixmap = pixmap.scaled(
                 icon_rect.size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
@@ -90,6 +131,7 @@ class StickerListView(QListView):
         self,
         model: QStandardItemModel | QWidget | None = None,
         parent: QWidget | None = None,
+        thumbnail_provider: ThumbnailProvider | None = None,
     ):
         # uic creates custom widgets with the parent as the first positional argument.
         if isinstance(model, QWidget):
@@ -113,7 +155,10 @@ class StickerListView(QListView):
         self.setSpacing(8)
         self.setUniformItemSizes(True)
         self.setWordWrap(False)
-        self.setItemDelegate(StickerItemDelegate(self))
+        self.setItemDelegate(StickerItemDelegate(self, thumbnail_provider))
 
         if model is not None:
             self.setModel(model)
+
+    def set_thumbnail_provider(self, thumbnail_provider: ThumbnailProvider) -> None:
+        self.setItemDelegate(StickerItemDelegate(self, thumbnail_provider))

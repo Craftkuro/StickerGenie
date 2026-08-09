@@ -4,23 +4,16 @@ import pathlib
 from datetime import datetime
 from typing import Iterable
 
-from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject, Qt
+from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject
 from PyQt6.QtGui import QStandardItemModel, QIcon, QStandardItem
 
 import services.global_instances
 from blob_storage import BlobFileEntity
 from commons.dto import StickerImage
+from commons.roles import ROLE_FILE_PATH, ROLE_SIMILARITY, ROLE_STICKER_IMAGE
 from commons.signal_objects import MainWindowNewTabRequest
 
 from ui.page_sticker_library_view import StickerLibraryViewPage
-
-# QStandardItem 自定义数据角色
-# 存放图片在 blob 存储中的实际文件路径
-ROLE_FILE_PATH = Qt.ItemDataRole.UserRole
-# 存放图片对应的 StickerImage DTO（含 id，便于后续按 id 查询）
-ROLE_STICKER_IMAGE = Qt.ItemDataRole.UserRole + 1
-# 相似图片结果的相似度；普通图库项为 None。
-ROLE_SIMILARITY = Qt.ItemDataRole.UserRole + 2
 
 logger = logging.getLogger(__name__)
 

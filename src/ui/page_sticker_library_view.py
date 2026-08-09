@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QMenu, QMessageBox, QWidget
 import apppath
 import commons.constants
 #import commons.classes
+from commons.roles import ROLE_FILE_PATH, ROLE_STICKER_IMAGE
 import services.image_clipboard_service
 import services.sticker_library_viewer_service
 
@@ -62,12 +63,12 @@ class StickerLibraryViewPage(QWidget):
         if not index.isValid():
             return
 
-        file_path = index.data(services.sticker_library_viewer_service.ROLE_FILE_PATH)
+        file_path = index.data(ROLE_FILE_PATH)
         if not file_path:
             return
 
         dialog = ImageViewerDialog(self)
-        sticker = index.data(services.sticker_library_viewer_service.ROLE_STICKER_IMAGE)
+        sticker = index.data(ROLE_STICKER_IMAGE)
         dialog.load_image(file_path, index.data(), sticker)
         dialog.exec()
 
@@ -95,12 +96,8 @@ class StickerLibraryViewPage(QWidget):
             self._delete_sticker_for_index(index)
 
     def _copy_sticker_for_index(self, index: QModelIndex):
-        file_path = index.data(
-            services.sticker_library_viewer_service.ROLE_FILE_PATH
-        )
-        sticker = index.data(
-            services.sticker_library_viewer_service.ROLE_STICKER_IMAGE
-        )
+        file_path = index.data(ROLE_FILE_PATH)
+        sticker = index.data(ROLE_STICKER_IMAGE)
         if not file_path or sticker is None:
             return
 
@@ -114,9 +111,7 @@ class StickerLibraryViewPage(QWidget):
             QMessageBox.warning(self, "复制失败", str(exc))
 
     def _find_similar_for_index(self, index: QModelIndex):
-        sticker = index.data(
-            services.sticker_library_viewer_service.ROLE_STICKER_IMAGE
-        )
+        sticker = index.data(ROLE_STICKER_IMAGE)
         if sticker is None:
             return
 
@@ -129,9 +124,7 @@ class StickerLibraryViewPage(QWidget):
             QMessageBox.warning(self, "无法查找相似图片", str(exc))
 
     def _delete_sticker_for_index(self, index: QModelIndex):
-        sticker = index.data(
-            services.sticker_library_viewer_service.ROLE_STICKER_IMAGE
-        )
+        sticker = index.data(ROLE_STICKER_IMAGE)
         if sticker is None:
             return
 

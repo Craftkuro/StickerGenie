@@ -8,15 +8,25 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6 import sip
-from PyQt6.QtCore import QCoreApplication, QEvent, QSize
-from PyQt6.QtGui import QImage, QStandardItemModel
-from PyQt6.QtWidgets import QApplication, QAbstractItemView, QListView
+from PyQt6.QtCore import QCoreApplication, QEvent, QRect, QSize
+from PyQt6.QtGui import QIcon, QImage, QPainter, QStandardItem, QStandardItemModel
+from PyQt6.QtWidgets import (
+    QApplication,
+    QAbstractItemView,
+    QListView,
+    QStyle,
+    QStyleOptionViewItem,
+)
 
 import apppath
 from commons.dto import StickerImage
+from commons.roles import ROLE_FILE_PATH
 from services.sticker_library_viewer_service import build_sticker_model
 from ui.page_sticker_library_view import StickerLibraryViewPage
-from ui.sticker_list_view_widget import StickerItemDelegate, StickerListView
+from ui.sticker_list_view_widget import (
+    StickerItemDelegate,
+    StickerListView,
+)
 
 
 class FakeBlobStorage:
@@ -68,6 +78,45 @@ class StickerListViewTests(unittest.TestCase):
         self.assertTrue(view.uniformItemSizes())
         self.assertFalse(view.wordWrap())
         self.assertIsInstance(view.itemDelegate(), StickerItemDelegate)
+
+    def test_paint_preserves_aspect_ratio_for_jpeg_thumbnails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "wide.jpg"
+            image = QImage(400, 100, QImage.Format.Format_RGB32)
+            image.fill(0xFFFF0000)
+            self.assertTrue(image.save(str(image_path)))
+
+            item = QStandardItem(QIcon(str(image_path)), "")
+            item.setData(str(image_path), ROLE_FILE_PATH)
+            model = QStandardItemModel()
+            model.appendRow(item)
+
+            delegate = StickerItemDelegate()
+            canvas = QImage(160, 160, QImage.Format.Format_ARGB32)
+            canvas.fill(0xFF00FF00)
+            painter = QPainter(canvas)
+            try:
+                option = QStyleOptionViewItem()
+                option.rect = QRect(0, 0, 160, 160)
+                option.state = QStyle.StateFlag.State_Enabled
+                delegate.paint(painter, option, model.index(0, 0))
+            finally:
+                painter.end()
+
+            min_x, min_y = 160, 160
+            max_x, max_y = -1, -1
+            for y in range(canvas.height()):
+                for x in range(canvas.width()):
+                    color = canvas.pixelColor(x, y)
+                    if color.red() > 200 and color.green() < 100:
+                        min_x = min(min_x, x)
+                        min_y = min(min_y, y)
+                        max_x = max(max_x, x)
+                        max_y = max(max_y, y)
+
+            width = max_x - min_x + 1
+            height = max_y - min_y + 1
+            self.assertEqual((144, 36), (width, height))
 
     def test_library_page_uses_sticker_list_view(self):
         page = StickerLibraryViewPage(auto_refresh=False)
