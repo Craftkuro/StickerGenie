@@ -24,6 +24,7 @@ from .sticker_list_view_widget import StickerListView
 from .dialog_image_import import ImageImportDialog
 from .dialog_image_import_progress import ImageImportProgressDialog
 from .dialog_settings import SettingsDialog, create_settings_manager
+from .dialog_tag_manager import TagManagerDialog
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,7 @@ class MainWindow(QMainWindow):
         self.actionImportImages.triggered.connect(self.basic_import_files)
         self.actionExportLibrary.triggered.connect(self.export_library)
         self.actionOpenSettings.triggered.connect(self.open_settings)
+        self.actionOpenTagManager.triggered.connect(self.open_tag_manager)
 
         self.signal_add_new_tab.connect(self.add_new_tab)
 
@@ -159,6 +161,15 @@ class MainWindow(QMainWindow):
             self,
             config_manager=self._settings_manager,
         ).exec()
+        self.customSearchBox.refresh_suggestions()
+
+    def open_tag_manager(self):
+        database = services.global_instances.current_library_db
+        if database is None:
+            QMessageBox.warning(self, "无法打开", "仓库数据库尚未初始化。")
+            return
+
+        TagManagerDialog(self, database=database).exec()
         self.customSearchBox.refresh_suggestions()
 
     def on_search_triggered(self, query):

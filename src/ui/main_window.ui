@@ -126,6 +126,7 @@
     <addaction name="actionOpenExistingRepo"/>
     <addaction name="separator"/>
     <addaction name="actionManageLoadedRepos"/>
+    <addaction name="actionOpenTagManager"/>
     <addaction name="separator"/>
     <addaction name="actionImportRepoBackup"/>
    </widget>
@@ -222,6 +223,14 @@
   <action name="actionManageLoadedRepos">
    <property name="text">
     <string>管理已加载的仓库</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionOpenTagManager">
+   <property name="text">
+    <string>标签管理器</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>
