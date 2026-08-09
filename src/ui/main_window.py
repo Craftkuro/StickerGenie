@@ -1,4 +1,5 @@
 import logging
+import sys
 import time
 from traceback import format_tb
 from typing import Optional
@@ -9,7 +10,7 @@ from PyQt6.QtWidgets import QMainWindow, QPushButton, QMessageBox, QWidget, QLab
     QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle, QFileDialog, QComboBox, QSizePolicy, \
     QTabBar
 from PyQt6 import uic
-from PyQt6.QtGui import QCloseEvent, QFont, QPainter, QStandardItemModel, QStandardItem
+from PyQt6.QtGui import QAction, QCloseEvent, QFont, QPainter, QStandardItemModel, QStandardItem
 
 import apppath
 from commons.signal_objects import ImportImagesRequest, MainWindowNewTabRequest
@@ -48,6 +49,7 @@ class MainWindow(QMainWindow):
         # 加载基础 UI
         ui_file_path = apppath.app_path / 'ui' / 'main_window.ui'
         uic.loadUi(ui_file_path, self)
+        self._setup_developer_tools()
 
         self._settings_manager = settings_manager or create_settings_manager()
         self._search_history = services.search.SearchHistory(
@@ -95,6 +97,18 @@ class MainWindow(QMainWindow):
 
         # self.populate_quick_launch_buttons(QUICK_LAUNCH_BUTTON_COUNT)
         self.debug_start_test_view()
+
+    def _setup_developer_tools(self):
+        if getattr(sys, "frozen", False):
+            return
+
+        self.menu_6 = self.menuBar().addMenu("开发工具")
+        self.menu_6.setObjectName("menu_6")
+
+        self.actionCustomDebug = QAction("自定义调试操作", self)
+        self.actionCustomDebug.setObjectName("actionCustomDebug")
+        self.actionCustomDebug.setMenuRole(QAction.MenuRole.NoRole)
+        self.menu_6.addAction(self.actionCustomDebug)
 
     def setup_base_slots(self):
         self.pushButtonAddSticker.clicked.connect(self.basic_import_files)

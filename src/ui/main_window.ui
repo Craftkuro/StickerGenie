@@ -136,16 +136,9 @@
     </property>
     <addaction name="actionOpenSettings"/>
    </widget>
-   <widget class="QMenu" name="menu_6">
-    <property name="title">
-     <string>开发工具</string>
-    </property>
-    <addaction name="actionCustomDebug"/>
-   </widget>
    <addaction name="menu"/>
    <addaction name="menu_2"/>
    <addaction name="menu_4"/>
-   <addaction name="menu_6"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionQuit">
@@ -167,14 +160,6 @@
   <action name="actionOpenSettings">
    <property name="text">
     <string>设置</string>
-   </property>
-   <property name="menuRole">
-    <enum>QAction::MenuRole::NoRole</enum>
-   </property>
-  </action>
-  <action name="actionCustomDebug">
-   <property name="text">
-    <string>自定义调试操作</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>
