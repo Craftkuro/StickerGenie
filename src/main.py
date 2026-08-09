@@ -19,9 +19,11 @@ def main() -> int:
 
     if getattr(sys, "frozen", False):
         application_path = sys._MEIPASS
+        base_data_path = os.path.dirname(sys.executable)
     else:
         application_path = os.path.dirname(os.path.abspath(__file__))
-    apppath.setup_data_path(application_path)
+        base_data_path = os.path.dirname(application_path)
+    apppath.setup_data_path(application_path, base_data_path)
 
     import services.startup
     import ui.main_window
