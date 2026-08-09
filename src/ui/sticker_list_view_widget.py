@@ -14,8 +14,8 @@ from PyQt6.QtWidgets import (
 
 import commons.constants
 from commons.roles import ROLE_BLOB_ENTITY
+import services.global_instances
 from services.thumbnail_provider import ThumbnailProvider
-#import commons.classes
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,11 @@ class StickerItemDelegate(QStyledItemDelegate):
         thumbnail_provider: ThumbnailProvider | None = None,
     ):
         super().__init__(parent)
-        self._thumbnail_provider = thumbnail_provider or ThumbnailProvider()
+        self._thumbnail_provider = (
+            thumbnail_provider
+            or services.global_instances.current_thumbnail_provider
+            or ThumbnailProvider()
+        )
 
     def set_thumbnail_provider(self, thumbnail_provider: ThumbnailProvider) -> None:
         self._thumbnail_provider = thumbnail_provider
@@ -124,7 +128,7 @@ class StickerListView(QListView):
     通用的表情包列表视图
     """
 
-    THUMBNAIL_SIZE = 144
+    THUMBNAIL_SIZE = commons.constants.THUMBNAIL_SIZE
     ITEM_SIZE = StickerItemDelegate.ITEM_SIZE
 
     def __init__(

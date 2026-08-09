@@ -6,3 +6,10 @@ LIST_DISPLAY_MODE_ICON = 1
 
 SORT_BY_NAME = 0
 SORT_BY_DATE = 1
+
+# 缩略图：最长边尺寸（像素）
+THUMBNAIL_SIZE = 150
+# 原图长宽均不超过该值时，不生成缩略图，直接使用原图
+THUMBNAIL_SKIP_THRESHOLD = 225
+# 缩略图内存缓存的最大条目数（LRU）
+THUMBNAIL_CACHE_MAX_COUNT = 1000

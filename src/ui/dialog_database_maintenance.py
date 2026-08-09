@@ -28,6 +28,7 @@ class DatabaseMaintenanceDialog(QDialog):
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.checkBoxGenerateVectors.toggled.connect(self._update_controls)
         self.checkBoxDeleteOrphanBlobs.toggled.connect(self._update_controls)
+        self.checkBoxDeleteThumbnailCache.toggled.connect(self._update_controls)
         self.pushButtonStart.clicked.connect(self._request_start)
         self.pushButtonCancel.clicked.connect(self._cancel_or_close)
         self._update_controls()
@@ -42,6 +43,7 @@ class DatabaseMaintenanceDialog(QDialog):
             delete_orphan_blobs=self.checkBoxDeleteOrphanBlobs.isChecked(),
             generate_vectors=self.checkBoxGenerateVectors.isChecked(),
             vector_scope=scope,
+            delete_thumbnail_cache=self.checkBoxDeleteThumbnailCache.isChecked(),
         )
 
     def update_progress(self, progress: DatabaseMaintenanceProgress) -> None:
@@ -78,6 +80,7 @@ class DatabaseMaintenanceDialog(QDialog):
         self.pushButtonStart.setEnabled(
             self.checkBoxDeleteOrphanBlobs.isChecked()
             or self.checkBoxGenerateVectors.isChecked()
+            or self.checkBoxDeleteThumbnailCache.isChecked()
         )
 
     def _request_start(self) -> None:

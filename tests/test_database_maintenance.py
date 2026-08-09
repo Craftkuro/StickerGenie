@@ -21,6 +21,7 @@ from services.database_maintenance import (
 )
 from stickerdb.v1.sticker_db import StickerDBV1
 from stickerdb.vectordb import VectorMetadata, VectorRecord
+from thumbnail_disk_storage import ThumbnailDiskStorage
 from utils.image_metadata import get_image_metadata
 
 
@@ -91,14 +92,27 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         self.db = StickerDBV1(str(self.root / "library.db"))
         self.blob_storage = BlobStorage(str(self.root / "blob"))
         self.vector_store = FakeVectorStore()
+        self.thumbnail_storage = ThumbnailDiskStorage(
+            str(self.root / "thumbnails")
+        )
 
         self._old_db = services.global_instances.current_library_db
         self._old_blob = services.global_instances.current_blob_storage
         self._old_vectors = services.global_instances.current_vector_store
+        self._old_thumbnails = (
+            services.global_instances.current_thumbnail_disk_storage
+        )
+        self._old_thumbnail_provider = (
+            services.global_instances.current_thumbnail_provider
+        )
         self._old_app_path = apppath.app_path
         services.global_instances.current_library_db = self.db
         services.global_instances.current_blob_storage = self.blob_storage
         services.global_instances.current_vector_store = self.vector_store
+        services.global_instances.current_thumbnail_disk_storage = (
+            self.thumbnail_storage
+        )
+        services.global_instances.current_thumbnail_provider = None
         apppath.app_path = self.root
         (self.root / "vit_b_16_features.onnx").write_bytes(b"model")
 
@@ -106,6 +120,12 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         services.global_instances.current_library_db = self._old_db
         services.global_instances.current_blob_storage = self._old_blob
         services.global_instances.current_vector_store = self._old_vectors
+        services.global_instances.current_thumbnail_disk_storage = (
+            self._old_thumbnails
+        )
+        services.global_instances.current_thumbnail_provider = (
+            self._old_thumbnail_provider
+        )
         apppath.app_path = self._old_app_path
         self.db.engine.dispose()
         self._temp_dir.cleanup()
@@ -311,6 +331,38 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         ]
         self.assertEqual(50, blob_events[-1].percent)
         self.assertEqual(100, progress_events[-1].percent)
+
+    def test_delete_thumbnail_cache_removes_files_and_clears_memory(self):
+        (self.thumbnail_storage.base_path / "ab").mkdir(exist_ok=True)
+        (self.thumbnail_storage.base_path / "ab" / ("ab" + "0" * 38 + ".png")).write_bytes(
+            b"thumb1"
+        )
+        (self.thumbnail_storage.base_path / "cd").mkdir(exist_ok=True)
+        (self.thumbnail_storage.base_path / "cd" / ("cd" + "1" * 38 + ".png")).write_bytes(
+            b"thumb2"
+        )
+        provider = Mock()
+        services.global_instances.current_thumbnail_provider = provider
+        progress_events = []
+
+        result = run_database_maintenance(
+            DatabaseMaintenanceOptions(
+                delete_orphan_blobs=False,
+                generate_vectors=False,
+                delete_thumbnail_cache=True,
+            ),
+            progress=progress_events.append,
+        )
+
+        self.assertEqual(2, result.deleted_thumbnail_count)
+        self.assertEqual((), result.thumbnail_errors)
+        provider.clear_memory_cache.assert_called_once_with()
+        self.assertEqual([], list(self.thumbnail_storage.base_path.iterdir()))
+        self.assertEqual(100, progress_events[-1].percent)
+        self.assertEqual(
+            "删除缩略图缓存",
+            progress_events[-1].task_name,
+        )
 
     def test_multiple_vector_batches_share_one_extraction_job(self):
         self._add_sticker("first.png", "white")

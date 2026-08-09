@@ -35,14 +35,27 @@ class DatabaseMaintenanceDialogTests(unittest.TestCase):
 
         self.assertTrue(options.delete_orphan_blobs)
         self.assertTrue(options.generate_vectors)
+        self.assertFalse(options.delete_thumbnail_cache)
         self.assertIs(VectorMaintenanceScope.MISSING, options.vector_scope)
 
     def test_start_is_disabled_when_no_task_is_selected(self):
         self.dialog.checkBoxDeleteOrphanBlobs.setChecked(False)
         self.dialog.checkBoxGenerateVectors.setChecked(False)
+        self.dialog.checkBoxDeleteThumbnailCache.setChecked(False)
 
         self.assertFalse(self.dialog.pushButtonStart.isEnabled())
         self.assertFalse(self.dialog.comboBoxVectorScope.isEnabled())
+
+    def test_thumbnail_cache_task_alone_enables_start(self):
+        self.dialog.checkBoxDeleteOrphanBlobs.setChecked(False)
+        self.dialog.checkBoxGenerateVectors.setChecked(False)
+        self.dialog.checkBoxDeleteThumbnailCache.setChecked(True)
+
+        self.assertTrue(self.dialog.pushButtonStart.isEnabled())
+        options = self.dialog.selected_options()
+        self.assertFalse(options.delete_orphan_blobs)
+        self.assertFalse(options.generate_vectors)
+        self.assertTrue(options.delete_thumbnail_cache)
 
     def test_start_emits_options_and_locks_configuration(self):
         requests = []

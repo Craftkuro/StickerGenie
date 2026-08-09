@@ -23,6 +23,7 @@ from blob_storage import BlobFileEntity
 from commons.dto import StickerImage
 from commons.roles import ROLE_BLOB_ENTITY
 from services.sticker_library_viewer_service import build_sticker_model
+from services.thumbnail_provider import ThumbnailProvider
 from ui.page_sticker_library_view import StickerLibraryViewPage
 from ui.sticker_list_view_widget import (
     StickerItemDelegate,
@@ -74,7 +75,7 @@ class StickerListViewTests(unittest.TestCase):
             QAbstractItemView.DragDropMode.NoDragDrop,
             view.dragDropMode(),
         )
-        self.assertEqual(QSize(144, 144), view.iconSize())
+        self.assertEqual(QSize(150, 150), view.iconSize())
         self.assertEqual(QSize(160, 160), view.gridSize())
         self.assertTrue(view.uniformItemSizes())
         self.assertFalse(view.wordWrap())
@@ -95,7 +96,6 @@ class StickerListViewTests(unittest.TestCase):
             model = QStandardItemModel()
             model.appendRow(item)
 
-            delegate = StickerItemDelegate()
             canvas = QImage(160, 160, QImage.Format.Format_ARGB32)
             canvas.fill(0xFF00FF00)
             painter = QPainter(canvas)
@@ -106,7 +106,16 @@ class StickerListViewTests(unittest.TestCase):
                 with patch(
                     "services.global_instances.current_blob_storage",
                     FakeBlobStorage(image_path),
+                ), patch(
+                    "services.global_instances.current_thumbnail_disk_storage",
+                    None,
+                ), patch(
+                    "services.global_instances.current_thumbnail_provider",
+                    None,
                 ):
+                    delegate = StickerItemDelegate(
+                        thumbnail_provider=ThumbnailProvider()
+                    )
                     delegate.paint(painter, option, model.index(0, 0))
             finally:
                 painter.end()
@@ -124,7 +133,7 @@ class StickerListViewTests(unittest.TestCase):
 
             width = max_x - min_x + 1
             height = max_y - min_y + 1
-            self.assertEqual((144, 36), (width, height))
+            self.assertEqual((144, 35), (width, height))
 
     def test_library_page_uses_sticker_list_view(self):
         page = StickerLibraryViewPage(auto_refresh=False)

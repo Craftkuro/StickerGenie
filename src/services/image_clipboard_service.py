@@ -98,40 +98,58 @@ def _detect_mime_type(source_path: Path) -> str:
     return mime_type
 
 
+def _local_file_url_for_html(path: Path) -> str:
+    """Return a file:/// URL for QQ/WeChat HTML paste.
+
+    Keep non-ASCII path segments raw instead of percent-encoding them:
+    QQ/WeChat's HTML parser follows the article's ``file:///path`` form,
+    while Qt's QUrl.toEncoded() output may not be resolved by them.
+    """
+    return f"file:///{path.as_posix()}"
+
+
 def create_image_mime_data(
     source_path: str | Path,
     display_name: str,
     *,
-    include_static_gif_fallback: bool = True,
     staging_root: str | Path | None = None,
 ) -> tuple[QMimeData, Path]:
-    """Build compound clipboard data and a staged file with a readable name."""
+    """Build clipboard data and a staged file with a readable name.
+
+    GIFs are exposed as an HTML fragment with a local file URL so QQ/WeChat
+    paste them as animated images (plain bitmap copies only carry the first
+    frame). Other images use file + raw bytes + bitmap formats so they paste
+    everywhere.
+    """
     source = Path(source_path)
     if not source.is_file():
         raise FileNotFoundError(f"图片文件不存在：{source}")
 
-    encoded_image = source.read_bytes()
     mime_type = _detect_mime_type(source)
     is_gif = mime_type == "image/gif" or source.suffix.casefold() == ".gif"
     root = Path(staging_root) if staging_root is not None else _default_staging_root()
     staged_path = _stage_image_file(source, display_name, root)
-    staged_url = QUrl.fromLocalFile(str(staged_path.resolve()))
 
     mime_data = QMimeData()
+    if is_gif:
+        local_url = _local_file_url_for_html(staged_path.resolve())
+        mime_data.setHtml(
+            '<html><body><!--StartFragment-->'
+            '<meta charset="utf-8">'
+            f'<img src="{html.escape(local_url, quote=True)}" />'
+            '<!--EndFragment--></body></html>'
+        )
+        return mime_data, staged_path
+
+    encoded_image = source.read_bytes()
+    staged_url = QUrl.fromLocalFile(str(staged_path.resolve()))
     mime_data.setUrls([staged_url])
     mime_data.setData(mime_type, QByteArray(encoded_image))
 
-    if is_gif:
-        encoded_url = bytes(staged_url.toEncoded()).decode("ascii")
-        mime_data.setHtml(
-            f'<meta charset="utf-8"><img src="{html.escape(encoded_url, quote=True)}">'
-        )
-
-    if not is_gif or include_static_gif_fallback:
-        image = QImage.fromData(encoded_image)
-        if image.isNull():
-            raise ValueError(f"无法读取图片数据：{source.name}")
-        mime_data.setImageData(image)
+    image = QImage.fromData(encoded_image)
+    if image.isNull():
+        raise ValueError(f"无法读取图片数据：{source.name}")
+    mime_data.setImageData(image)
 
     return mime_data, staged_path
 
@@ -139,17 +157,11 @@ def create_image_mime_data(
 def copy_image_to_clipboard(
     source_path: str | Path,
     display_name: str,
-    *,
-    include_static_gif_fallback: bool = True,
 ) -> Path:
-    """Copy an image as both encoded image data and a file reference."""
+    """Copy an image to the clipboard (GIFs as an HTML fragment)."""
     if QGuiApplication.instance() is None:
         raise RuntimeError("应用程序尚未初始化。")
 
-    mime_data, staged_path = create_image_mime_data(
-        source_path,
-        display_name,
-        include_static_gif_fallback=include_static_gif_fallback,
-    )
+    mime_data, staged_path = create_image_mime_data(source_path, display_name)
     QGuiApplication.clipboard().setMimeData(mime_data)
     return staged_path

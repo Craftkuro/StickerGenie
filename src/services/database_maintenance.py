@@ -39,9 +39,14 @@ class DatabaseMaintenanceOptions:
     delete_orphan_blobs: bool = True
     generate_vectors: bool = True
     vector_scope: VectorMaintenanceScope = VectorMaintenanceScope.MISSING
+    delete_thumbnail_cache: bool = False
 
     def __post_init__(self) -> None:
-        if not self.delete_orphan_blobs and not self.generate_vectors:
+        if not (
+            self.delete_orphan_blobs
+            or self.generate_vectors
+            or self.delete_thumbnail_cache
+        ):
             raise ValueError("至少需要选择一个维护操作")
         if not isinstance(self.vector_scope, VectorMaintenanceScope):
             raise TypeError("vector_scope must be a VectorMaintenanceScope")
@@ -69,8 +74,10 @@ class DatabaseMaintenanceResult:
     vectorized_count: int = 0
     relinked_vector_count: int = 0
     skipped_vector_count: int = 0
+    deleted_thumbnail_count: int = 0
     blob_errors: tuple[str, ...] = ()
     vector_errors: tuple[str, ...] = ()
+    thumbnail_errors: tuple[str, ...] = ()
     cancelled: bool = False
 
 
@@ -191,6 +198,53 @@ def _delete_orphan_blobs(
             cancellable=False,
         )
 
+    return deleted_count, tuple(errors)
+
+
+def _delete_thumbnail_cache(
+    *,
+    task_index: int,
+    task_count: int,
+    progress: ProgressCallback | None,
+) -> tuple[int, tuple[str, ...]]:
+    storage = services.global_instances.current_thumbnail_disk_storage
+    if storage is None:
+        raise RuntimeError("缩略图缓存存储未初始化，无法执行维护")
+
+    task_name = "删除缩略图缓存"
+    _report_progress(
+        progress,
+        task_index=task_index,
+        task_count=task_count,
+        task_fraction=0.0,
+        task_name=task_name,
+        status="正在删除缩略图缓存",
+        completed=0,
+        total=0,
+        cancellable=False,
+    )
+
+    deleted_count, errors = storage.delete_all()
+
+    provider = services.global_instances.current_thumbnail_provider
+    if provider is not None:
+        try:
+            provider.clear_memory_cache()
+        except Exception as exc:
+            logger.exception("清空缩略图内存缓存失败")
+            errors = [*errors, f"内存缓存清空失败：{exc}"]
+
+    _report_progress(
+        progress,
+        task_index=task_index,
+        task_count=task_count,
+        task_fraction=1.0,
+        task_name=task_name,
+        status="缩略图缓存删除完成",
+        completed=deleted_count,
+        total=deleted_count,
+        cancellable=False,
+    )
     return deleted_count, tuple(errors)
 
 
@@ -454,14 +508,20 @@ def run_database_maintenance(
     if database is None:
         raise RuntimeError("仓库数据库尚未初始化")
 
-    task_count = int(options.delete_orphan_blobs) + int(options.generate_vectors)
+    task_count = (
+        int(options.delete_orphan_blobs)
+        + int(options.generate_vectors)
+        + int(options.delete_thumbnail_cache)
+    )
     task_index = 0
     deleted_blob_count = 0
     vectorized_count = 0
     relinked_vector_count = 0
     skipped_vector_count = 0
+    deleted_thumbnail_count = 0
     blob_errors: tuple[str, ...] = ()
     vector_errors: tuple[str, ...] = ()
+    thumbnail_errors: tuple[str, ...] = ()
 
     if options.delete_orphan_blobs:
         records = database.list_maintenance_records()
@@ -491,13 +551,23 @@ def run_database_maintenance(
             cancel_event=cancel_event,
         )
 
+    if options.delete_thumbnail_cache:
+        deleted_thumbnail_count, thumbnail_errors = _delete_thumbnail_cache(
+            task_index=task_index,
+            task_count=task_count,
+            progress=progress,
+        )
+        task_index += 1
+
     return DatabaseMaintenanceResult(
         deleted_blob_count=deleted_blob_count,
         vectorized_count=vectorized_count,
         relinked_vector_count=relinked_vector_count,
         skipped_vector_count=skipped_vector_count,
+        deleted_thumbnail_count=deleted_thumbnail_count,
         blob_errors=blob_errors,
         vector_errors=vector_errors,
+        thumbnail_errors=thumbnail_errors,
         cancelled=cancelled,
     )
 

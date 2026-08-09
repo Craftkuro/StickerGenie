@@ -273,11 +273,14 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _database_maintenance_summary(result) -> str:
-        return (
-            f"已删除 {result.deleted_blob_count} 个未引用Blob，"
-            f"生成 {result.vectorized_count} 个向量，"
-            f"修复 {result.relinked_vector_count} 个向量关联。"
-        )
+        parts = [f"已删除 {result.deleted_blob_count} 个未引用Blob"]
+        if result.deleted_thumbnail_count:
+            parts.append(
+                f"删除 {result.deleted_thumbnail_count} 个缩略图缓存"
+            )
+        parts.append(f"生成 {result.vectorized_count} 个向量")
+        parts.append(f"修复 {result.relinked_vector_count} 个向量关联")
+        return "，".join(parts) + "。"
 
     @pyqtSlot(object)
     def _on_database_maintenance_finished(self, result):
@@ -287,7 +290,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message, 8000)
         QMessageBox.information(self, "数据库维护完成", message)
 
-        errors = result.blob_errors + result.vector_errors
+        errors = (
+            result.blob_errors
+            + result.vector_errors
+            + result.thumbnail_errors
+        )
         if errors:
             details = "\n".join(errors[:10])
             remaining = len(errors) - 10

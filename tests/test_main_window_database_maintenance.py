@@ -125,6 +125,20 @@ class MainWindowDatabaseMaintenanceTests(unittest.TestCase):
         status_bar.showMessage.assert_called_once_with(message, 8000)
         information.assert_called_once_with(window, "数据库维护完成", message)
 
+    def test_completion_summary_includes_thumbnail_cache_deletion(self):
+        result = DatabaseMaintenanceResult(
+            deleted_blob_count=0,
+            deleted_thumbnail_count=5,
+        )
+
+        message = MainWindow._database_maintenance_summary(result)
+
+        self.assertEqual(
+            "已删除 0 个未引用Blob，删除 5 个缩略图缓存，"
+            "生成 0 个向量，修复 0 个向量关联。",
+            message,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

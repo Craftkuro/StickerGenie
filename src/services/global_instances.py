@@ -12,6 +12,12 @@ current_library_db: StickerDBV1 | None = None
 # 已打开的blob存储实例
 current_blob_storage: BlobStorage | None = None
 
+# 缩略图磁盘缓存实例
+current_thumbnail_disk_storage = None
+
+# 全局共享的缩略图服务实例（含内存 LRU 缓存）
+current_thumbnail_provider = None
+
 # 已打开的向量数据库实例
 current_vector_store: ChromaVectorStore | None = None
 

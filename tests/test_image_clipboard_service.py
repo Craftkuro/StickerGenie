@@ -43,7 +43,7 @@ class ImageClipboardServiceTests(unittest.TestCase):
             self.assertTrue(mime_data.hasImage())
             self.assertFalse(mime_data.hasHtml())
 
-    def test_gif_exposes_animation_formats_and_static_bitmap_fallback(self):
+    def test_gif_exposes_html_fragment_with_local_file_url(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             source = root / "stored-hash.gif"
@@ -64,43 +64,19 @@ class ImageClipboardServiceTests(unittest.TestCase):
             )
 
             self.assertEqual("动态表情.gif", staged_path.name)
-            self.assertEqual(source.read_bytes(), bytes(mime_data.data("image/gif")))
-            self.assertEqual(
-                [QUrl.fromLocalFile(str(staged_path.resolve()))],
-                mime_data.urls(),
-            )
+            self.assertEqual(source.read_bytes(), staged_path.read_bytes())
             self.assertTrue(mime_data.hasHtml())
+            self.assertFalse(mime_data.hasUrls())
+            self.assertFalse(mime_data.hasImage())
+            self.assertNotIn("image/gif", mime_data.formats())
+            html_text = mime_data.html()
+            self.assertIn("<!--StartFragment-->", html_text)
+            self.assertIn("<!--EndFragment-->", html_text)
+            self.assertIn('<meta charset="utf-8">', html_text)
             self.assertIn(
-                bytes(QUrl.fromLocalFile(str(staged_path.resolve())).toEncoded()).decode(
-                    "ascii"
-                ),
-                mime_data.html(),
+                f"file:///{staged_path.resolve().as_posix()}",
+                html_text,
             )
-            self.assertIn("application/x-qt-image", mime_data.formats())
-            self.assertTrue(mime_data.hasImage())
-
-    def test_gif_static_bitmap_fallback_can_be_disabled(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            source = root / "stored-hash.gif"
-            first_frame = Image.new("RGBA", (2, 2), "red")
-            second_frame = Image.new("RGBA", (2, 2), "blue")
-            first_frame.save(
-                source,
-                save_all=True,
-                append_images=[second_frame],
-                duration=100,
-                loop=0,
-            )
-
-            mime_data, _ = create_image_mime_data(
-                source,
-                "动态表情.gif",
-                include_static_gif_fallback=False,
-                staging_root=root / "clipboard",
-            )
-
-            self.assertNotIn("application/x-qt-image", mime_data.formats())
 
     def test_copy_cleans_only_expired_staging_directories(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -27,7 +27,7 @@ class CopyImageToClipboardScriptTests(unittest.TestCase):
             self.assertEqual(path.resolve(), Path(mime_data.urls()[0].toLocalFile()))
             self.assertTrue(mime_data.hasImage())
 
-    def test_gif_contains_dynamic_formats_and_default_first_frame(self):
+    def test_gif_exposes_html_fragment_with_local_file_url(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "sample.gif"
             first_frame = Image.new("RGBA", (2, 2), "red")
@@ -44,27 +44,19 @@ class CopyImageToClipboardScriptTests(unittest.TestCase):
 
             self.assertEqual("image/gif", mime_type)
             self.assertTrue(is_gif)
-            self.assertEqual(path.read_bytes(), bytes(mime_data.data("image/gif")))
             self.assertTrue(mime_data.hasHtml())
-            self.assertTrue(mime_data.hasImage())
-
-    def test_gif_first_frame_can_be_disabled(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / "sample.gif"
-            Image.new("RGBA", (2, 2), "red").save(path)
-
-            mime_data, _, _ = build_compound_mime_data(
-                path,
-                include_static_gif_fallback=False,
-            )
-
-            self.assertNotIn("application/x-qt-image", mime_data.formats())
+            self.assertFalse(mime_data.hasImage())
+            self.assertNotIn("image/gif", mime_data.formats())
+            html_text = mime_data.html()
+            self.assertIn("<!--StartFragment-->", html_text)
+            self.assertIn("<!--EndFragment-->", html_text)
+            self.assertIn('<meta charset="utf-8">', html_text)
+            self.assertIn(f"file:///{path.resolve().as_posix()}", html_text)
 
     def test_command_line_option(self):
-        options = parse_arguments(["--no-static-gif-fallback", "sample.gif"])
+        options = parse_arguments(["sample.gif"])
 
         self.assertEqual(Path("sample.gif"), options.image_path)
-        self.assertTrue(options.no_static_gif_fallback)
 
 
 if __name__ == "__main__":
