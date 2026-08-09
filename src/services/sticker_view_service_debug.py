@@ -4,7 +4,7 @@ from PyQt6.QtGui import QStandardItemModel, QStandardItem, QIcon
 
 import services.global_instances
 from blob_storage import BlobFileEntity
-from commons.roles import ROLE_FILE_PATH
+from commons.roles import ROLE_BLOB_ENTITY, ROLE_FILE_PATH
 
 
 def start_debug_view():
@@ -15,9 +15,11 @@ def start_debug_view():
 
 
     for image in images:
-        file_path = current_blob_storage.read_file(BlobFileEntity(image.hash, image.extension))
+        blob_entity = BlobFileEntity(image.hash, image.extension)
+        file_path = current_blob_storage.read_file(blob_entity)
         icon = QIcon(pathlib.Path(file_path).as_posix())
         item = QStandardItem(icon, image.original_file_name)
+        item.setData(blob_entity, ROLE_BLOB_ENTITY)
         item.setData(file_path, ROLE_FILE_PATH)
         model.insertRow(model.rowCount(), item)
 

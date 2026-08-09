@@ -10,3 +10,5 @@ ROLE_FILE_PATH = Qt.ItemDataRole.UserRole
 ROLE_STICKER_IMAGE = Qt.ItemDataRole.UserRole + 1
 # 相似图片结果的相似度；普通图库项为 None。
 ROLE_SIMILARITY = Qt.ItemDataRole.UserRole + 2
+# 图片对应的 BlobFileEntity（hash + extension），用于缩略图等按 blob 身份处理的操作。
+ROLE_BLOB_ENTITY = Qt.ItemDataRole.UserRole + 3

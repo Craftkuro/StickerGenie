@@ -19,8 +19,9 @@ from PyQt6.QtWidgets import (
 )
 
 import apppath
+from blob_storage import BlobFileEntity
 from commons.dto import StickerImage
-from commons.roles import ROLE_FILE_PATH
+from commons.roles import ROLE_BLOB_ENTITY
 from services.sticker_library_viewer_service import build_sticker_model
 from ui.page_sticker_library_view import StickerLibraryViewPage
 from ui.sticker_list_view_widget import (
@@ -87,7 +88,10 @@ class StickerListViewTests(unittest.TestCase):
             self.assertTrue(image.save(str(image_path)))
 
             item = QStandardItem(QIcon(str(image_path)), "")
-            item.setData(str(image_path), ROLE_FILE_PATH)
+            item.setData(
+                BlobFileEntity("wide-hash", ".jpg"),
+                ROLE_BLOB_ENTITY,
+            )
             model = QStandardItemModel()
             model.appendRow(item)
 
@@ -99,7 +103,11 @@ class StickerListViewTests(unittest.TestCase):
                 option = QStyleOptionViewItem()
                 option.rect = QRect(0, 0, 160, 160)
                 option.state = QStyle.StateFlag.State_Enabled
-                delegate.paint(painter, option, model.index(0, 0))
+                with patch(
+                    "services.global_instances.current_blob_storage",
+                    FakeBlobStorage(image_path),
+                ):
+                    delegate.paint(painter, option, model.index(0, 0))
             finally:
                 painter.end()
 

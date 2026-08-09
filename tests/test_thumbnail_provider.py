@@ -8,7 +8,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtGui import QImage
 from PyQt6.QtWidgets import QApplication
 
+from blob_storage import BlobFileEntity
 from services.thumbnail_provider import ThumbnailProvider
+
+
+class FakeBlobStorage:
+    def __init__(self, file_path: Path):
+        self.file_path = file_path
+
+    def read_file(self, _entity):
+        return str(self.file_path)
 
 
 class ThumbnailProviderTests(unittest.TestCase):
@@ -26,7 +35,12 @@ class ThumbnailProviderTests(unittest.TestCase):
     def test_wide_image_keeps_aspect_ratio(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = self._save_image(Path(temp_dir), "wide.jpg", 400, 100)
-            thumbnail = ThumbnailProvider().get_thumbnail(file_path)
+            provider = ThumbnailProvider(
+                blob_storage=FakeBlobStorage(Path(file_path))
+            )
+            thumbnail = provider.get_thumbnail(
+                BlobFileEntity("wide-hash", ".jpg")
+            )
 
         self.assertFalse(thumbnail.isNull())
         self.assertEqual((144, 36), (thumbnail.width(), thumbnail.height()))
@@ -34,7 +48,12 @@ class ThumbnailProviderTests(unittest.TestCase):
     def test_tall_image_keeps_aspect_ratio(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = self._save_image(Path(temp_dir), "tall.jpg", 100, 400)
-            thumbnail = ThumbnailProvider().get_thumbnail(file_path)
+            provider = ThumbnailProvider(
+                blob_storage=FakeBlobStorage(Path(file_path))
+            )
+            thumbnail = provider.get_thumbnail(
+                BlobFileEntity("tall-hash", ".jpg")
+            )
 
         self.assertFalse(thumbnail.isNull())
         self.assertEqual((36, 144), (thumbnail.width(), thumbnail.height()))
@@ -42,13 +61,23 @@ class ThumbnailProviderTests(unittest.TestCase):
     def test_small_image_is_scaled_up_to_longest_edge(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = self._save_image(Path(temp_dir), "small.png", 20, 20)
-            thumbnail = ThumbnailProvider().get_thumbnail(file_path)
+            provider = ThumbnailProvider(
+                blob_storage=FakeBlobStorage(Path(file_path))
+            )
+            thumbnail = provider.get_thumbnail(
+                BlobFileEntity("small-hash", ".png")
+            )
 
         self.assertFalse(thumbnail.isNull())
         self.assertEqual((144, 144), (thumbnail.width(), thumbnail.height()))
 
     def test_missing_file_returns_null_pixmap(self):
-        thumbnail = ThumbnailProvider().get_thumbnail("missing-file.png")
+        provider = ThumbnailProvider(
+            blob_storage=FakeBlobStorage(Path("missing-file.png"))
+        )
+        thumbnail = provider.get_thumbnail(
+            BlobFileEntity("missing-hash", ".png")
+        )
 
         self.assertTrue(thumbnail.isNull())
 

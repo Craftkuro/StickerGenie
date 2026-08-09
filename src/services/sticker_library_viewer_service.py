@@ -10,7 +10,12 @@ from PyQt6.QtGui import QStandardItemModel, QIcon, QStandardItem
 import services.global_instances
 from blob_storage import BlobFileEntity
 from commons.dto import StickerImage
-from commons.roles import ROLE_FILE_PATH, ROLE_SIMILARITY, ROLE_STICKER_IMAGE
+from commons.roles import (
+    ROLE_BLOB_ENTITY,
+    ROLE_FILE_PATH,
+    ROLE_SIMILARITY,
+    ROLE_STICKER_IMAGE,
+)
 from commons.signal_objects import MainWindowNewTabRequest
 
 from ui.page_sticker_library_view import StickerLibraryViewPage
@@ -62,9 +67,10 @@ def build_sticker_model(
     current_blob_storage = services.global_instances.current_blob_storage
 
     for image in images:
+        blob_entity = BlobFileEntity(image.hash, image.extension)
         try:
             file_path = current_blob_storage.read_file(
-                BlobFileEntity(image.hash, image.extension)
+                blob_entity
             )
         except FileNotFoundError:
             logger.warning("跳过 Blob 文件不存在的图片，id=%s", image.id)
@@ -74,6 +80,7 @@ def build_sticker_model(
         item = QStandardItem(icon, "")
         item.setAccessibleText(image.original_file_name)
         item.setData(file_path, ROLE_FILE_PATH)
+        item.setData(blob_entity, ROLE_BLOB_ENTITY)
         item.setData(image, ROLE_STICKER_IMAGE)
         similarity = similarities.get(image.id) if similarities else None
         item.setData(similarity, ROLE_SIMILARITY)

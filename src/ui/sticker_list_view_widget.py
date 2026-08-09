@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 import commons.constants
-from commons.roles import ROLE_FILE_PATH
+from commons.roles import ROLE_BLOB_ENTITY
 from services.thumbnail_provider import ThumbnailProvider
 #import commons.classes
 
@@ -43,9 +43,9 @@ class StickerItemDelegate(QStyledItemDelegate):
         requested_size: QSize,
         mode: QIcon.Mode,
     ) -> QPixmap:
-        file_path = index.data(ROLE_FILE_PATH)
-        if isinstance(file_path, str) and file_path:
-            return self._thumbnail_provider.get_thumbnail(file_path)
+        blob_entity = index.data(ROLE_BLOB_ENTITY)
+        if blob_entity is not None:
+            return self._thumbnail_provider.get_thumbnail(blob_entity)
 
         icon_data = index.data(Qt.ItemDataRole.DecorationRole)
         if isinstance(icon_data, QIcon):
