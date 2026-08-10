@@ -16,8 +16,8 @@ Pillow>=10.0.0
 # ONNX 模型推理 (CPU 版本)
 onnxruntime>=1.16.0
 
-# 如果需要 GPU 加速，请注释掉上面的 onnxruntime，并取消下面的注释:
-# onnxruntime-gpu>=1.16.0
+# ONNX 模型推理 (GPU 版本；同时包含 CPU provider，可回退 CPU)
+# onnxruntime-gpu[cuda,cudnn]>=1.28.0
 
 # 余弦相似度计算(用于图像相似度查找)
 scipy>=1.11.0

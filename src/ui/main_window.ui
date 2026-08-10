@@ -97,6 +97,13 @@
          </layout>
         </widget>
        </item>
+       <item>
+        <widget class="QPushButton" name="pushButtonMainMenu">
+         <property name="text">
+          <string>Menu</string>
+         </property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </item>

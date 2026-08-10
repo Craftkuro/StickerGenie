@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_all
 
 
@@ -26,6 +28,17 @@ rust_datas, rust_binaries, rust_hiddenimports = collect_all("chromadb_rust_bindi
 datas += chromadb_datas + rust_datas
 binaries = chromadb_binaries + rust_binaries
 hiddenimports = chromadb_hiddenimports + rust_hiddenimports
+
+# NVIDIA CUDA/cuDNN 运行库：打包后统一放到 onnxruntime/capi 目录，
+# 与 onnxruntime_providers_cuda.dll 同级，便于 Windows 加载和 preload_dlls() 找到。
+#nvidia_dll_dirs = [
+#    Path("vendor/nvidia/cu13/bin/x86_64"),
+#    Path("vendor/nvidia/cudnn/bin"),
+#]
+#for dll_dir in nvidia_dll_dirs:
+#    if dll_dir.is_dir():
+#        for dll in sorted(dll_dir.glob("*.dll")):
+#            binaries.append((str(dll), "onnxruntime/capi"))
 
 
 a = Analysis(
@@ -55,7 +68,16 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=[
+        "onnxruntime*.dll",
+        "onnxruntime_providers*.dll",
+        "cudart64*.dll",
+        "cublas*.dll",
+        "cufft64*.dll",
+        "cudnn*.dll",
+        "nvrtc*.dll",
+        "nvJitLink*.dll",
+    ],
     runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
@@ -71,6 +93,15 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=[
+        "onnxruntime*.dll",
+        "onnxruntime_providers*.dll",
+        "cudart64*.dll",
+        "cublas*.dll",
+        "cufft64*.dll",
+        "cudnn*.dll",
+        "nvrtc*.dll",
+        "nvJitLink*.dll",
+    ],
     name="StickerGenie",
 )
