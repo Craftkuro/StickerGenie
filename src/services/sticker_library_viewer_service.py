@@ -18,10 +18,8 @@ from commons.roles import (
 )
 from commons.signal_objects import MainWindowNewTabRequest
 
-from ui.page_sticker_library_view import (
-    FiniteStickerCollectionPage,
-    InfiniteStickerCollectionPage,
-)
+from ui.page_finite_sticker_collection import FiniteStickerCollectionPage
+from ui.page_infinite_sticker_collection import InfiniteStickerCollectionPage
 
 logger = logging.getLogger(__name__)
 

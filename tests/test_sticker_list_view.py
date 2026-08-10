@@ -27,10 +27,8 @@ from commons.dto import StickerImage
 from commons.roles import ROLE_BLOB_ENTITY
 from services.sticker_library_viewer_service import build_sticker_model
 from services.thumbnail_provider import ThumbnailProvider
-from ui.page_sticker_library_view import (
-    FiniteStickerCollectionPage,
-    InfiniteStickerCollectionPage,
-)
+from ui.page_finite_sticker_collection import FiniteStickerCollectionPage
+from ui.page_infinite_sticker_collection import InfiniteStickerCollectionPage
 from ui.sticker_list_view_widget import (
     StickerItemDelegate,
     StickerListView,

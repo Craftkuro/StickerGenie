@@ -10,7 +10,8 @@ from PyInstaller.utils.hooks import collect_all
 # 与代码里 apppath.app_path / "ui" / "*.ui" 和 apppath.app_path / "*.onnx" 对应。
 datas = [
     ("src/ui/main_window.ui", "ui"),
-    ("src/ui/page_sticker_library_view.ui", "ui"),
+    ("src/ui/page_finite_sticker_collection.ui", "ui"),
+    ("src/ui/page_infinite_sticker_collection.ui", "ui"),
     ("src/ui/dialog_tag_manager.ui", "ui"),
     ("src/ui/dialog_settings.ui", "ui"),
     ("src/ui/dialog_image_viewer.ui", "ui"),
