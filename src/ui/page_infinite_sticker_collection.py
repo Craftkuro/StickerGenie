@@ -1,7 +1,7 @@
 #coding=utf-8
 import logging
 
-from PyQt6.QtGui import QStandardItemModel
+from PyQt6.QtGui import QAction, QStandardItemModel
 
 import services.sticker_library_viewer_service
 
@@ -27,6 +27,12 @@ class InfiniteStickerCollectionPage(StickerListPage):
         self._loading_more = False
         self.listViewStickerList.load_more_requested.connect(self._load_more)
 
+        self.refresh_action = QAction("刷新", self)
+        self.refresh_action.setObjectName("refreshAction")
+        self.refresh_action.setToolTip("刷新图库")
+        self.refresh_action.triggered.connect(self._on_refresh_clicked)
+        self.toolbar.addAction(self.refresh_action)
+
         if auto_refresh:
             self.signal_refresh_content.connect(
                 services.sticker_library_viewer_service.wiring.slot_refresh_content
@@ -37,6 +43,9 @@ class InfiniteStickerCollectionPage(StickerListPage):
             self.signal_refresh_content.emit()
         else:
             self._reset_and_load_first_page()
+
+    def _on_refresh_clicked(self) -> None:
+        self.signal_refresh_content.emit()
 
     def _on_refresh_library_content(self) -> None:
         self._reset_and_load_first_page()
@@ -51,6 +60,7 @@ class InfiniteStickerCollectionPage(StickerListPage):
         self.listViewStickerList.setModel(new_model)
         if previous_model is not None and previous_model is not new_model:
             previous_model.deleteLater()
+        self.listViewStickerList.scrollToTop()
         self._load_more()
 
     def _load_more(self) -> None:

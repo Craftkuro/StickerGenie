@@ -181,6 +181,64 @@ class StickerListViewTests(unittest.TestCase):
         )
         page.close()
 
+    def test_infinite_page_toolbar_has_refresh_button_leftmost(self):
+        page = InfiniteStickerCollectionPage(auto_refresh=False)
+        actions = page.toolbarStickerList.actions()
+
+        self.assertTrue(actions)
+        self.assertIs(page.refresh_action, actions[0])
+        self.assertEqual("刷新", page.refresh_action.text())
+
+        spy = QSignalSpy(page.signal_refresh_content)
+        page.refresh_action.trigger()
+        self.assertEqual(1, len(spy))
+        page.close()
+
+    def test_reset_returns_to_top_after_scrolling_to_bottom(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "stored-hash.png"
+            image = QImage(2, 2, QImage.Format.Format_ARGB32)
+            image.fill(0xFFFFFFFF)
+            self.assertTrue(image.save(str(image_path)))
+
+            class FakePagedDB:
+                def __init__(self, rows):
+                    self.rows = rows
+
+                def list_stickers(self, offset=0, count=100):
+                    return self.rows[offset:offset + count]
+
+            stickers = [make_sticker() for _ in range(150)]
+            with patch(
+                "services.global_instances.current_library_db",
+                FakePagedDB(stickers),
+            ), patch(
+                "services.global_instances.current_blob_storage",
+                FakeBlobStorage(image_path),
+            ):
+                page = InfiniteStickerCollectionPage(auto_refresh=False)
+                page.resize(400, 300)
+                page.show()
+                QApplication.processEvents()
+
+                scrollbar = page.listViewStickerList.verticalScrollBar()
+                scrollbar.setValue(scrollbar.maximum())
+                QApplication.processEvents()
+                self.assertEqual(
+                    150,
+                    page.listViewStickerList.model().rowCount(),
+                )
+
+                page._reset_and_load_first_page()
+                QApplication.processEvents()
+
+                self.assertEqual(
+                    100,
+                    page.listViewStickerList.model().rowCount(),
+                )
+                self.assertEqual(0, scrollbar.value())
+                page.close()
+
     def test_paint_preserves_aspect_ratio_for_jpeg_thumbnails(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "wide.jpg"
