@@ -76,6 +76,26 @@ class ThumbnailDiskStorageTests(unittest.TestCase):
             self.assertEqual(0, deleted_count)
             self.assertEqual((), errors)
 
+    def test_save_image_writes_png(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = ThumbnailDiskStorage(Path(temp_dir) / "thumbnails")
+            image = QImage(150, 75, QImage.Format.Format_RGB32)
+            image.fill(0xFF00FF00)
+            file_hash = "ef" + "2" * 38
+
+            storage.save_image(image, file_hash)
+
+            self.assertTrue(storage.exists(file_hash))
+            pixmap = QPixmap(storage.read_file(file_hash))
+            self.assertFalse(pixmap.isNull())
+            self.assertEqual((150, 75), (pixmap.width(), pixmap.height()))
+
+    def test_save_image_rejects_null(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = ThumbnailDiskStorage(Path(temp_dir) / "thumbnails")
+            with self.assertRaises(ValueError):
+                storage.save_image(QImage(), "ab" + "3" * 38)
+
 
 if __name__ == "__main__":
     unittest.main()

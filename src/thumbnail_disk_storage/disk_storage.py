@@ -4,7 +4,7 @@
 import logging
 from pathlib import Path
 
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QImage, QPixmap
 
 logger = logging.getLogger(__name__)
 
@@ -58,23 +58,34 @@ class ThumbnailDiskStorage:
             raise FileNotFoundError(f"Thumbnail not found: {file_path}")
         return str(file_path)
 
+    def save_image(self, image: QImage, file_hash: str) -> None:
+        """将缩略图保存为 PNG（可在工作线程中调用）。
+
+        Args:
+            image: 待保存的缩略图（QImage 可跨线程使用）。
+            file_hash: 原始图片（BlobFileEntity）的 hash。
+
+        Raises:
+            ValueError: image 为空时抛出。
+            RuntimeError: 保存失败时抛出。
+        """
+        if image.isNull():
+            raise ValueError("不能保存空的缩略图")
+        target_path = self._get_file_path(file_hash)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        if not image.save(str(target_path), "PNG"):
+            raise RuntimeError(f"保存缩略图失败: {target_path}")
+
     def save_pixmap(self, pixmap: QPixmap, file_hash: str) -> None:
-        """将缩略图保存为 PNG。
+        """将 QPixmap 缩略图保存为 PNG。
 
         Args:
             pixmap: 待保存的缩略图。
             file_hash: 原始图片（BlobFileEntity）的 hash。
-
-        Raises:
-            ValueError: pixmap 为空时抛出。
-            RuntimeError: 保存失败时抛出。
         """
         if pixmap.isNull():
             raise ValueError("不能保存空的缩略图")
-        target_path = self._get_file_path(file_hash)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        if not pixmap.save(str(target_path), "PNG"):
-            raise RuntimeError(f"保存缩略图失败: {target_path}")
+        self.save_image(pixmap.toImage(), file_hash)
 
     def delete_file(self, file_hash: str) -> None:
         """删除指定 hash 的缩略图。

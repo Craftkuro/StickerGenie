@@ -17,6 +17,7 @@ datas = [
     ("src/ui/dialog_image_import.ui", "ui"),
     ("src/ui/dialog_image_import_progress.ui", "ui"),
     ("src/ui/dialog_database_maintenance.ui", "ui"),
+    ("src/resources/thumbnail_placeholder.png", "resources"),
     ("src/vit_b_16_features.onnx", "."),
 ]
 

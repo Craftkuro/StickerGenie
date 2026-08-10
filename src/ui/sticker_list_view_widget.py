@@ -49,7 +49,7 @@ class StickerItemDelegate(QStyledItemDelegate):
     ) -> QPixmap:
         blob_entity = index.data(ROLE_BLOB_ENTITY)
         if blob_entity is not None:
-            return self._thumbnail_provider.get_thumbnail(blob_entity)
+            return self._thumbnail_provider.request_thumbnail(blob_entity)
 
         icon_data = index.data(Qt.ItemDataRole.DecorationRole)
         if isinstance(icon_data, QIcon):
@@ -147,6 +147,7 @@ class StickerListView(QListView):
         self.display_mode = commons.constants.LIST_DISPLAY_MODE_ICON
         self.sort_mode = commons.constants.SORT_BY_DATE
         self.reverse_sort = False
+        self._thumbnail_provider: ThumbnailProvider | None = None
 
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setResizeMode(QListView.ResizeMode.Adjust)
@@ -159,10 +160,55 @@ class StickerListView(QListView):
         self.setSpacing(8)
         self.setUniformItemSizes(True)
         self.setWordWrap(False)
-        self.setItemDelegate(StickerItemDelegate(self, thumbnail_provider))
+        self.set_thumbnail_provider(
+            thumbnail_provider
+            or services.global_instances.current_thumbnail_provider
+            or ThumbnailProvider()
+        )
 
         if model is not None:
             self.setModel(model)
 
     def set_thumbnail_provider(self, thumbnail_provider: ThumbnailProvider) -> None:
+        if self._thumbnail_provider is not None:
+            try:
+                self._thumbnail_provider.thumbnail_ready.disconnect(
+                    self._on_thumbnail_ready
+                )
+            except TypeError:
+                pass
+        self._thumbnail_provider = thumbnail_provider
         self.setItemDelegate(StickerItemDelegate(self, thumbnail_provider))
+        if thumbnail_provider is not None:
+            thumbnail_provider.thumbnail_ready.connect(self._on_thumbnail_ready)
+
+    def _on_thumbnail_ready(self, _file_hash, _image) -> None:
+        """缩略图就绪后只重绘匹配的可见 item，避免 4K 大视口整屏重绘。"""
+        model = self.model()
+        if model is None:
+            return
+
+        row_count = model.rowCount()
+        if row_count <= 0:
+            return
+
+        # 只扫描可见行区间；滚出视口的 item 等回到可见区时自然会重绘。
+        start_row = 0
+        end_row = row_count - 1
+        first_index = self.indexAt(self.viewport().rect().topLeft())
+        last_index = self.indexAt(self.viewport().rect().bottomRight())
+        if first_index.isValid():
+            start_row = first_index.row()
+        if last_index.isValid():
+            end_row = min(end_row, last_index.row())
+
+        for row in range(start_row, end_row + 1):
+            index = model.index(row, 0)
+            blob_entity = index.data(ROLE_BLOB_ENTITY)
+            if blob_entity is not None and blob_entity.hash == _file_hash:
+                self._update_item(index)
+                return
+
+    def _update_item(self, index: QModelIndex) -> None:
+        """只重绘指定 item 占据的区域（QAbstractItemView::update(index)）。"""
+        self.update(index)

@@ -1,6 +1,7 @@
 import datetime
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -63,6 +64,15 @@ class StickerListViewTests(unittest.TestCase):
         source_dir = Path(__file__).resolve().parents[1] / "src"
         apppath.setup_data_path(source_dir)
 
+    def _wait_until(self, predicate, timeout_ms: int = 5000) -> bool:
+        deadline = time.monotonic() + timeout_ms / 1000
+        while time.monotonic() < deadline:
+            QCoreApplication.processEvents()
+            if predicate():
+                return True
+            time.sleep(0.01)
+        return False
+
     def test_uses_large_image_only_grid(self):
         view = StickerListView()
 
@@ -75,7 +85,7 @@ class StickerListViewTests(unittest.TestCase):
             QAbstractItemView.DragDropMode.NoDragDrop,
             view.dragDropMode(),
         )
-        self.assertEqual(QSize(150, 150), view.iconSize())
+        self.assertEqual(QSize(200, 200), view.iconSize())
         self.assertEqual(QSize(160, 160), view.gridSize())
         self.assertTrue(view.uniformItemSizes())
         self.assertFalse(view.wordWrap())
@@ -103,6 +113,8 @@ class StickerListViewTests(unittest.TestCase):
                 option = QStyleOptionViewItem()
                 option.rect = QRect(0, 0, 160, 160)
                 option.state = QStyle.StateFlag.State_Enabled
+                provider = ThumbnailProvider()
+                delegate = StickerItemDelegate(thumbnail_provider=provider)
                 with patch(
                     "services.global_instances.current_blob_storage",
                     FakeBlobStorage(image_path),
@@ -113,10 +125,13 @@ class StickerListViewTests(unittest.TestCase):
                     "services.global_instances.current_thumbnail_provider",
                     None,
                 ):
-                    delegate = StickerItemDelegate(
-                        thumbnail_provider=ThumbnailProvider()
-                    )
                     delegate.paint(painter, option, model.index(0, 0))
+                self.assertTrue(
+                    self._wait_until(
+                        lambda: "wide-hash" in provider._memory_cache
+                    )
+                )
+                delegate.paint(painter, option, model.index(0, 0))
             finally:
                 painter.end()
 
@@ -133,7 +148,7 @@ class StickerListViewTests(unittest.TestCase):
 
             width = max_x - min_x + 1
             height = max_y - min_y + 1
-            self.assertEqual((144, 35), (width, height))
+            self.assertEqual((144, 36), (width, height))
 
     def test_library_page_uses_sticker_list_view(self):
         page = StickerLibraryViewPage(auto_refresh=False)
@@ -198,6 +213,47 @@ class StickerListViewTests(unittest.TestCase):
                 model = build_sticker_model([make_sticker()], {7: 0.875})
 
         self.assertTrue(model.item(0).toolTip().endswith("相似度：87.5%"))
+
+    def test_view_repaints_matching_item_when_thumbnail_ready(self):
+        provider = ThumbnailProvider()
+        view = StickerListView(thumbnail_provider=provider)
+        model = QStandardItemModel()
+        item = QStandardItem("")
+        item.setData(BlobFileEntity("ready-hash", ".png"), ROLE_BLOB_ENTITY)
+        model.appendRow(item)
+        view.setModel(model)
+
+        with patch.object(view, "_update_item") as update_item:
+            provider.thumbnail_ready.emit(
+                "ready-hash",
+                QImage(1, 1, QImage.Format.Format_RGB32),
+            )
+
+        update_item.assert_called_once()
+        updated_index = update_item.call_args.args[0]
+        self.assertEqual(
+            "ready-hash",
+            updated_index.data(ROLE_BLOB_ENTITY).hash,
+        )
+        view.close()
+
+    def test_view_ignores_thumbnail_ready_for_absent_hash(self):
+        provider = ThumbnailProvider()
+        view = StickerListView(thumbnail_provider=provider)
+        model = QStandardItemModel()
+        item = QStandardItem("")
+        item.setData(BlobFileEntity("other-hash", ".png"), ROLE_BLOB_ENTITY)
+        model.appendRow(item)
+        view.setModel(model)
+
+        with patch.object(view, "_update_item") as update_item:
+            provider.thumbnail_ready.emit(
+                "absent-hash",
+                QImage(1, 1, QImage.Format.Format_RGB32),
+            )
+
+        update_item.assert_not_called()
+        view.close()
 
     def test_copy_uses_current_item_file_and_original_name(self):
         with tempfile.TemporaryDirectory() as temp_dir:
