@@ -19,6 +19,9 @@ onnxruntime>=1.16.0
 # ONNX 模型推理 (GPU 版本；同时包含 CPU provider，可回退 CPU)
 # onnxruntime-gpu[cuda,cudnn]>=1.28.0
 
+# OCR 提取图中文本（RapidOCR 默认打包 PP-OCRv6 small，覆盖中英日）
+rapidocr>=3.9.2
+
 # 余弦相似度计算(用于图像相似度查找)
 scipy>=1.11.0
 

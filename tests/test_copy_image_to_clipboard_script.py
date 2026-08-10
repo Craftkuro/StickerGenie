@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PIL import Image
 from PyQt6.QtGui import QImage
 
-from copy_image_to_clipboard import build_compound_mime_data, parse_arguments
+from experiments.copy_image_to_clipboard import build_compound_mime_data, parse_arguments
 
 
 class CopyImageToClipboardScriptTests(unittest.TestCase):

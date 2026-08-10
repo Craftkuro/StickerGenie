@@ -17,6 +17,7 @@ def main() -> int:
     logging.basicConfig()
     logging.root.setLevel(level=logging.DEBUG)
 
+    # 尽早找到程序所在路径。需要使用此路径来初始化配置文件路径等信息。
     if getattr(sys, "frozen", False):
         application_path = sys._MEIPASS
         base_data_path = os.path.dirname(sys.executable)
@@ -30,6 +31,8 @@ def main() -> int:
     from PyQt6.QtWidgets import QApplication
 
     services.startup.run_startup_tasks()
+
+    # 方便使用IDE快捷终止进程
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     application = QApplication(sys.argv)
