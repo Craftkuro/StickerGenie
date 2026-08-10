@@ -29,7 +29,12 @@ rust_datas, rust_binaries, rust_hiddenimports = collect_all("chromadb_rust_bindi
 
 datas += chromadb_datas + rust_datas
 binaries = chromadb_binaries + rust_binaries
-hiddenimports = chromadb_hiddenimports + rust_hiddenimports
+hiddenimports = chromadb_hiddenimports + rust_hiddenimports + [
+    # .ui 通过 uic 在运行时按字符串 header 动态导入该控件模块，
+    # PyInstaller 静态分析发现不了，必须显式声明，否则打包后
+    # 加载表情包标签页会报 ModuleNotFoundError。
+    "ui.widgets.sticker_list_view_widget",
+]
 
 # NVIDIA CUDA/cuDNN 运行库：打包后统一放到 onnxruntime/capi 目录，
 # 与 onnxruntime_providers_cuda.dll 同级，便于 Windows 加载和 preload_dlls() 找到。
