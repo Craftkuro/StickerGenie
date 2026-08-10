@@ -139,6 +139,7 @@ class MainWindow(QMainWindow):
         self.actionStartDatabaseMaintenance.triggered.connect(
             self.open_database_maintenance
         )
+        self.actionQuit.triggered.connect(self.close)
 
         self.signal_add_new_tab.connect(self.add_new_tab)
         self.tabWidget.tabCloseRequested.connect(self._on_tab_close_requested)
