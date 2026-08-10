@@ -18,7 +18,10 @@ from commons.roles import (
 )
 from commons.signal_objects import MainWindowNewTabRequest
 
-from ui.page_sticker_library_view import StickerLibraryViewPage
+from ui.page_sticker_library_view import (
+    FiniteStickerCollectionPage,
+    InfiniteStickerCollectionPage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,25 +48,24 @@ def _build_sticker_tooltip(
 
 
 class Wiring(QObject):
-    signal_refresh_library_content_result = pyqtSignal(QStandardItemModel)
+    signal_refresh_library_content = pyqtSignal()
     def __init__(self):
         super().__init__()
 
     @pyqtSlot()
     def slot_refresh_content(self):
-        ret = refresh_content()
-        self.signal_refresh_library_content_result.emit(ret)
+        self.signal_refresh_library_content.emit()
 
 
 wiring = Wiring()
 
 ######################################
 
-def build_sticker_model(
+def build_sticker_items(
     images: Iterable[StickerImage],
     similarities: dict[int, float] | None = None,
-) -> QStandardItemModel:
-    model = QStandardItemModel()
+) -> list[QStandardItem]:
+    items: list[QStandardItem] = []
     current_blob_storage = services.global_instances.current_blob_storage
 
     for image in images:
@@ -85,14 +87,27 @@ def build_sticker_model(
         similarity = similarities.get(image.id) if similarities else None
         item.setData(similarity, ROLE_SIMILARITY)
         item.setToolTip(_build_sticker_tooltip(image, file_path, similarity))
-        model.insertRow(model.rowCount(), item)
+        items.append(item)
 
+    return items
+
+
+def build_sticker_model(
+    images: Iterable[StickerImage],
+    similarities: dict[int, float] | None = None,
+) -> QStandardItemModel:
+    model = QStandardItemModel()
+    for item in build_sticker_items(images, similarities):
+        model.appendRow(item)
     return model
 
 
-def refresh_content() -> QStandardItemModel:
+def load_library_page(offset: int, count: int) -> list[StickerImage]:
+    """分页读取全库图片，供无限集合标签页滚动加载使用。"""
     db = services.global_instances.current_library_db
-    return build_sticker_model(db.list_stickers())
+    if db is None:
+        return []
+    return db.list_stickers(offset=offset, count=count)
 
 
 def find_similar_stickers(
@@ -148,7 +163,7 @@ def open_sticker_results_tab(
     similarities: dict[int, float] | None = None,
 ) -> None:
     """在独立标签页中展示给定的图片结果。"""
-    page = StickerLibraryViewPage(auto_refresh=False)
+    page = FiniteStickerCollectionPage(auto_refresh=False)
     page.refresh_content(build_sticker_model(images, similarities))
 
     main_window = services.global_instances.main_window
@@ -198,7 +213,7 @@ def delete_sticker(sticker: StickerImage) -> tuple[str, ...]:
 
 def open_sticker_library_view_tab():
 
-    page = StickerLibraryViewPage()
+    page = InfiniteStickerCollectionPage()
     main_window = services.global_instances.main_window
 
     request = MainWindowNewTabRequest(

@@ -3,7 +3,7 @@ import logging
 
 from PyQt6 import uic
 from PyQt6.QtCore import pyqtSignal, QModelIndex, QPoint, Qt
-from PyQt6.QtGui import QStandardItemModel
+from PyQt6.QtGui import QAction, QStandardItemModel
 from PyQt6.QtWidgets import QMenu, QMessageBox, QWidget
 
 import apppath
@@ -17,7 +17,10 @@ from .dialog_image_viewer import ImageViewerDialog
 
 logger = logging.getLogger(__name__)
 
-class StickerLibraryViewPage(QWidget):
+
+class StickerListPage(QWidget):
+    """含工具栏和 StickerListView 的表情包标签页基类。"""
+
     signal_refresh_content = pyqtSignal()
 
     def __init__(self, *, auto_refresh: bool = True):
@@ -28,6 +31,12 @@ class StickerLibraryViewPage(QWidget):
         ui_file_path = apppath.app_path / 'ui' / 'page_sticker_library_view.ui'
         uic.loadUi(ui_file_path, self)
 
+        # 工具栏：目前没有功能按钮，但必须支持任意自定义 widget。
+        self.toolbar = self.toolbarStickerList
+        self.toolbar.setMovable(False)
+        self.toolbar.setFloatable(False)
+        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+
         # 双击图片时打开图片查看器
         self.listViewStickerList.doubleClicked.connect(self._on_sticker_double_clicked)
         self.listViewStickerList.setContextMenuPolicy(
@@ -37,15 +46,12 @@ class StickerLibraryViewPage(QWidget):
             self._show_sticker_context_menu
         )
 
-        # 信号
-        if self._auto_refresh:
-            self.signal_refresh_content.connect(
-                services.sticker_library_viewer_service.wiring.slot_refresh_content
-            )
-            services.sticker_library_viewer_service.wiring.signal_refresh_library_content_result.connect(
-                self.refresh_content
-            )
-            self.signal_refresh_content.emit()
+    def add_toolbar_widget(self, widget: QWidget) -> QAction:
+        """把任意自定义 widget（例如滑块）加入标签页工具栏。"""
+        return self.toolbar.addWidget(widget)
+
+    def add_toolbar_action(self, action: QAction) -> QAction:
+        return self.toolbar.addAction(action)
 
     def refresh_content(self, model: QStandardItemModel):
         previous_model = self.listViewStickerList.model()
@@ -158,3 +164,83 @@ class StickerLibraryViewPage(QWidget):
                 "图片已删除",
                 "\n".join(cleanup_errors),
             )
+
+
+class FiniteStickerCollectionPage(StickerListPage):
+    """有限结果集合标签页：搜索结果、相似图片等一次性加载全部数据。"""
+
+    def __init__(self, *, auto_refresh: bool = False):
+        super().__init__(auto_refresh=auto_refresh)
+
+
+class InfiniteStickerCollectionPage(StickerListPage):
+    """全库浏览标签页：滚动到底部时增量加载。"""
+
+    PAGE_SIZE = 100
+
+    def __init__(self, *, auto_refresh: bool = True):
+        super().__init__(auto_refresh=auto_refresh)
+        self._page_size = self.PAGE_SIZE
+        self._offset = 0
+        self._has_more = True
+        self._loading_more = False
+        self.listViewStickerList.load_more_requested.connect(self._load_more)
+
+        if auto_refresh:
+            self.signal_refresh_content.connect(
+                services.sticker_library_viewer_service.wiring.slot_refresh_content
+            )
+            services.sticker_library_viewer_service.wiring.signal_refresh_library_content.connect(
+                self._on_refresh_library_content
+            )
+            self.signal_refresh_content.emit()
+        else:
+            self._reset_and_load_first_page()
+
+    def _on_refresh_library_content(self) -> None:
+        self._reset_and_load_first_page()
+
+    def _reset_and_load_first_page(self) -> None:
+        self._offset = 0
+        self._has_more = True
+        self._loading_more = False
+
+        previous_model = self.listViewStickerList.model()
+        new_model = QStandardItemModel(self.listViewStickerList)
+        self.listViewStickerList.setModel(new_model)
+        if previous_model is not None and previous_model is not new_model:
+            previous_model.deleteLater()
+        self._load_more()
+
+    def _load_more(self) -> None:
+        if self._loading_more or not self._has_more:
+            return
+
+        self._loading_more = True
+        try:
+            images = services.sticker_library_viewer_service.load_library_page(
+                offset=self._offset,
+                count=self._page_size,
+            )
+            if not images:
+                self._has_more = False
+                return
+
+            items = services.sticker_library_viewer_service.build_sticker_items(
+                images
+            )
+            model = self.listViewStickerList.model()
+            if model is None:
+                model = QStandardItemModel(self.listViewStickerList)
+                self.listViewStickerList.setModel(model)
+            for item in items:
+                model.appendRow(item)
+
+            self._offset += len(images)
+            if len(images) < self._page_size:
+                self._has_more = False
+        except Exception:
+            logger.exception("加载图库分页失败")
+            self._has_more = False
+        finally:
+            self._loading_more = False

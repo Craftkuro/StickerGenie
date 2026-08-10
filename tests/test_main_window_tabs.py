@@ -113,7 +113,6 @@ class MainWindowTabTests(unittest.TestCase):
         self.assertEqual(1, self.window.tabWidget.count())
         self.assertIs(library_page, self.window.tabWidget.widget(0))
 
-
 class TabRequestPolicyTests(unittest.TestCase):
     def test_search_result_tabs_are_closable(self):
         emit = Mock()
@@ -128,7 +127,7 @@ class TabRequestPolicyTests(unittest.TestCase):
             main_window,
         ), patch.object(
             library_viewer_service,
-            "StickerLibraryViewPage",
+            "FiniteStickerCollectionPage",
             return_value=page,
         ), patch.object(
             library_viewer_service,
@@ -154,7 +153,7 @@ class TabRequestPolicyTests(unittest.TestCase):
             main_window,
         ), patch.object(
             library_viewer_service,
-            "StickerLibraryViewPage",
+            "InfiniteStickerCollectionPage",
             return_value=page,
         ):
             library_viewer_service.open_sticker_library_view_tab()

@@ -50,7 +50,7 @@ class MainWindowSearchBoxTests(unittest.TestCase):
             search_box,
             self.window.widgetUnifiedBar.layout().itemAt(3).widget(),
         )
-        self.assertEqual(5, self.window.widgetUnifiedBar.layout().count())
+        self.assertEqual(6, self.window.widgetUnifiedBar.layout().count())
         self.assertIs(
             self.window.searchTypeComboBox,
             self.window.widgetUnifiedBar.layout().itemAt(2).widget(),

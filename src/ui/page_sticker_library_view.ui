@@ -27,7 +27,17 @@
     <number>0</number>
    </property>
    <item>
-     <widget class="StickerListView" name="listViewStickerList">
+    <widget class="QToolBar" name="toolbarStickerList">
+     <property name="movable">
+      <bool>false</bool>
+     </property>
+     <property name="floatable">
+      <bool>false</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="StickerListView" name="listViewStickerList">
      <property name="frameShadow">
       <enum>QFrame::Shadow::Plain</enum>
      </property>

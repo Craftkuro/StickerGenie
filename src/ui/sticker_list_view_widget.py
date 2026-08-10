@@ -1,7 +1,7 @@
 # coding=utf-8
 import logging
 
-from PyQt6.QtCore import QModelIndex, QSize, Qt
+from PyQt6.QtCore import QModelIndex, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -128,8 +128,12 @@ class StickerListView(QListView):
     通用的表情包列表视图
     """
 
+    # 即将滚动到列表底部时发出，由无限集合标签页负责响应。
+    load_more_requested = pyqtSignal()
+
     THUMBNAIL_SIZE = commons.constants.THUMBNAIL_SIZE
     ITEM_SIZE = StickerItemDelegate.ITEM_SIZE
+    LOAD_MORE_THRESHOLD = 64
 
     def __init__(
         self,
@@ -160,6 +164,14 @@ class StickerListView(QListView):
         self.setSpacing(8)
         self.setUniformItemSizes(True)
         self.setWordWrap(False)
+
+        self._load_more_timer = QTimer(self)
+        self._load_more_timer.setSingleShot(True)
+        self._load_more_timer.setInterval(0)
+        self._load_more_timer.timeout.connect(self.check_load_more)
+        self.verticalScrollBar().valueChanged.connect(
+            self._on_vertical_scrollbar_changed
+        )
         self.set_thumbnail_provider(
             thumbnail_provider
             or services.global_instances.current_thumbnail_provider
@@ -168,6 +180,43 @@ class StickerListView(QListView):
 
         if model is not None:
             self.setModel(model)
+
+    def setModel(self, model) -> None:
+        """安装模型并跟踪行数变化，以便在首屏不足一屏时也能触发加载更多。"""
+        previous_model = self.model()
+        if previous_model is not None:
+            try:
+                previous_model.rowsInserted.disconnect(
+                    self._on_model_rows_inserted
+                )
+            except TypeError:
+                pass
+
+        super().setModel(model)
+        if model is not None:
+            model.rowsInserted.connect(self._on_model_rows_inserted)
+            self._load_more_timer.start()
+
+    def _on_model_rows_inserted(self, _parent, _start, _end) -> None:
+        self._load_more_timer.start()
+
+    def _on_vertical_scrollbar_changed(self, _value: int) -> None:
+        self.check_load_more()
+
+    def check_load_more(self) -> None:
+        """在即将滚动到底部（或内容不足一屏）时发出加载更多请求。"""
+        model = self.model()
+        if model is None or model.rowCount() <= 0:
+            return
+
+        scrollbar = self.verticalScrollBar()
+        if scrollbar.maximum() > 0:
+            if (
+                scrollbar.value()
+                < scrollbar.maximum() - self.LOAD_MORE_THRESHOLD
+            ):
+                return
+        self.load_more_requested.emit()
 
     def set_thumbnail_provider(self, thumbnail_provider: ThumbnailProvider) -> None:
         if self._thumbnail_provider is not None:

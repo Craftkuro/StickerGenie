@@ -11,10 +11,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6 import sip
 from PyQt6.QtCore import QCoreApplication, QEvent, QRect, QSize
 from PyQt6.QtGui import QIcon, QImage, QPainter, QStandardItem, QStandardItemModel
+from PyQt6.QtTest import QSignalSpy
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QListView,
+    QSlider,
     QStyle,
     QStyleOptionViewItem,
 )
@@ -25,7 +27,10 @@ from commons.dto import StickerImage
 from commons.roles import ROLE_BLOB_ENTITY
 from services.sticker_library_viewer_service import build_sticker_model
 from services.thumbnail_provider import ThumbnailProvider
-from ui.page_sticker_library_view import StickerLibraryViewPage
+from ui.page_sticker_library_view import (
+    FiniteStickerCollectionPage,
+    InfiniteStickerCollectionPage,
+)
 from ui.sticker_list_view_widget import (
     StickerItemDelegate,
     StickerListView,
@@ -91,6 +96,93 @@ class StickerListViewTests(unittest.TestCase):
         self.assertFalse(view.wordWrap())
         self.assertIsInstance(view.itemDelegate(), StickerItemDelegate)
 
+    def test_view_emits_load_more_when_scrolled_near_bottom(self):
+        view = StickerListView()
+        model = QStandardItemModel()
+        for _ in range(200):
+            model.appendRow(QStandardItem(""))
+        view.setModel(model)
+        view.resize(320, 240)
+        view.show()
+        QApplication.processEvents()
+
+        spy = QSignalSpy(view.load_more_requested)
+        scrollbar = view.verticalScrollBar()
+        self.assertGreater(scrollbar.maximum(), 0)
+        scrollbar.setValue(scrollbar.maximum())
+        QApplication.processEvents()
+        self.assertGreater(len(spy), 0)
+        view.close()
+
+    def test_finite_page_ignores_load_more_request(self):
+        page = FiniteStickerCollectionPage(auto_refresh=False)
+        model = QStandardItemModel()
+        for _ in range(3):
+            model.appendRow(QStandardItem(""))
+        page.refresh_content(model)
+
+        page.listViewStickerList.load_more_requested.emit()
+
+        self.assertEqual(3, page.listViewStickerList.model().rowCount())
+        page.close()
+
+    def test_infinite_page_loads_more_on_request(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "stored-hash.png"
+            image = QImage(2, 2, QImage.Format.Format_ARGB32)
+            image.fill(0xFFFFFFFF)
+            self.assertTrue(image.save(str(image_path)))
+
+            class FakePagedDB:
+                def __init__(self, rows):
+                    self.rows = rows
+
+                def list_stickers(self, offset=0, count=100):
+                    return self.rows[offset:offset + count]
+
+            page_size = InfiniteStickerCollectionPage.PAGE_SIZE
+            stickers = [make_sticker() for _ in range(page_size * 2 + 10)]
+            with patch(
+                "services.global_instances.current_library_db",
+                FakePagedDB(stickers),
+            ), patch(
+                "services.global_instances.current_blob_storage",
+                FakeBlobStorage(image_path),
+            ):
+                page = InfiniteStickerCollectionPage(auto_refresh=False)
+                page.resize(400, 300)
+                page.show()
+                QApplication.processEvents()
+                model = page.listViewStickerList.model()
+                self.assertEqual(page_size, model.rowCount())
+                self.assertTrue(page._has_more)
+
+                page.listViewStickerList.load_more_requested.emit()
+                QApplication.processEvents()
+
+                self.assertEqual(page_size * 2, model.rowCount())
+                self.assertTrue(page._has_more)
+
+                page.listViewStickerList.load_more_requested.emit()
+                QApplication.processEvents()
+
+                self.assertEqual(len(stickers), model.rowCount())
+                self.assertFalse(page._has_more)
+                self.assertEqual(len(stickers), page._offset)
+                page.close()
+
+    def test_toolbar_accepts_custom_widget(self):
+        page = FiniteStickerCollectionPage(auto_refresh=False)
+        slider = QSlider()
+
+        action = page.add_toolbar_widget(slider)
+
+        self.assertIs(
+            slider,
+            page.toolbarStickerList.widgetForAction(action),
+        )
+        page.close()
+
     def test_paint_preserves_aspect_ratio_for_jpeg_thumbnails(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "wide.jpg"
@@ -151,7 +243,7 @@ class StickerListViewTests(unittest.TestCase):
             self.assertEqual((144, 36), (width, height))
 
     def test_library_page_uses_sticker_list_view(self):
-        page = StickerLibraryViewPage(auto_refresh=False)
+        page = InfiniteStickerCollectionPage(auto_refresh=False)
         self.assertIsInstance(page.listViewStickerList, StickerListView)
         self.assertFalse(page.listViewStickerList.dragEnabled())
         self.assertFalse(page.listViewStickerList.acceptDrops())
@@ -162,7 +254,7 @@ class StickerListViewTests(unittest.TestCase):
         page.close()
 
     def test_page_owns_models_and_disposes_replaced_model(self):
-        page = StickerLibraryViewPage(auto_refresh=False)
+        page = FiniteStickerCollectionPage(auto_refresh=False)
         first_model = QStandardItemModel()
         second_model = QStandardItemModel()
 
@@ -268,7 +360,7 @@ class StickerListViewTests(unittest.TestCase):
             ):
                 model = build_sticker_model([make_sticker()])
 
-            page = StickerLibraryViewPage(auto_refresh=False)
+            page = FiniteStickerCollectionPage(auto_refresh=False)
             page.refresh_content(model)
             with patch(
                 "services.image_clipboard_service.copy_image_to_clipboard"
