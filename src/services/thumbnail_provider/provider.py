@@ -1,99 +1,29 @@
 # coding=utf-8
-"""缩略图生成服务：内存 LRU 缓存 + 磁盘分桶缓存 + 异步按需生成。"""
+"""缩略图服务主类：内存 LRU 缓存 + 磁盘分桶缓存 + 异步按需生成。"""
 
 import logging
 import os
 from collections import OrderedDict
 
-import apppath
 from blob_storage import BlobFileEntity, BlobStorage
-from PyQt6.QtCore import (
-    QObject,
-    QRunnable,
-    QSize,
-    Qt,
-    QThreadPool,
-    pyqtSignal,
-    pyqtSlot,
-)
-from PyQt6.QtGui import QColor, QImage, QImageReader, QPainter, QPixmap
+from PyQt6.QtCore import QObject, QSize, Qt, QThreadPool, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QImage, QImageReader, QPixmap
 
 import commons.constants
 import services.global_instances
 from thumbnail_disk_storage import ThumbnailDiskStorage
 
+from services.thumbnail_provider.cache import (
+    MemoryThumbnailCache,
+    load_disk_thumbnail,
+)
+from services.thumbnail_provider.job import _ThumbnailGenerationJob
+from services.thumbnail_provider.placeholder import (
+    build_placeholder,
+    load_placeholder_icon,
+)
+
 logger = logging.getLogger(__name__)
-
-
-class _ThumbnailGenerationJob(QRunnable):
-    """在 QThreadPool 中生成一张缩略图，完成后通过信号回传。"""
-
-    def __init__(
-        self,
-        provider: "ThumbnailProvider",
-        blob_entity: BlobFileEntity,
-        blob_storage: BlobStorage,
-        disk_storage: ThumbnailDiskStorage | None,
-        thumbnail_size: int,
-        skip_threshold: int,
-    ):
-        super().__init__()
-        self._provider = provider
-        self._blob_entity = blob_entity
-        self._blob_storage = blob_storage
-        self._disk_storage = disk_storage
-        self._thumbnail_size = thumbnail_size
-        self._skip_threshold = skip_threshold
-
-    def run(self) -> None:
-        file_hash = self._blob_entity.hash
-        try:
-            file_path = self._blob_storage.read_file(self._blob_entity)
-        except Exception:
-            logger.exception("异步读取 Blob 失败：%s", file_hash)
-            self._provider._thumbnail_failed.emit(file_hash)
-            return
-
-        reader = QImageReader(file_path)
-        reader.setAutoTransform(True)
-        source_size = reader.size()
-        if not source_size.isValid():
-            logger.warning("无法读取图片尺寸：%s", file_hash)
-            self._provider._thumbnail_failed.emit(file_hash)
-            return
-
-        save_disk = False
-        if (
-            source_size.width() <= self._skip_threshold
-            and source_size.height() <= self._skip_threshold
-        ):
-            image = reader.read()
-        else:
-            scale = min(
-                self._thumbnail_size / source_size.width(),
-                self._thumbnail_size / source_size.height(),
-            )
-            reader.setScaledSize(
-                QSize(
-                    max(1, int(source_size.width() * scale)),
-                    max(1, int(source_size.height() * scale)),
-                )
-            )
-            image = reader.read()
-            save_disk = True
-
-        if image.isNull():
-            logger.warning("缩略图解码失败：%s", file_hash)
-            self._provider._thumbnail_failed.emit(file_hash)
-            return
-
-        if save_disk and self._disk_storage is not None:
-            try:
-                self._disk_storage.save_image(image, file_hash)
-            except Exception:
-                logger.exception("异步保存缩略图到磁盘失败：%s", file_hash)
-
-        self._provider._thumbnail_generated.emit(file_hash, image)
 
 
 class ThumbnailProvider(QObject):
@@ -137,8 +67,7 @@ class ThumbnailProvider(QObject):
         super().__init__(parent)
         self._blob_storage = blob_storage
         self._disk_storage = disk_storage
-        self._max_cache_size = max(1, max_cache_size)
-        self._memory_cache: OrderedDict[str, QPixmap] = OrderedDict()
+        self._memory_cache = MemoryThumbnailCache(max_cache_size)
         self._pool: QThreadPool | None = None
         self._in_flight: set[str] = set()
         self._failed_hashes: OrderedDict[str, None] = OrderedDict()
@@ -180,7 +109,7 @@ class ThumbnailProvider(QObject):
         if file_hash in self._in_flight or file_hash in self._failed_hashes:
             return self._get_placeholder()
 
-        disk_pixmap = self._load_disk_thumbnail(disk_storage, file_hash)
+        disk_pixmap = load_disk_thumbnail(disk_storage, file_hash)
         if disk_pixmap is not None:
             return self._store_in_memory(file_hash, disk_pixmap)
 
@@ -251,7 +180,7 @@ class ThumbnailProvider(QObject):
             self._memory_cache.move_to_end(file_hash)
             return cached
 
-        disk_pixmap = self._load_disk_thumbnail(disk_storage, file_hash)
+        disk_pixmap = load_disk_thumbnail(disk_storage, file_hash)
         if disk_pixmap is not None:
             return self._store_in_memory(file_hash, disk_pixmap)
         return None
@@ -312,40 +241,9 @@ class ThumbnailProvider(QObject):
             self._pool.setMaxThreadCount(max_workers)
         return self._pool
 
-    def _load_disk_thumbnail(
-        self,
-        disk_storage: ThumbnailDiskStorage | None,
-        file_hash: str,
-    ) -> QPixmap | None:
-        """从磁盘缓存加载缩略图；缺失或损坏时返回 None。"""
-        if disk_storage is None:
-            return None
-        try:
-            file_path = disk_storage.read_file(file_hash)
-        except FileNotFoundError:
-            return None
-
-        pixmap = QPixmap(file_path)
-        if pixmap.isNull():
-            try:
-                disk_storage.delete_file(file_hash)
-            except OSError:
-                # 文件可能正被工作线程写入或由其他进程占用，稍后会被覆盖。
-                logger.warning("删除损坏的缩略图失败（文件可能正被占用）：%s", file_hash)
-            except Exception:
-                logger.exception("删除损坏的缩略图失败：%s", file_hash)
-            return None
-        return pixmap
-
     def _store_in_memory(self, file_hash: str, pixmap: QPixmap) -> QPixmap:
         """按 LRU 规则写入内存缓存并返回。"""
-        if file_hash in self._memory_cache:
-            self._memory_cache.move_to_end(file_hash)
-        else:
-            if len(self._memory_cache) >= self._max_cache_size:
-                self._memory_cache.popitem(last=False)
-            self._memory_cache[file_hash] = pixmap
-        return pixmap
+        return self._memory_cache.store(file_hash, pixmap)
 
     def _get_placeholder(self) -> QPixmap:
         """返回共享占位图（首次使用时构建并缓存）。"""
@@ -354,43 +252,7 @@ class ThumbnailProvider(QObject):
         return self._placeholder
 
     def _build_placeholder(self) -> QPixmap:
-        """绘制浅灰圆角背景 + Windows 图片文件图标的占位图。"""
-        size = self.THUMBNAIL_SIZE
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        try:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(0xEC, 0xEC, 0xEC))
-            painter.drawRoundedRect(0, 0, size, size, 12, 12)
-
-            icon = self._load_placeholder_icon()
-            if not icon.isNull():
-                icon_size = int(size * 0.5)
-                scaled_icon = icon.scaled(
-                    icon_size,
-                    icon_size,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                icon_rect = scaled_icon.rect()
-                icon_rect.moveCenter(pixmap.rect().center())
-                painter.drawPixmap(icon_rect, scaled_icon)
-        finally:
-            painter.end()
-        return pixmap
+        return build_placeholder(self.THUMBNAIL_SIZE)
 
     def _load_placeholder_icon(self) -> QPixmap:
-        """从应用资源加载 Windows 图片文件图标；失败时返回空 QPixmap。"""
-        try:
-            if apppath.app_path is not None:
-                icon_path = (
-                    apppath.app_path / "resources" / "thumbnail_placeholder.png"
-                )
-                pixmap = QPixmap(str(icon_path))
-                if not pixmap.isNull():
-                    return pixmap
-        except Exception:
-            logger.exception("加载占位图资源失败")
-        return QPixmap()
+        return load_placeholder_icon()
