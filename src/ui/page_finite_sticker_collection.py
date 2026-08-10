@@ -13,3 +13,4 @@ class FiniteStickerCollectionPage(StickerListPage):
             ui_file_name=self.UI_FILE_NAME,
             auto_refresh=auto_refresh,
         )
+        self._setup_display_size_slider()

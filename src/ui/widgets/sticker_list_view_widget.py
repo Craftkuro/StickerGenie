@@ -32,6 +32,7 @@ class StickerItemDelegate(QStyledItemDelegate):
         thumbnail_provider: ThumbnailProvider | None = None,
     ):
         super().__init__(parent)
+        self._item_size = self.ITEM_SIZE
         self._thumbnail_provider = (
             thumbnail_provider
             or services.global_instances.current_thumbnail_provider
@@ -40,6 +41,10 @@ class StickerItemDelegate(QStyledItemDelegate):
 
     def set_thumbnail_provider(self, thumbnail_provider: ThumbnailProvider) -> None:
         self._thumbnail_provider = thumbnail_provider
+
+    def set_item_size(self, size: int) -> None:
+        """设置 item 外框边长，尺寸变化后由视图统一触发重新布局。"""
+        self._item_size = max(1, int(size))
 
     def _pixmap_for_index(
         self,
@@ -120,7 +125,7 @@ class StickerItemDelegate(QStyledItemDelegate):
         option: QStyleOptionViewItem,
         index: QModelIndex,
     ) -> QSize:
-        return QSize(self.ITEM_SIZE, self.ITEM_SIZE)
+        return QSize(self._item_size, self._item_size)
 
 
 class StickerListView(QListView):
@@ -152,6 +157,7 @@ class StickerListView(QListView):
         self.sort_mode = commons.constants.SORT_BY_DATE
         self.reverse_sort = False
         self._thumbnail_provider: ThumbnailProvider | None = None
+        self._item_size = self.ITEM_SIZE
 
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setResizeMode(QListView.ResizeMode.Adjust)
@@ -160,7 +166,7 @@ class StickerListView(QListView):
         self.setAcceptDrops(False)
         self.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
         self.setIconSize(QSize(self.THUMBNAIL_SIZE, self.THUMBNAIL_SIZE))
-        self.setGridSize(QSize(self.ITEM_SIZE, self.ITEM_SIZE))
+        self.setGridSize(QSize(self._item_size, self._item_size))
         self.setSpacing(8)
         self.setUniformItemSizes(True)
         self.setWordWrap(False)
@@ -218,6 +224,19 @@ class StickerListView(QListView):
                 return
         self.load_more_requested.emit()
 
+    def item_size(self) -> int:
+        """返回当前 item 外框边长。"""
+        return self._item_size
+
+    def set_display_size(self, size: int) -> None:
+        """调整图片显示大小（类似 Windows 7 资源管理器的滑块）。"""
+        size = max(32, min(int(size), 512))
+        self._item_size = size
+        delegate = self.itemDelegate()
+        if isinstance(delegate, StickerItemDelegate):
+            delegate.set_item_size(size)
+        self.setGridSize(QSize(size, size))
+
     def set_thumbnail_provider(self, thumbnail_provider: ThumbnailProvider) -> None:
         if self._thumbnail_provider is not None:
             try:
@@ -227,7 +246,9 @@ class StickerListView(QListView):
             except TypeError:
                 pass
         self._thumbnail_provider = thumbnail_provider
-        self.setItemDelegate(StickerItemDelegate(self, thumbnail_provider))
+        delegate = StickerItemDelegate(self, thumbnail_provider)
+        delegate.set_item_size(self._item_size)
+        self.setItemDelegate(delegate)
         if thumbnail_provider is not None:
             thumbnail_provider.thumbnail_ready.connect(self._on_thumbnail_ready)
 

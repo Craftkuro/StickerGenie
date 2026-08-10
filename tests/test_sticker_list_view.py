@@ -29,7 +29,7 @@ from services.sticker_library_viewer_service import build_sticker_model
 from services.thumbnail_provider import ThumbnailProvider
 from ui.page_finite_sticker_collection import FiniteStickerCollectionPage
 from ui.page_infinite_sticker_collection import InfiniteStickerCollectionPage
-from ui.sticker_list_view_widget import (
+from ui.widgets.sticker_list_view_widget import (
     StickerItemDelegate,
     StickerListView,
 )
@@ -93,6 +93,26 @@ class StickerListViewTests(unittest.TestCase):
         self.assertTrue(view.uniformItemSizes())
         self.assertFalse(view.wordWrap())
         self.assertIsInstance(view.itemDelegate(), StickerItemDelegate)
+
+    def test_set_display_size_updates_grid_and_delegate(self):
+        view = StickerListView()
+        model = QStandardItemModel()
+        model.appendRow(QStandardItem(""))
+        view.setModel(model)
+
+        view.set_display_size(120)
+
+        self.assertEqual(QSize(120, 120), view.gridSize())
+        self.assertEqual(120, view.item_size())
+        delegate = view.itemDelegate()
+        self.assertEqual(
+            QSize(120, 120),
+            delegate.sizeHint(
+                QStyleOptionViewItem(),
+                model.index(0, 0),
+            ),
+        )
+        view.close()
 
     def test_view_emits_load_more_when_scrolled_near_bottom(self):
         view = StickerListView()
@@ -188,10 +208,31 @@ class StickerListViewTests(unittest.TestCase):
         self.assertTrue(actions)
         self.assertIs(page.refresh_action, actions[0])
         self.assertEqual("刷新", page.refresh_action.text())
+        self.assertIs(
+            page.display_size_slider,
+            page.toolbarStickerList.widgetForAction(actions[-1]),
+        )
 
         spy = QSignalSpy(page.signal_refresh_content)
         page.refresh_action.trigger()
         self.assertEqual(1, len(spy))
+        page.close()
+
+    def test_display_size_slider_adjusts_view_grid(self):
+        page = FiniteStickerCollectionPage(auto_refresh=False)
+        slider = page.display_size_slider
+
+        self.assertIsInstance(slider, QSlider)
+        self.assertEqual(160, slider.value())
+        self.assertEqual(QSize(160, 160), page.listViewStickerList.gridSize())
+
+        slider.setValue(64)
+        self.assertEqual(QSize(64, 64), page.listViewStickerList.gridSize())
+        self.assertEqual(64, page.listViewStickerList.item_size())
+
+        slider.setValue(200)
+        self.assertEqual(QSize(200, 200), page.listViewStickerList.gridSize())
+        self.assertEqual(200, page.listViewStickerList.item_size())
         page.close()
 
     def test_reset_returns_to_top_after_scrolling_to_bottom(self):

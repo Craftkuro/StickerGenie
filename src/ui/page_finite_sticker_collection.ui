@@ -61,7 +61,7 @@
   <customwidget>
    <class>StickerListView</class>
    <extends>QListView</extends>
-   <header>ui.sticker_list_view_widget</header>
+   <header>ui.widgets.sticker_list_view_widget</header>
   </customwidget>
  </customwidgets>
  <resources/>

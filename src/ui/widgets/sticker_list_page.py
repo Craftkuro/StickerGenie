@@ -4,7 +4,7 @@ import logging
 from PyQt6 import uic
 from PyQt6.QtCore import pyqtSignal, QModelIndex, QPoint, Qt
 from PyQt6.QtGui import QAction, QStandardItemModel
-from PyQt6.QtWidgets import QMenu, QMessageBox, QWidget
+from PyQt6.QtWidgets import QMenu, QMessageBox, QSizePolicy, QSlider, QWidget
 
 import apppath
 import commons.constants
@@ -52,6 +52,28 @@ class StickerListPage(QWidget):
 
     def add_toolbar_action(self, action: QAction) -> QAction:
         return self.toolbar.addAction(action)
+
+    def _setup_display_size_slider(self) -> None:
+        """在工具栏右侧加入显示大小滑块（类似 Windows 7 资源管理器）。"""
+        spacer = QWidget(self)
+        spacer.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        self.add_toolbar_widget(spacer)
+
+        slider = QSlider(Qt.Orientation.Horizontal, self)
+        slider.setObjectName("displaySizeSlider")
+        slider.setRange(48, commons.constants.THUMBNAIL_SIZE)
+        slider.setSingleStep(8)
+        slider.setPageStep(16)
+        slider.setValue(self.listViewStickerList.item_size())
+        slider.setFixedWidth(120)
+        slider.setToolTip("调整图片显示大小")
+        slider.setAccessibleName("图片显示大小")
+        slider.valueChanged.connect(self.listViewStickerList.set_display_size)
+        self.add_toolbar_widget(slider)
+        self.display_size_slider = slider
 
     def refresh_content(self, model: QStandardItemModel):
         previous_model = self.listViewStickerList.model()

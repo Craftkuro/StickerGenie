@@ -18,12 +18,10 @@ import services.database_maintenance
 import services.export_library
 import services.global_instances
 import services.import_images
-import services.sticker_view_service_debug
 import services.sticker_library_viewer_service
 import services.search
 
 from .widgets.custom_tag_widget import CustomTagWidget
-from .sticker_list_view_widget import StickerListView
 from .dialog_image_import import ImageImportDialog
 from .dialog_image_import_progress import ImageImportProgressDialog
 from .dialog_database_maintenance import DatabaseMaintenanceDialog
@@ -541,10 +539,6 @@ class MainWindow(QMainWindow):
 
 
     def debug_start_test_view(self):
-        #model = services.sticker_view_service_debug.start_debug_view()
-        #debug_view_widget = StickerListView(model)
-        #self.add_new_tab_debug(debug_view_widget, "测试")
-
         services.sticker_library_viewer_service.open_sticker_library_view_tab()
 
         # self.custom_tag_widget_test()

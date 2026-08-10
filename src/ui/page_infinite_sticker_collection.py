@@ -43,6 +43,7 @@ class InfiniteStickerCollectionPage(StickerListPage):
             self.signal_refresh_content.emit()
         else:
             self._reset_and_load_first_page()
+        self._setup_display_size_slider()
 
     def _on_refresh_clicked(self) -> None:
         self.signal_refresh_content.emit()
