@@ -19,22 +19,7 @@
      <property name="orientation">
       <enum>Qt::Orientation::Vertical</enum>
      </property>
-     <widget class="QWidget" name="widgetImageViewer" native="true">
-      <layout class="QVBoxLayout" name="verticalLayout_2">
-       <property name="leftMargin">
-        <number>0</number>
-       </property>
-       <property name="topMargin">
-        <number>0</number>
-       </property>
-       <property name="rightMargin">
-        <number>0</number>
-       </property>
-       <property name="bottomMargin">
-        <number>0</number>
-       </property>
-      </layout>
-     </widget>
+     <widget class="PanZoomImageView" name="widgetImageViewer"/>
      <widget class="QTabWidget" name="tabWidgetBottom">
       <property name="currentIndex">
        <number>1</number>
@@ -108,4 +93,11 @@
    </hints>
   </connection>
  </connections>
+ <customwidgets>
+  <customwidget>
+   <class>PanZoomImageView</class>
+   <extends>QGraphicsView</extends>
+   <header>ui.widgets.pan_zoom_image_view</header>
+  </customwidget>
+ </customwidgets>
 </ui>

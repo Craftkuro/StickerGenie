@@ -5,14 +5,11 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6 import uic
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QPainter, QPixmap, QStandardItem, QStandardItemModel
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
-    QGraphicsPixmapItem,
-    QGraphicsScene,
-    QGraphicsView,
     QHeaderView,
     QInputDialog,
     QMessageBox,
@@ -68,14 +65,7 @@ class ImageViewerDialog(QDialog):
         self.widgetTagEditor.layout().addWidget(self._tag_widget)
 
     def _init_image_viewer(self):
-        self._scene = QGraphicsScene(self)
-        self._image_item = QGraphicsPixmapItem()
-        self._scene.addItem(self._image_item)
-
-        self._image_view = QGraphicsView(self._scene, self.widgetImageViewer)
-        self._image_view.setRenderHints(QPainter.RenderHint.SmoothPixmapTransform)
-        self._image_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.widgetImageViewer.layout().addWidget(self._image_view)
+        self._image_view = self.widgetImageViewer
 
     def _init_file_info_table(self):
         table = self.tableWidgetFileInfo
@@ -104,7 +94,7 @@ class ImageViewerDialog(QDialog):
         :param sticker: 图片对应的 StickerImage DTO，用于编辑标签
         """
         pixmap = QPixmap(file_path)
-        self._image_item.setPixmap(pixmap)
+        self.widgetImageViewer.set_image(pixmap)
         if pixmap.isNull():
             logger.warning("无法加载图片: %s", file_path)
 
@@ -117,9 +107,6 @@ class ImageViewerDialog(QDialog):
         self.widgetTagEditor.setVisible(sticker is not None)
         self._reload_tag_model()
         self._reload_file_info(file_path, pixmap, title)
-
-        # 等窗口完成布局后再把图片适配到视图大小
-        QTimer.singleShot(0, self._fit_image)
 
     def _reload_file_info(self, file_path: str, pixmap: QPixmap, title: str):
         path = Path(file_path)
@@ -294,12 +281,3 @@ class ImageViewerDialog(QDialog):
 
         self._sticker.tags = updated_sticker.tags
         self._reload_tag_model()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._fit_image()
-
-    def _fit_image(self):
-        if self._image_item.pixmap().isNull():
-            return
-        self._image_view.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)

@@ -16,6 +16,7 @@ from commons.dto import StickerImage, Tag
 from stickerdb.v1.sticker_db import StickerDBV1
 from ui.dialog_image_viewer import ImageViewerDialog, TAG_DATA_ROLE
 from ui.widgets.custom_tag_widget import TAG_ACCENT_COLOR_ROLE
+from ui.widgets.pan_zoom_image_view import PanZoomImageView
 
 
 def make_tag(name: str, color: str, *, enabled: bool = True) -> Tag:
@@ -77,6 +78,10 @@ class ImageViewerTagEditorTests(unittest.TestCase):
         item = self.dialog._tag_model.item(0)
         self.assertEqual(self.first.id, item.data(TAG_DATA_ROLE).id)
         self.assertEqual("#123456", item.data(TAG_ACCENT_COLOR_ROLE))
+
+    def test_image_viewer_uses_pan_zoom_widget(self):
+        self.assertIsInstance(self.dialog.widgetImageViewer, PanZoomImageView)
+        self.assertIs(self.dialog._image_view, self.dialog.widgetImageViewer)
 
     def test_supports_maximization(self):
         self.assertTrue(
