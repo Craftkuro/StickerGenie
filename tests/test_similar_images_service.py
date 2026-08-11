@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import services.global_instances
 import services.sticker_library_viewer_service as viewer_service
 from blob_storage import BlobStorage
+import commons.constants
 from commons.dto import StickerImage
 
 
@@ -48,6 +49,7 @@ class FakeVectorStore:
         self.results = list(results)
         self.deleted = []
         self.by_sqlite_id = {}
+        self.calls = []
 
     def add_existing(self, vector_id, sticker_id):
         self.by_sqlite_id[sticker_id] = vector_id
@@ -73,6 +75,7 @@ class FakeVectorStore:
         return None
 
     def search_by_id(self, vector_id, top_k):
+        self.calls.append(top_k)
         return self.results[:top_k]
 
 
@@ -85,8 +88,8 @@ class SimilarImagesServiceTests(unittest.TestCase):
         self.vector_store = FakeVectorStore(
             [
                 SimpleNamespace(sqlite_id=3, similarity=0.95),
-                SimpleNamespace(sqlite_id=999, similarity=0.90),
-                SimpleNamespace(sqlite_id=2, similarity=0.80),
+                SimpleNamespace(sqlite_id=2, similarity=0.90),
+                SimpleNamespace(sqlite_id=999, similarity=0.80),
             ]
         )
 
@@ -105,7 +108,11 @@ class SimilarImagesServiceTests(unittest.TestCase):
         matches = viewer_service.find_similar_stickers(self.source)
 
         self.assertEqual([3, 2], [sticker.id for sticker, _ in matches])
-        self.assertEqual([0.95, 0.80], [similarity for _, similarity in matches])
+        self.assertEqual([0.95, 0.90], [similarity for _, similarity in matches])
+        self.assertEqual(
+            [commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT],
+            self.vector_store.calls,
+        )
 
     def test_missing_vector_reports_a_clear_error(self):
         sticker = make_sticker(4, "missing.png")
@@ -149,6 +156,44 @@ class SimilarImagesServiceTests(unittest.TestCase):
         self.assertIn("actual-vector", self.vector_store.deleted)
         self.assertNotIn(7, self.vector_store.by_sqlite_id)
         self.assertFalse(blob_storage.exists(entity))
+
+
+class SimilarityCutoffTests(unittest.TestCase):
+    def test_keeps_results_before_the_largest_gap(self):
+        scores = [0.95, 0.90, 0.80, 0.79]
+
+        self.assertEqual(2, viewer_service._select_similar_count(scores))
+
+    def test_keeps_all_when_scores_have_no_gap_and_top_is_strong(self):
+        scores = [0.54, 0.53, 0.52, 0.51]
+
+        self.assertEqual(4, viewer_service._select_similar_count(scores))
+
+    def test_returns_empty_when_no_gap_and_top_score_is_low(self):
+        self.assertEqual(
+            0, viewer_service._select_similar_count([0.33, 0.32, 0.31])
+        )
+
+    def test_drops_single_weak_result(self):
+        scores = [0.46, 0.36, 0.35]
+
+        self.assertEqual(0, viewer_service._select_similar_count(scores))
+
+    def test_keeps_single_strong_result(self):
+        self.assertEqual(
+            1, viewer_service._select_similar_count([0.72, 0.50])
+        )
+
+    def test_limits_result_count(self):
+        scores = [0.5 - index * 0.001 for index in range(120)]
+
+        self.assertEqual(
+            commons.constants.SIMILAR_IMAGE_MAX_RESULTS,
+            viewer_service._select_similar_count(scores),
+        )
+
+    def test_returns_zero_for_empty_candidates(self):
+        self.assertEqual(0, viewer_service._select_similar_count([]))
 
 
 if __name__ == "__main__":
