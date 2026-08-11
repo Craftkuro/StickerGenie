@@ -354,7 +354,7 @@ class ExtractionControllerTests(unittest.TestCase):
     )
     def test_real_model_cpu_inference(self):
         project_root = Path(__file__).resolve().parents[1]
-        model_path = project_root / "src" / "vit_b_16_features.onnx"
+        model_path = project_root / "src" / "dinov2_vitb14_features.onnx"
         startup = []
         with tempfile.TemporaryDirectory() as temp_dir:
             first_path = Path(temp_dir) / "first.png"

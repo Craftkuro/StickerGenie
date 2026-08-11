@@ -54,7 +54,7 @@ class ImageImportCancellationTests(unittest.TestCase):
         services.global_instances.current_blob_storage = self.blob_storage
         services.global_instances.current_vector_store = self.vector_store
         apppath.app_path = self.root
-        (self.root / "vit_b_16_features.onnx").write_bytes(b"model")
+        (self.root / "dinov2_vitb14_features.onnx").write_bytes(b"model")
 
         self.first_path = self.root / "first.png"
         self.second_path = self.root / "second.png"

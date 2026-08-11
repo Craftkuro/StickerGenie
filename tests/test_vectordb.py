@@ -128,6 +128,25 @@ class ChromaVectorStoreTests(unittest.TestCase):
         self.assertNotIn(vector_ids[0], [result.id for result in results])
         self.assertEqual(vector_ids[1], results[0].id)
 
+    def test_search_by_id_only_returns_records_from_the_same_model(self):
+        base = make_vector(0)
+        nearby = make_vector(0)
+        nearby[1] = 0.1
+        other_model = make_vector(0)
+        other_model[1] = 0.05
+
+        other_metadata = make_metadata(3)
+        other_metadata.model_hash = "other-model"
+        vector_ids = self.store.add_batch(
+            [base, nearby, other_model],
+            [make_metadata(1), make_metadata(2), other_metadata],
+        )
+
+        results = self.store.search_by_id(vector_ids[0], top_k=2)
+
+        self.assertEqual([vector_ids[1]], [result.id for result in results])
+        self.assertNotIn(vector_ids[2], [result.id for result in results])
+
     def test_reset_recreates_collection_with_the_same_configuration(self):
         self.store.add(make_vector(0), make_metadata(1))
 

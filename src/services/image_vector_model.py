@@ -15,7 +15,7 @@ def calculate_model_hash(
     with open(model_path, "rb") as model_file:
         for chunk in iter(lambda: model_file.read(1024 * 1024), b""):
             digest.update(chunk)
-    return f"vit_b_16_{digest.hexdigest()[:16]}"
+    return f"dinov2_vitb14_{digest.hexdigest()[:16]}"
 
 
 def get_model_hash(model_path: Path) -> str:

@@ -647,7 +647,9 @@ class ChromaVectorStore:
         results = self.search_by_vector(
             record.vector,
             top_k=top_k + 1,  # +1 因为可能包含自己
-            include_distances=include_distances
+            include_distances=include_distances,
+            # 只比较同一特征模型生成的向量，避免模型切换后新旧向量混算
+            model_hash=record.metadata.model_hash,
         )
         return [result for result in results if result.id != vector_id][:top_k]
     
@@ -655,7 +657,8 @@ class ChromaVectorStore:
         self,
         query_vector: np.ndarray,
         top_k: int = 10,
-        include_distances: bool = True
+        include_distances: bool = True,
+        model_hash: Optional[str] = None,
     ) -> List[SearchResult]:
         """
         根据输入向量查询最相似的记录
@@ -664,6 +667,7 @@ class ChromaVectorStore:
             query_vector: 查询向量（768维）
             top_k: 返回结果数量
             include_distances: 是否包含距离信息
+            model_hash: 仅返回该模型哈希的记录；None 表示不过滤
             
         返回:
             SearchResult 列表，按相似度降序排列
@@ -681,11 +685,16 @@ class ChromaVectorStore:
             # 确保向量是 float32 类型
             query_vector_float32 = query_vector.astype(np.float32)
             
+            query_options = {}
+            if model_hash is not None:
+                query_options["where"] = {"model_hash": model_hash}
+
             # 查询
             results = self._collection.query(
                 query_embeddings=[query_vector_float32.tolist()],
                 n_results=top_k,
-                include=["embeddings", "metadatas", "distances"]
+                include=["embeddings", "metadatas", "distances"],
+                **query_options,
             )
             
             # 构建 SearchResult 列表

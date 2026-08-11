@@ -27,7 +27,7 @@
     >>> vector = np.random.rand(768).astype(np.float32)
     >>> metadata = VectorMetadata(
     ...     image_filename="test.jpg",
-    ...     model_hash="vit_b_16_v1",
+    ...     model_hash="dinov2_vitb14_v1",
     ...     sqlite_id=1,
     ...     extraction_timestamp=1234567890.0,
     ...     image_width=800,

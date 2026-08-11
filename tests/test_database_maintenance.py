@@ -114,7 +114,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         )
         services.global_instances.current_thumbnail_provider = None
         apppath.app_path = self.root
-        (self.root / "vit_b_16_features.onnx").write_bytes(b"model")
+        (self.root / "dinov2_vitb14_features.onnx").write_bytes(b"model")
 
     def tearDown(self):
         services.global_instances.current_library_db = self._old_db

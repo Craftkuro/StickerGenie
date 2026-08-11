@@ -148,7 +148,7 @@ def _generate_vectors(
     if vector_store is None:
         return 0, ("向量数据库未初始化。",)
 
-    model_path = apppath.app_path / "vit_b_16_features.onnx"
+    model_path = apppath.app_path / "dinov2_vitb14_features.onnx"
     if not model_path.is_file():
         return 0, (f"特征提取模型不存在：{model_path}",)
 

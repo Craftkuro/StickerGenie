@@ -13,8 +13,8 @@ numpy>=1.24.0
 # 图像加载和预处理
 Pillow>=10.0.0
 
-# ONNX 模型推理 (CPU 版本)
-onnxruntime>=1.16.0
+# ONNX 模型推理 (CPU 版本；opset 18 需要 1.17+)
+onnxruntime>=1.17.0
 
 # ONNX 模型推理 (GPU 版本；同时包含 CPU provider，可回退 CPU)
 # onnxruntime-gpu[cuda,cudnn]>=1.28.0
@@ -56,6 +56,9 @@ tomlkit>=0.12.0
 
 # 仅用于验证 Pillow/NumPy 预处理与官方 ViT transform 数值一致；运行时不需要
 # torchvision>=0.16.0
+#
+# 生成 DINOv2 ONNX（src/misc/export_dinov2_vitb14_onnx.py）时需要：
+# torch>=2.0.0、torchvision>=0.15.0、onnx>=1.14.0、onnxscript
 
 # 代码质量检查
 # black>=23.0.0
