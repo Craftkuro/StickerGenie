@@ -1,8 +1,10 @@
 import unittest
+from unittest.mock import Mock
 
 from services.similarity_result_filter import (
     SimilarityFilterConfig,
     SimilarityResultFilter,
+    create_filter_from_settings,
 )
 from stickerdb.vectordb.models import SearchResult, VectorMetadata
 
@@ -52,6 +54,37 @@ class SimilarityFilterConfigTests(unittest.TestCase):
     def test_rejects_non_positive_max_results(self):
         with self.assertRaises(ValueError):
             SimilarityFilterConfig(max_results=0)
+
+
+class CreateFilterFromSettingsTests(unittest.TestCase):
+    def test_reads_similar_image_settings(self):
+        settings_manager = Mock()
+        settings_manager.get.side_effect = lambda key: {
+            "similar_image_target_drop_ratio": "0.35",
+            "similar_image_min_keep": 7,
+            "similar_image_min_similarity": "0.60",
+            "similar_image_max_results": 40,
+        }.get(key)
+
+        filt = create_filter_from_settings(settings_manager)
+
+        self.assertEqual(
+            SimilarityFilterConfig(
+                target_drop_ratio=0.35,
+                min_keep=7,
+                min_similarity=0.60,
+                max_results=40,
+            ),
+            filt.config,
+        )
+
+    def test_uses_defaults_when_settings_are_missing(self):
+        settings_manager = Mock()
+        settings_manager.get.return_value = None
+
+        filt = create_filter_from_settings(settings_manager)
+
+        self.assertEqual(SimilarityFilterConfig(), filt.config)
 
 
 class SimilarityResultFilterTests(unittest.TestCase):

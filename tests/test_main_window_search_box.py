@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import QApplication
 
 import apppath
 import services.global_instances
+from services.settings import create_settings_manager
 from ui.main_window import MainWindow
-from ui.dialog_settings import create_settings_manager
 from ui.widgets.custom_search_box import CustomSearchBox
 
 

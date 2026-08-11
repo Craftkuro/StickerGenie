@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import QApplication, QMenu
 
 import apppath
 import services.global_instances
-from ui.dialog_settings import create_settings_manager
+from services.settings import create_settings_manager
 from ui.main_window import MainWindow
 
 

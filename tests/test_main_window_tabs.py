@@ -15,7 +15,7 @@ import apppath
 import services.global_instances
 import services.sticker_library_viewer_service as library_viewer_service
 from commons.signal_objects import MainWindowNewTabRequest
-from ui.dialog_settings import create_settings_manager
+from services.settings import create_settings_manager
 from ui.main_window import MainWindow
 
 

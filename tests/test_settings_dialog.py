@@ -1,3 +1,4 @@
+import ast
 import os
 import tempfile
 import unittest
@@ -11,7 +12,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox
 
 import apppath
-from ui.dialog_settings import SettingsDialog, create_settings_manager
+from services.settings import create_settings_manager
+from ui.dialog_settings import SettingsDialog
 from ui.main_window import MainWindow
 
 
@@ -32,6 +34,10 @@ class SettingsDialogTests(unittest.TestCase):
     def test_loads_saved_values_and_switches_categories(self):
         self.manager.set("recent_search_limit", 8)
         self.manager.set("tag_suggestion_limit", 12)
+        self.manager.set("similar_image_target_drop_ratio", "0.42")
+        self.manager.set("similar_image_min_keep", 7)
+        self.manager.set("similar_image_min_similarity", "0.63")
+        self.manager.set("similar_image_max_results", 60)
         self.manager.save()
 
         dialog = SettingsDialog(config_manager=self.manager)
@@ -41,6 +47,16 @@ class SettingsDialogTests(unittest.TestCase):
         self.assertEqual(0, dialog.stackedWidget.currentIndex())
         self.assertEqual(8, dialog.spinBoxRecentSearchLimit.value())
         self.assertEqual(12, dialog.spinBoxTagSuggestionLimit.value())
+        self.assertEqual(
+            0.42,
+            dialog.doubleSpinBoxSimilarImageTargetDropRatio.value(),
+        )
+        self.assertEqual(7, dialog.spinBoxSimilarImageMinKeep.value())
+        self.assertEqual(
+            0.63,
+            dialog.doubleSpinBoxSimilarImageMinSimilarity.value(),
+        )
+        self.assertEqual(60, dialog.spinBoxSimilarImageMaxResults.value())
 
         dialog.listWidget.setCurrentRow(0)
 
@@ -95,6 +111,10 @@ class SettingsDialogTests(unittest.TestCase):
         dialog.show()
         dialog.spinBoxRecentSearchLimit.setValue(24)
         dialog.spinBoxTagSuggestionLimit.setValue(7)
+        dialog.doubleSpinBoxSimilarImageTargetDropRatio.setValue(0.33)
+        dialog.spinBoxSimilarImageMinKeep.setValue(4)
+        dialog.doubleSpinBoxSimilarImageMinSimilarity.setValue(0.71)
+        dialog.spinBoxSimilarImageMaxResults.setValue(40)
 
         apply_button = dialog.buttonBox.button(
             QDialogButtonBox.StandardButton.Apply
@@ -105,6 +125,16 @@ class SettingsDialogTests(unittest.TestCase):
         saved_manager = create_settings_manager(self.config_path)
         self.assertEqual(24, saved_manager.get("recent_search_limit"))
         self.assertEqual(7, saved_manager.get("tag_suggestion_limit"))
+        self.assertEqual(
+            "0.33",
+            saved_manager.get("similar_image_target_drop_ratio"),
+        )
+        self.assertEqual(4, saved_manager.get("similar_image_min_keep"))
+        self.assertEqual(
+            "0.71",
+            saved_manager.get("similar_image_min_similarity"),
+        )
+        self.assertEqual(40, saved_manager.get("similar_image_max_results"))
         self.assertFalse(apply_button.isEnabled())
         self.assertTrue(dialog.isVisible())
         dialog.close()
@@ -174,6 +204,33 @@ class MainWindowSettingsTests(unittest.TestCase):
         )
         dialog_class.return_value.exec.assert_called_once_with()
         refresh_suggestions.assert_called_once_with()
+
+
+class SettingsServiceTests(unittest.TestCase):
+    def test_settings_service_imports_no_qt_or_ui(self):
+        settings_path = (
+            Path(__file__).resolve().parents[1]
+            / "src" / "services" / "settings.py"
+        )
+        tree = ast.parse(settings_path.read_text(encoding="utf-8"))
+
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(node.module)
+
+        self.assertTrue({"apppath", "config_manager"}.issubset(imported))
+        self.assertFalse(
+            any(
+                name == "PyQt6"
+                or name.startswith("PyQt6.")
+                or name == "ui"
+                or name.startswith("ui.")
+                for name in imported
+            )
+        )
 
 
 if __name__ == "__main__":

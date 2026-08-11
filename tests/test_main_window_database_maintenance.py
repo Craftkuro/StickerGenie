@@ -17,7 +17,7 @@ from services.database_maintenance import (
     DatabaseMaintenanceProgress,
     DatabaseMaintenanceResult,
 )
-from ui.dialog_settings import create_settings_manager
+from services.settings import create_settings_manager
 from ui.main_window import MainWindow
 
 
