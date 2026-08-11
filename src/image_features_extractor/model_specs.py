@@ -2,8 +2,9 @@
 
 Everything that changes when the ONNX feature model changes lives here:
 model filename, preprocessing, output shape, and which ONNX output is used.
-Adding a model is a new spec plus a registry entry; switching the app default
-is changing ``DEFAULT_MODEL_SPEC``.
+Every supported model has a registered spec here. The app does not switch
+models at runtime; changing the active model means updating
+``DEFAULT_MODEL_SPEC`` and regenerating the feature vectors.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ class ImageFeatureModelSpec:
     resize_size: int
     normalize_mean: tuple[float, float, float]
     normalize_std: tuple[float, float, float]
+    resize_mode: str = "shorter_side_crop"
     output_index: int = 0
 
     def __post_init__(self) -> None:
@@ -64,6 +66,10 @@ class ImageFeatureModelSpec:
             )
         if any(value <= 0 for value in self.normalize_std):
             raise ValueError("normalize_std values must be positive")
+        if self.resize_mode not in {"shorter_side_crop", "resize"}:
+            raise ValueError(
+                "resize_mode must be 'shorter_side_crop' or 'resize'"
+            )
 
 
 def _dinov2_vitb14_spec(
@@ -81,6 +87,19 @@ def _dinov2_vitb14_spec(
     )
 
 
+def _siglip_base_patch16_224_spec() -> ImageFeatureModelSpec:
+    return ImageFeatureModelSpec(
+        name="siglip_base_patch16_224",
+        model_filename="siglip_base_patch16_224_features.onnx",
+        feature_vector_size=768,
+        input_size=224,
+        resize_size=224,
+        normalize_mean=(0.5, 0.5, 0.5),
+        normalize_std=(0.5, 0.5, 0.5),
+        resize_mode="resize",
+    )
+
+
 DINOV2_VITB14_SPEC = _dinov2_vitb14_spec(
     "dinov2_vitb14",
     "dinov2_vitb14_features.onnx",
@@ -89,12 +108,14 @@ DINOV2_VITB14_REG4_SPEC = _dinov2_vitb14_spec(
     "dinov2_vitb14_reg4",
     "dinov2_vitb14_reg4_features.onnx",
 )
+SIGLIP_BASE_PATCH16_224_SPEC = _siglip_base_patch16_224_spec()
 
 MODEL_SPECS = (
     DINOV2_VITB14_SPEC,
     DINOV2_VITB14_REG4_SPEC,
+    SIGLIP_BASE_PATCH16_224_SPEC,
 )
-DEFAULT_MODEL_SPEC = DINOV2_VITB14_SPEC
+DEFAULT_MODEL_SPEC = SIGLIP_BASE_PATCH16_224_SPEC
 DEFAULT_MODEL_FILENAME = DEFAULT_MODEL_SPEC.model_filename
 
 _MODEL_SPECS_BY_FILENAME = {

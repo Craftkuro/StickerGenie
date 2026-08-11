@@ -129,8 +129,15 @@ def preprocess_image(
     with Image.open(image_path) as source:
         transposed = ImageOps.exif_transpose(source)
         rgb_image = _convert_to_rgb(transposed)
-        resized = _resize_shorter_side(rgb_image, spec.resize_size)
-        cropped = _center_crop(resized, spec.input_size)
+        if spec.resize_mode == "resize":
+            resized = rgb_image.resize(
+                (spec.input_size, spec.input_size),
+                resample=Image.Resampling.BICUBIC,
+            )
+            cropped = resized
+        else:
+            resized = _resize_shorter_side(rgb_image, spec.resize_size)
+            cropped = _center_crop(resized, spec.input_size)
         pixels = np.asarray(cropped, dtype=np.float32)
 
     chw = np.transpose(pixels, (2, 0, 1)) / np.float32(255.0)

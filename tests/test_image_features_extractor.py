@@ -27,6 +27,7 @@ from image_features_extractor.model_specs import (
     DEFAULT_MODEL_FILENAME,
     DEFAULT_MODEL_SPEC,
     DINOV2_VITB14_REG4_SPEC,
+    SIGLIP_BASE_PATCH16_224_SPEC,
     ImageFeatureModelSpec,
     get_model_spec,
 )
@@ -168,10 +169,15 @@ class ImagePreprocessingTests(unittest.TestCase):
         rgba_path = self.temp_path / "rgba.png"
         Image.new("RGBA", (32, 48), (255, 0, 0, 0)).save(rgba_path)
         rgba = preprocess_image(str(rgba_path), DEFAULT_MODEL_SPEC)
+        mean = np.asarray(
+            DEFAULT_MODEL_SPEC.normalize_mean, dtype=np.float32
+        )[:, None, None]
+        std = np.asarray(
+            DEFAULT_MODEL_SPEC.normalize_std, dtype=np.float32
+        )[:, None, None]
         expected_white = (
-            np.ones((3, 1, 1), dtype=np.float32)
-            - np.asarray((0.485, 0.456, 0.406), dtype=np.float32)[:, None, None]
-        ) / np.asarray((0.229, 0.224, 0.225), dtype=np.float32)[:, None, None]
+            np.ones((3, 1, 1), dtype=np.float32) - mean
+        ) / std
         np.testing.assert_allclose(rgba[:, :1, :1], expected_white, atol=1e-6)
 
         palette_path = self.temp_path / "palette.png"
@@ -202,10 +208,9 @@ class ImagePreprocessingTests(unittest.TestCase):
         self.assertGreater(top_red, bottom_red)
         self.assertLess(top_blue, bottom_blue)
 
-    def test_matches_torchvision_vit_transform(self):
+    def test_matches_siglip_image_processor(self):
         try:
-            import torch
-            from torchvision.models import ViT_B_16_Weights
+            from transformers import SiglipImageProcessor
         except ImportError as error:
             self.skipTest(str(error))
 
@@ -217,14 +222,24 @@ class ImagePreprocessingTests(unittest.TestCase):
         Image.fromarray(pixels, mode="RGB").save(image_path)
 
         actual = preprocess_image(str(image_path), DEFAULT_MODEL_SPEC)
+        processor = SiglipImageProcessor(
+            size={"height": 224, "width": 224},
+            image_mean=(0.5, 0.5, 0.5),
+            image_std=(0.5, 0.5, 0.5),
+            resample=Image.Resampling.BICUBIC,
+        )
         with Image.open(image_path) as source:
-            expected = (
-                ViT_B_16_Weights.DEFAULT.transforms()(source.convert("RGB"))
-                .cpu()
-                .numpy()
-            )
-        self.assertTrue(torch.isfinite(torch.from_numpy(actual)).all())
-        np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-6)
+            expected = processor(
+                images=source.convert("RGB"),
+                return_tensors="pt",
+            )["pixel_values"][0].numpy()
+        self.assertEqual(actual.shape, expected.shape)
+        np.testing.assert_allclose(
+            actual,
+            expected,
+            rtol=0,
+            atol=0.02,
+        )
 
     def test_preprocess_uses_model_spec_dimensions(self):
         image_path = self.temp_path / "small.png"
@@ -269,10 +284,23 @@ class ModelSpecTests(unittest.TestCase):
     def test_default_model_is_registered_by_filename(self):
         self.assertIs(DEFAULT_MODEL_SPEC, get_model_spec(DEFAULT_MODEL_FILENAME))
 
+    def test_default_model_is_siglip(self):
+        spec = DEFAULT_MODEL_SPEC
+        self.assertEqual("siglip_base_patch16_224", spec.name)
+        self.assertEqual(768, spec.feature_vector_size)
+        self.assertEqual("resize", spec.resize_mode)
+        self.assertEqual((0.5, 0.5, 0.5), spec.normalize_mean)
+
     def test_reg4_model_is_registered(self):
         spec = get_model_spec(DINOV2_VITB14_REG4_SPEC.model_filename)
         self.assertIs(DINOV2_VITB14_REG4_SPEC, spec)
         self.assertEqual(768, spec.feature_vector_size)
+
+    def test_siglip_model_is_registered(self):
+        spec = get_model_spec(SIGLIP_BASE_PATCH16_224_SPEC.model_filename)
+        self.assertIs(SIGLIP_BASE_PATCH16_224_SPEC, spec)
+        self.assertEqual(768, spec.feature_vector_size)
+        self.assertEqual("resize", spec.resize_mode)
 
     def test_unknown_model_raises(self):
         with self.assertRaisesRegex(ValueError, "unsupported"):
@@ -399,7 +427,7 @@ class ExtractionControllerTests(unittest.TestCase):
 
     @unittest.skipUnless(
         os.environ.get("STICKERGENIE_RUN_MODEL_TESTS") == "1",
-        "set STICKERGENIE_RUN_MODEL_TESTS=1 to run the 343 MB model test",
+        "set STICKERGENIE_RUN_MODEL_TESTS=1 to run the SigLIP model test",
     )
     def test_real_model_cpu_inference(self):
         project_root = Path(__file__).resolve().parents[1]

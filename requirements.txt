@@ -59,6 +59,10 @@ tomlkit>=0.12.0
 #
 # 生成 DINOv2 ONNX（src/misc/export_dinov2_vitb14_onnx.py）时需要：
 # torch>=2.0.0、torchvision>=0.15.0、onnx>=1.14.0、onnxscript
+#
+# 生成 SigLIP ONNX（src/misc/export_siglip_onnx.py）时需要：
+# torch、transformers>=4.37、safetensors、onnx、onnxruntime
+# 并提供一个本地 HuggingFace siglip-base-patch16-224 模型目录
 
 # 代码质量检查
 # black>=23.0.0

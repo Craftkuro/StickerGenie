@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
 
-SPEC_DIR = Path(__file__).resolve().parent
+SPEC_DIR = Path(SPECPATH).resolve()
 sys.path.insert(0, str(SPEC_DIR / "src"))
 from image_features_extractor.model_specs import DEFAULT_MODEL_SPEC
 
