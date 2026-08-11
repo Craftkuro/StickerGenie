@@ -20,6 +20,7 @@ datas = [
     ("src/ui/dialog_database_maintenance.ui", "ui"),
     ("src/resources/thumbnail_placeholder.png", "resources"),
     ("src/dinov2_vitb14_features.onnx", "."),
+    ("src/dinov2_vitb14_features.sha1", "."),
 ]
 
 # ChromaDB 1.x 通过字符串动态加载实现类；Rust 绑定是独立二进制包。

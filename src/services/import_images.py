@@ -96,16 +96,8 @@ def _report_progress(
         )
 
 
-def _calculate_model_hash(
-    model_path: str,
-    file_size: int,
-    modification_time_ns: int,
-) -> str:
-    return _calculate_shared_model_hash(
-        model_path,
-        file_size,
-        modification_time_ns,
-    )
+def _calculate_model_hash(model_path: str) -> str:
+    return _calculate_shared_model_hash(model_path)
 
 
 def _get_model_hash(model_path: Path) -> str:
