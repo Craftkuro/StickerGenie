@@ -9,8 +9,10 @@ from typing import Any, TypeAlias
 
 import numpy as np
 
+from .model_specs import DEFAULT_MODEL_SPEC
 
-FEATURE_VECTOR_SIZE = 768
+
+FEATURE_VECTOR_SIZE = DEFAULT_MODEL_SPEC.feature_vector_size
 ProviderSpec: TypeAlias = str | tuple[str, Mapping[str, Any]]
 
 
@@ -37,10 +39,8 @@ class ImageFeatureResult:
         if self.success:
             if not isinstance(self.vector, np.ndarray):
                 raise ValueError("a successful result must contain a NumPy vector")
-            if self.vector.shape != (FEATURE_VECTOR_SIZE,):
-                raise ValueError(
-                    f"a successful vector must have shape ({FEATURE_VECTOR_SIZE},)"
-                )
+            if self.vector.ndim != 1 or self.vector.size == 0:
+                raise ValueError("a successful vector must be a non-empty 1-D array")
             if self.vector.dtype != np.float32:
                 raise ValueError("a successful vector must have dtype float32")
             if self.error is not None:
@@ -104,6 +104,8 @@ class WorkerStartupInfo:
 
     providers: tuple[str, ...]
     input_name: str
+    model_name: str = ""
+    feature_vector_size: int = FEATURE_VECTOR_SIZE
 
     def __post_init__(self) -> None:
         if not isinstance(self.providers, tuple):
@@ -114,6 +116,14 @@ class WorkerStartupInfo:
             raise ValueError("providers must contain at least one provider name")
         if not isinstance(self.input_name, str) or not self.input_name:
             raise ValueError("input_name must be a non-empty string")
+        if not isinstance(self.model_name, str):
+            raise ValueError("model_name must be a string")
+        if (
+            isinstance(self.feature_vector_size, bool)
+            or not isinstance(self.feature_vector_size, int)
+            or self.feature_vector_size <= 0
+        ):
+            raise ValueError("feature_vector_size must be a positive integer")
 
 
 @dataclass(frozen=True, slots=True)

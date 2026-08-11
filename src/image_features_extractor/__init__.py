@@ -19,11 +19,19 @@ from .models import (
     ImageFeatureResult,
     WorkerStartupInfo,
 )
+from .model_specs import (
+    DEFAULT_MODEL_FILENAME,
+    DEFAULT_MODEL_SPEC,
+    ImageFeatureModelSpec,
+    get_model_spec,
+)
 
 if TYPE_CHECKING:
     from .qt import QtImageFeaturesExtractor
 
 __all__ = [
+    "DEFAULT_MODEL_FILENAME",
+    "DEFAULT_MODEL_SPEC",
     "FEATURE_VECTOR_SIZE",
     "ExtractionCancelledError",
     "ExtractionProgress",
@@ -32,12 +40,14 @@ __all__ = [
     "ExtractionTimeoutError",
     "FeatureResultBatch",
     "ImageFeatureResult",
+    "ImageFeatureModelSpec",
     "ImageFeaturesExtractorError",
     "QtImageFeaturesExtractor",
     "WorkerCrashedError",
     "WorkerInitializationError",
     "WorkerStartupInfo",
     "extract_features",
+    "get_model_spec",
     "iter_features",
     "normalize_image_path",
 ]

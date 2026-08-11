@@ -23,6 +23,13 @@ from image_features_extractor import (
     normalize_image_path,
 )
 from image_features_extractor.models import FEATURE_VECTOR_SIZE, WorkerStartupInfo
+from image_features_extractor.model_specs import (
+    DEFAULT_MODEL_FILENAME,
+    DEFAULT_MODEL_SPEC,
+    DINOV2_VITB14_REG4_SPEC,
+    ImageFeatureModelSpec,
+    get_model_spec,
+)
 from image_features_extractor.worker import (
     BATCH_RESULT,
     CANCEL,
@@ -119,6 +126,14 @@ class ImageFeatureModelTests(unittest.TestCase):
             ImageFeatureResult.succeeded(
                 "image.png", np.zeros(FEATURE_VECTOR_SIZE, dtype=np.float64)
             )
+        generic = ImageFeatureResult.succeeded(
+            "other.png", np.zeros(512, dtype=np.float32)
+        )
+        self.assertTrue(generic.success)
+        with self.assertRaises(ValueError):
+            ImageFeatureResult.succeeded(
+                "other.png", np.zeros((1, 512), dtype=np.float32)
+            )
         with self.assertRaises(ValueError):
             ImageFeatureResult.failed("bad.png", "")
 
@@ -145,14 +160,14 @@ class ImagePreprocessingTests(unittest.TestCase):
     def test_rgb_rgba_and_palette_transparency(self):
         rgb_path = self.temp_path / "rgb.png"
         Image.new("RGB", (300, 180), (10, 20, 30)).save(rgb_path)
-        rgb = preprocess_image(str(rgb_path))
+        rgb = preprocess_image(str(rgb_path), DEFAULT_MODEL_SPEC)
         self.assertEqual((3, 224, 224), rgb.shape)
         self.assertEqual(np.float32, rgb.dtype)
         self.assertTrue(rgb.flags.c_contiguous)
 
         rgba_path = self.temp_path / "rgba.png"
         Image.new("RGBA", (32, 48), (255, 0, 0, 0)).save(rgba_path)
-        rgba = preprocess_image(str(rgba_path))
+        rgba = preprocess_image(str(rgba_path), DEFAULT_MODEL_SPEC)
         expected_white = (
             np.ones((3, 1, 1), dtype=np.float32)
             - np.asarray((0.485, 0.456, 0.406), dtype=np.float32)[:, None, None]
@@ -164,7 +179,7 @@ class ImagePreprocessingTests(unittest.TestCase):
         palette.putpalette([255, 0, 0] + [0, 0, 0] * 255)
         palette.info["transparency"] = 0
         palette.save(palette_path)
-        palette_result = preprocess_image(str(palette_path))
+        palette_result = preprocess_image(str(palette_path), DEFAULT_MODEL_SPEC)
         np.testing.assert_allclose(
             palette_result[:, :1, :1], expected_white, atol=1e-6
         )
@@ -179,7 +194,7 @@ class ImagePreprocessingTests(unittest.TestCase):
         exif[274] = 6
         image.save(image_path, quality=100, exif=exif)
 
-        transformed = preprocess_image(str(image_path))
+        transformed = preprocess_image(str(image_path), DEFAULT_MODEL_SPEC)
         top_red = transformed[0, :80].mean()
         bottom_red = transformed[0, -80:].mean()
         top_blue = transformed[2, :80].mean()
@@ -201,7 +216,7 @@ class ImagePreprocessingTests(unittest.TestCase):
         ).astype(np.uint8)
         Image.fromarray(pixels, mode="RGB").save(image_path)
 
-        actual = preprocess_image(str(image_path))
+        actual = preprocess_image(str(image_path), DEFAULT_MODEL_SPEC)
         with Image.open(image_path) as source:
             expected = (
                 ViT_B_16_Weights.DEFAULT.transforms()(source.convert("RGB"))
@@ -210,6 +225,23 @@ class ImagePreprocessingTests(unittest.TestCase):
             )
         self.assertTrue(torch.isfinite(torch.from_numpy(actual)).all())
         np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-6)
+
+    def test_preprocess_uses_model_spec_dimensions(self):
+        image_path = self.temp_path / "small.png"
+        Image.new("RGB", (80, 60), "white").save(image_path)
+        spec = ImageFeatureModelSpec(
+            name="small-test",
+            model_filename="small-test.onnx",
+            feature_vector_size=64,
+            input_size=32,
+            resize_size=40,
+            normalize_mean=(0.5, 0.5, 0.5),
+            normalize_std=(0.25, 0.25, 0.25),
+        )
+
+        transformed = preprocess_image(str(image_path), spec)
+
+        self.assertEqual((3, 32, 32), transformed.shape)
 
     def test_single_image_failure_does_not_skip_later_images(self):
         first = self.temp_path / "first.png"
@@ -220,7 +252,10 @@ class ImagePreprocessingTests(unittest.TestCase):
         session = FakeSession()
 
         results = process_image_batch(
-            session, "images", [str(first), str(missing), str(third)]
+            session,
+            "images",
+            [str(first), str(missing), str(third)],
+            DEFAULT_MODEL_SPEC,
         )
 
         self.assertEqual([str(first), str(missing), str(third)], [r.image_path for r in results])
@@ -228,6 +263,20 @@ class ImagePreprocessingTests(unittest.TestCase):
         self.assertEqual((2, 3, 224, 224), session.inputs[0].shape)
         self.assertEqual(0, results[0].vector[0])
         self.assertEqual(1, results[2].vector[0])
+
+
+class ModelSpecTests(unittest.TestCase):
+    def test_default_model_is_registered_by_filename(self):
+        self.assertIs(DEFAULT_MODEL_SPEC, get_model_spec(DEFAULT_MODEL_FILENAME))
+
+    def test_reg4_model_is_registered(self):
+        spec = get_model_spec(DINOV2_VITB14_REG4_SPEC.model_filename)
+        self.assertIs(DINOV2_VITB14_REG4_SPEC, spec)
+        self.assertEqual(768, spec.feature_vector_size)
+
+    def test_unknown_model_raises(self):
+        with self.assertRaisesRegex(ValueError, "unsupported"):
+            get_model_spec("unknown.onnx")
 
 
 class ProviderSelectionTests(unittest.TestCase):
@@ -354,7 +403,7 @@ class ExtractionControllerTests(unittest.TestCase):
     )
     def test_real_model_cpu_inference(self):
         project_root = Path(__file__).resolve().parents[1]
-        model_path = project_root / "src" / "dinov2_vitb14_features.onnx"
+        model_path = project_root / "src" / DEFAULT_MODEL_FILENAME
         startup = []
         with tempfile.TemporaryDirectory() as temp_dir:
             first_path = Path(temp_dir) / "first.png"

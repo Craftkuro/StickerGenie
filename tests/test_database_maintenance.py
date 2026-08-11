@@ -12,7 +12,11 @@ import apppath
 import services.global_instances
 from blob_storage import BlobFileEntity, BlobStorage
 from commons.dto import StickerImage
-from image_features_extractor import ExtractionCancelledError, ImageFeatureResult
+from image_features_extractor import (
+    DEFAULT_MODEL_FILENAME,
+    ExtractionCancelledError,
+    ImageFeatureResult,
+)
 from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
 from image_text_extractor import (
     ImageTextResult,
@@ -119,7 +123,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         )
         services.global_instances.current_thumbnail_provider = None
         apppath.app_path = self.root
-        (self.root / "dinov2_vitb14_features.onnx").write_bytes(b"model")
+        (self.root / DEFAULT_MODEL_FILENAME).write_bytes(b"model")
 
     def tearDown(self):
         services.global_instances.current_library_db = self._old_db

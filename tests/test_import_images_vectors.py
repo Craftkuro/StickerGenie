@@ -13,7 +13,7 @@ import apppath
 import services.global_instances
 from blob_storage import BlobStorage
 from commons.signal_objects import ImportImagesRequest
-from image_features_extractor import ImageFeatureResult
+from image_features_extractor import DEFAULT_MODEL_FILENAME, ImageFeatureResult
 from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
 from image_text_extractor import ImageTextResult
 from image_text_extractor.models import TextExtractionProgress, TextResultBatch
@@ -69,7 +69,7 @@ class ImportImagesVectorTests(unittest.TestCase):
         services.global_instances.current_blob_storage = self.blob_storage
         services.global_instances.current_vector_store = self.vector_store
         apppath.app_path = self.root
-        (self.root / "dinov2_vitb14_features.onnx").write_bytes(b"model")
+        (self.root / DEFAULT_MODEL_FILENAME).write_bytes(b"model")
 
         self.source_path = self.root / "source.png"
         Image.new("RGB", (12, 8), "white").save(self.source_path)

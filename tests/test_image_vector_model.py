@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from image_features_extractor import DEFAULT_MODEL_FILENAME
 from services.image_vector_model import (
     calculate_model_hash,
     get_model_hash,
@@ -15,14 +16,14 @@ class ImageVectorModelTests(unittest.TestCase):
     def setUp(self):
         self._temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self._temp_dir.name)
-        self.model_path = self.root / "dinov2_vitb14_features.onnx"
+        self.model_path = self.root / DEFAULT_MODEL_FILENAME
         self.model_path.write_bytes(b"model-bytes")
 
     def tearDown(self):
         self._temp_dir.cleanup()
 
     def _sidecar_path(self) -> Path:
-        return self.root / "dinov2_vitb14_features.sha1"
+        return self.model_path.with_suffix(".sha1")
 
     def _expected_hash(self) -> str:
         digest = hashlib.sha1(self.model_path.read_bytes()).hexdigest()
@@ -57,7 +58,7 @@ class ImageVectorModelTests(unittest.TestCase):
     def test_reads_sha1sum_style_sidecar(self):
         digest = "cd" * 20
         self._sidecar_path().write_text(
-            f"{digest}  dinov2_vitb14_features.onnx\n",
+            f"{digest}  {DEFAULT_MODEL_FILENAME}\n",
             encoding="ascii",
         )
 

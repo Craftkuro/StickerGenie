@@ -1,8 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
+
+SPEC_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SPEC_DIR / "src"))
+from image_features_extractor.model_specs import DEFAULT_MODEL_SPEC
+
+feature_model_path = SPEC_DIR / "src" / DEFAULT_MODEL_SPEC.model_filename
+feature_model_hash_path = feature_model_path.with_suffix(".sha1")
 
 
 # 运行时从 sys._MEIPASS 读取的应用资源。
@@ -19,8 +27,8 @@ datas = [
     ("src/ui/dialog_image_import_progress.ui", "ui"),
     ("src/ui/dialog_database_maintenance.ui", "ui"),
     ("src/resources/thumbnail_placeholder.png", "resources"),
-    ("src/dinov2_vitb14_features.onnx", "."),
-    ("src/dinov2_vitb14_features.sha1", "."),
+    (str(feature_model_path), "."),
+    (str(feature_model_hash_path), "."),
 ]
 
 # ChromaDB 1.x 通过字符串动态加载实现类；Rust 绑定是独立二进制包。

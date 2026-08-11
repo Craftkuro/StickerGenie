@@ -13,7 +13,11 @@ import apppath
 import services.global_instances
 from blob_storage import BlobStorage
 from commons.signal_objects import ImportImagesRequest
-from image_features_extractor import ExtractionCancelledError, ImageFeatureResult
+from image_features_extractor import (
+    DEFAULT_MODEL_FILENAME,
+    ExtractionCancelledError,
+    ImageFeatureResult,
+)
 from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
 from services.import_images import (
     ImageImportService,
@@ -54,7 +58,7 @@ class ImageImportCancellationTests(unittest.TestCase):
         services.global_instances.current_blob_storage = self.blob_storage
         services.global_instances.current_vector_store = self.vector_store
         apppath.app_path = self.root
-        (self.root / "dinov2_vitb14_features.onnx").write_bytes(b"model")
+        (self.root / DEFAULT_MODEL_FILENAME).write_bytes(b"model")
 
         self.first_path = self.root / "first.png"
         self.second_path = self.root / "second.png"

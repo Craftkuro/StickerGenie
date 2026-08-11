@@ -15,6 +15,7 @@ import apppath
 import services.global_instances
 from blob_storage import BlobFileEntity
 from image_features_extractor import (
+    DEFAULT_MODEL_FILENAME,
     ExtractionCancelledError,
     iter_features,
     normalize_image_path,
@@ -390,7 +391,7 @@ def _generate_vectors(
     if vector_store is None:
         raise RuntimeError("向量数据库未初始化，无法生成向量")
 
-    model_path = apppath.app_path / "dinov2_vitb14_features.onnx"
+    model_path = apppath.app_path / DEFAULT_MODEL_FILENAME
     if not model_path.is_file():
         raise RuntimeError(f"特征提取模型不存在：{model_path}")
     model_hash = get_model_hash(model_path)

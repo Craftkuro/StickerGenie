@@ -21,7 +21,11 @@ from services.image_vector_model import get_model_hash as _get_shared_model_hash
 from commons.dto import StickerImage, Tag
 from commons.image_metadata import StickerImageMetadata
 from commons.signal_objects import ImportImagesRequest
-from image_features_extractor import ExtractionCancelledError, iter_features
+from image_features_extractor import (
+    DEFAULT_MODEL_FILENAME,
+    ExtractionCancelledError,
+    iter_features,
+)
 from image_text_extractor import TextExtractionCancelledError, iter_texts
 from stickerdb.vectordb import VectorMetadata
 from utils.image_metadata import get_image_metadata
@@ -139,7 +143,7 @@ def _generate_vectors(
     if vector_store is None:
         return 0, ("向量数据库未初始化。",)
 
-    model_path = apppath.app_path / "dinov2_vitb14_features.onnx"
+    model_path = apppath.app_path / DEFAULT_MODEL_FILENAME
     if not model_path.is_file():
         return 0, (f"特征提取模型不存在：{model_path}",)
 

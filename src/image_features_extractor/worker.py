@@ -13,11 +13,11 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from .models import (
-    FEATURE_VECTOR_SIZE,
     ImageFeatureResult,
     ProviderSpec,
     WorkerStartupInfo,
 )
+from .model_specs import ImageFeatureModelSpec, get_model_spec
 
 
 logger = logging.getLogger(__name__)
@@ -31,12 +31,6 @@ CANCEL = "CANCEL"
 BATCH_RESULT = "BATCH_RESULT"
 JOB_ERROR = "JOB_ERROR"
 DONE = "DONE"
-
-_RESIZE_SIZE = 256
-_CROP_SIZE = 224
-_NORMALIZE_MEAN = np.asarray((0.485, 0.456, 0.406), dtype=np.float32)[:, None, None]
-_NORMALIZE_STD = np.asarray((0.229, 0.224, 0.225), dtype=np.float32)[:, None, None]
-
 
 def _send_message(connection: Connection, kind: str, payload: Any = None) -> None:
     connection.send((kind, payload))
@@ -126,18 +120,23 @@ def _center_crop(image: Image.Image, size: int) -> Image.Image:
     return image.crop((left, top, left + size, top + size))
 
 
-def preprocess_image(image_path: str) -> np.ndarray:
+def preprocess_image(
+    image_path: str,
+    spec: ImageFeatureModelSpec,
+) -> np.ndarray:
     """Load and transform one image into a contiguous normalized NCHW tensor."""
 
     with Image.open(image_path) as source:
         transposed = ImageOps.exif_transpose(source)
         rgb_image = _convert_to_rgb(transposed)
-        resized = _resize_shorter_side(rgb_image, _RESIZE_SIZE)
-        cropped = _center_crop(resized, _CROP_SIZE)
+        resized = _resize_shorter_side(rgb_image, spec.resize_size)
+        cropped = _center_crop(resized, spec.input_size)
         pixels = np.asarray(cropped, dtype=np.float32)
 
     chw = np.transpose(pixels, (2, 0, 1)) / np.float32(255.0)
-    normalized = (chw - _NORMALIZE_MEAN) / _NORMALIZE_STD
+    mean = np.asarray(spec.normalize_mean, dtype=np.float32)[:, None, None]
+    std = np.asarray(spec.normalize_std, dtype=np.float32)[:, None, None]
+    normalized = (chw - mean) / std
     return np.ascontiguousarray(normalized, dtype=np.float32)
 
 
@@ -148,6 +147,7 @@ def _initialize_session(
     model_file = Path(model_path)
     if not model_file.is_file():
         raise FileNotFoundError(f"ONNX model does not exist: {model_path}")
+    spec = get_model_spec(model_path)
 
     import onnxruntime as ort
 
@@ -169,13 +169,20 @@ def _initialize_session(
         raise RuntimeError(f"expected exactly one model input, got {len(inputs)}")
     if not session.get_outputs():
         raise RuntimeError("the ONNX model has no outputs")
+    if len(session.get_outputs()) <= spec.output_index:
+        raise RuntimeError(
+            f"model has {len(session.get_outputs())} outputs but spec "
+            f"requires output index {spec.output_index}"
+        )
 
     input_name = inputs[0].name
     startup_info = WorkerStartupInfo(
         providers=tuple(session.get_providers()),
         input_name=input_name,
+        model_name=spec.name,
+        feature_vector_size=spec.feature_vector_size,
     )
-    return session, input_name, startup_info
+    return session, input_name, spec, startup_info
 
 
 def _image_error_message(error: Exception) -> str:
@@ -183,7 +190,12 @@ def _image_error_message(error: Exception) -> str:
     return f"{type(error).__name__}: {detail}" if detail else type(error).__name__
 
 
-def process_image_batch(session, input_name: str, image_paths: Sequence[str]):
+def process_image_batch(
+    session,
+    input_name: str,
+    image_paths: Sequence[str],
+    spec: ImageFeatureModelSpec,
+):
     """Preprocess and infer one ordered path batch inside the worker process."""
 
     results: list[ImageFeatureResult | None] = [None] * len(image_paths)
@@ -192,7 +204,7 @@ def process_image_batch(session, input_name: str, image_paths: Sequence[str]):
 
     for index, image_path in enumerate(image_paths):
         try:
-            tensors.append(preprocess_image(image_path))
+            tensors.append(preprocess_image(image_path, spec))
             successful_indexes.append(index)
         except Exception as error:
             results[index] = ImageFeatureResult.failed(
@@ -202,11 +214,14 @@ def process_image_batch(session, input_name: str, image_paths: Sequence[str]):
     if tensors:
         model_input = np.stack(tensors, axis=0)
         outputs = session.run(None, {input_name: model_input})
-        if not outputs:
-            raise RuntimeError("ONNX Runtime returned no outputs")
+        if len(outputs) <= spec.output_index:
+            raise RuntimeError(
+                f"ONNX Runtime returned {len(outputs)} outputs but spec "
+                f"requires output index {spec.output_index}"
+            )
 
-        features = np.asarray(outputs[0])
-        expected_shape = (len(tensors), FEATURE_VECTOR_SIZE)
+        features = np.asarray(outputs[spec.output_index])
+        expected_shape = (len(tensors), spec.feature_vector_size)
         if features.shape != expected_shape:
             raise RuntimeError(
                 f"unexpected ONNX output shape {features.shape!r}; "
@@ -239,7 +254,7 @@ def worker_process_entry(
 
     try:
         try:
-            session, input_name, startup_info = _initialize_session(
+            session, input_name, spec, startup_info = _initialize_session(
                 model_path, providers
             )
         except BaseException as error:
@@ -259,7 +274,7 @@ def worker_process_entry(
                     or not all(isinstance(path, str) and path for path in payload)
                 ):
                     raise RuntimeError("PROCESS_BATCH requires non-empty string paths")
-                results = process_image_batch(session, input_name, payload)
+                results = process_image_batch(session, input_name, payload, spec)
                 _send_message(connection, BATCH_RESULT, results)
                 _send_message(connection, REQUEST_BATCH)
             elif kind == END_INPUT:
