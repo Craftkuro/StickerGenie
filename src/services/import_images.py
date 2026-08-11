@@ -17,10 +17,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 import apppath
 import services.global_instances
-from services.image_vector_model import (
-    calculate_model_hash as _calculate_shared_model_hash,
-    get_model_hash as _get_shared_model_hash,
-)
+from services.image_vector_model import get_model_hash as _get_shared_model_hash
 from commons.dto import StickerImage, Tag
 from commons.image_metadata import StickerImageMetadata
 from commons.signal_objects import ImportImagesRequest
@@ -94,10 +91,6 @@ def _report_progress(
                 last_file_name=last_file_name,
             )
         )
-
-
-def _calculate_model_hash(model_path: str) -> str:
-    return _calculate_shared_model_hash(model_path)
 
 
 def _get_model_hash(model_path: Path) -> str:

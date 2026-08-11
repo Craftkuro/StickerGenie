@@ -7,7 +7,6 @@ from pathlib import Path
 
 
 MODEL_HASH_FILE_SUFFIX = ".sha1"
-MODEL_HASH_PREFIX = "dinov2_vitb14_"
 MODEL_HASH_DIGEST_LENGTH = 16
 
 _SHA1_DIGEST_PATTERN = re.compile(r"\b[0-9a-f]{40}\b")
@@ -19,7 +18,7 @@ def _model_hash_file(model_path: Path) -> Path:
 
 
 def _format_model_hash(hex_digest: str) -> str:
-    return f"{MODEL_HASH_PREFIX}{hex_digest[:MODEL_HASH_DIGEST_LENGTH]}"
+    return hex_digest[:MODEL_HASH_DIGEST_LENGTH]
 
 
 def _is_hex_digest(value: str, length: int) -> bool:
@@ -39,11 +38,9 @@ def _read_static_model_hash(hash_file: Path) -> str | None:
     if digest_match is not None:
         return _format_model_hash(digest_match.group(0))
 
-    if content.startswith(MODEL_HASH_PREFIX):
-        rest = content[len(MODEL_HASH_PREFIX):]
-        suffix = rest.split(maxsplit=1)[0] if rest else ""
-        if _is_hex_digest(suffix, MODEL_HASH_DIGEST_LENGTH):
-            return _format_model_hash(suffix)
+    short_digest = content.split(maxsplit=1)[0] if content else ""
+    if _is_hex_digest(short_digest, MODEL_HASH_DIGEST_LENGTH):
+        return _format_model_hash(short_digest)
     return None
 
 

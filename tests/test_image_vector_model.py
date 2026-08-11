@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from services.image_vector_model import (
-    MODEL_HASH_PREFIX,
     calculate_model_hash,
     get_model_hash,
 )
@@ -27,7 +26,7 @@ class ImageVectorModelTests(unittest.TestCase):
 
     def _expected_hash(self) -> str:
         digest = hashlib.sha1(self.model_path.read_bytes()).hexdigest()
-        return f"{MODEL_HASH_PREFIX}{digest[:16]}"
+        return digest[:16]
 
     def test_hash_depends_only_on_file_content(self):
         expected = calculate_model_hash(str(self.model_path))
@@ -43,19 +42,16 @@ class ImageVectorModelTests(unittest.TestCase):
         with patch("services.image_vector_model._calculate_sha1") as calculate:
             result = get_model_hash(self.model_path)
 
-        self.assertEqual(f"{MODEL_HASH_PREFIX}{digest[:16]}", result)
+        self.assertEqual(digest[:16], result)
         calculate.assert_not_called()
 
-    def test_reads_prefixed_short_hash_sidecar(self):
-        self._sidecar_path().write_text(
-            f"{MODEL_HASH_PREFIX}cdef0123456789ab\n",
-            encoding="ascii",
-        )
+    def test_reads_short_hex_sidecar(self):
+        self._sidecar_path().write_text("cdef0123456789ab\n", encoding="ascii")
 
         with patch("services.image_vector_model._calculate_sha1") as calculate:
             result = get_model_hash(self.model_path)
 
-        self.assertEqual(f"{MODEL_HASH_PREFIX}cdef0123456789ab", result)
+        self.assertEqual("cdef0123456789ab", result)
         calculate.assert_not_called()
 
     def test_reads_sha1sum_style_sidecar(self):
@@ -68,7 +64,7 @@ class ImageVectorModelTests(unittest.TestCase):
         with patch("services.image_vector_model._calculate_sha1") as calculate:
             result = get_model_hash(self.model_path)
 
-        self.assertEqual(f"{MODEL_HASH_PREFIX}{digest[:16]}", result)
+        self.assertEqual(digest[:16], result)
         calculate.assert_not_called()
 
     def test_missing_sidecar_computes_without_writing(self):
