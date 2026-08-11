@@ -33,12 +33,16 @@ class StickerItemDelegate(QStyledItemDelegate):
 
     PADDING = 8
     ITEM_SIZE = 160
-    SIMILARITY_BADGE_MARGIN = 1
-    SIMILARITY_BADGE_PADDING_X = 4
-    SIMILARITY_BADGE_PADDING_Y = 2
-    SIMILARITY_BADGE_FONT_POINT_SIZE = 7
+    BADGE_MARGIN = 1
+    BADGE_PADDING_X = 4
+    BADGE_PADDING_Y = 2
+    BADGE_FONT_POINT_SIZE = 7
+    BADGE_CORNER_RADIUS = 3
     SIMILARITY_BADGE_BACKGROUND = QColor("#FFD400")
     SIMILARITY_BADGE_FOREGROUND = QColor("#000000")
+    GIF_BADGE_BACKGROUND = QColor(255, 102, 154)
+    GIF_BADGE_FOREGROUND = QColor("#FFFFFF")
+    GIF_EXTENSION = ".gif"
 
     def __init__(
         self,
@@ -132,6 +136,21 @@ class StickerItemDelegate(QStyledItemDelegate):
             pixmap_rect.moveCenter(icon_rect.center())
             painter.drawPixmap(pixmap_rect, pixmap)
 
+            # 对于 GIF 图片，在左上角画一个 GIF 角标
+            blob_entity = index.data(ROLE_BLOB_ENTITY)
+            if (
+                blob_entity is not None
+                and blob_entity.extension.casefold() == self.GIF_EXTENSION
+            ):
+                self._draw_badge(
+                    painter,
+                    pixmap_rect,
+                    "GIF",
+                    self.GIF_BADGE_BACKGROUND,
+                    self.GIF_BADGE_FOREGROUND,
+                    align_left=True,
+                )
+
             # 对于有相似度数据的图，在右上角画一个相似度的角标
             similarity = index.data(ROLE_SIMILARITY)
             if similarity is not None:
@@ -150,31 +169,60 @@ class StickerItemDelegate(QStyledItemDelegate):
         similarity: float,
     ) -> None:
         """在缩略图右上角绘制固定大小的相似度角标。"""
-        text = f"{similarity:.1%}"
+        self._draw_badge(
+            painter,
+            thumbnail_rect,
+            f"{similarity:.1%}",
+            self.SIMILARITY_BADGE_BACKGROUND,
+            self.SIMILARITY_BADGE_FOREGROUND,
+        )
+
+    def _draw_badge(
+        self,
+        painter: QPainter,
+        thumbnail_rect: QRect,
+        text: str,
+        background: QColor,
+        foreground: QColor,
+        *,
+        align_left: bool = False,
+    ) -> None:
+        """在缩略图角落绘制固定大小的角标，与相似度角标同一样式。"""
         font = painter.font()
-        font.setPointSize(self.SIMILARITY_BADGE_FONT_POINT_SIZE)
+        font.setPointSize(self.BADGE_FONT_POINT_SIZE)
         font.setBold(True)
         painter.setFont(font)
 
         metrics = QFontMetrics(font)
         badge_width = (
-            metrics.horizontalAdvance(text)
-            + 2 * self.SIMILARITY_BADGE_PADDING_X
+            metrics.horizontalAdvance(text) + 2 * self.BADGE_PADDING_X
         )
         badge_height = (
-            metrics.height() + 2 * self.SIMILARITY_BADGE_PADDING_Y
+            metrics.height() + 2 * self.BADGE_PADDING_Y
         )
+        if align_left:
+            badge_left = thumbnail_rect.left() + self.BADGE_MARGIN
+        else:
+            badge_left = (
+                thumbnail_rect.right()
+                - badge_width
+                - self.BADGE_MARGIN
+            )
         badge_rect = QRect(
-            thumbnail_rect.right() - badge_width - self.SIMILARITY_BADGE_MARGIN,
-            thumbnail_rect.top() + self.SIMILARITY_BADGE_MARGIN,
+            badge_left,
+            thumbnail_rect.top() + self.BADGE_MARGIN,
             badge_width,
             badge_height,
         )
 
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(self.SIMILARITY_BADGE_BACKGROUND)
-        painter.drawRoundedRect(badge_rect, 3, 3)
-        painter.setPen(self.SIMILARITY_BADGE_FOREGROUND)
+        painter.setBrush(background)
+        painter.drawRoundedRect(
+            badge_rect,
+            self.BADGE_CORNER_RADIUS,
+            self.BADGE_CORNER_RADIUS,
+        )
+        painter.setPen(foreground)
         painter.drawText(
             badge_rect,
             Qt.AlignmentFlag.AlignCenter,

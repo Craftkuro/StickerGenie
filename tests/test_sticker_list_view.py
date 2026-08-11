@@ -50,6 +50,15 @@ class FakeBlobStorage:
         return str(self.file_path)
 
 
+class FakeThumbnailProvider:
+    def __init__(self):
+        self.pixmap = QPixmap(64, 64)
+        self.pixmap.fill(Qt.GlobalColor.white)
+
+    def request_thumbnail(self, _blob_entity):
+        return self.pixmap
+
+
 def make_sticker() -> StickerImage:
     sticker = StickerImage()
     sticker.id = 7
@@ -357,7 +366,22 @@ class StickerListViewTests(unittest.TestCase):
             item.setData(similarity, ROLE_SIMILARITY)
         return item
 
-    def _paint_item(self, item: QStandardItem, item_size: int) -> QImage:
+    def _make_blob_icon_item(self, extension: str) -> QStandardItem:
+        pixmap = QPixmap(64, 64)
+        pixmap.fill(Qt.GlobalColor.white)
+        item = QStandardItem(QIcon(pixmap), "")
+        item.setData(
+            BlobFileEntity("gif-hash", extension),
+            ROLE_BLOB_ENTITY,
+        )
+        return item
+
+    def _paint_item(
+        self,
+        item: QStandardItem,
+        item_size: int,
+        thumbnail_provider=None,
+    ) -> QImage:
         model = QStandardItemModel()
         model.appendRow(item)
         canvas = QImage(item_size, item_size, QImage.Format.Format_ARGB32)
@@ -367,7 +391,9 @@ class StickerListViewTests(unittest.TestCase):
             option = QStyleOptionViewItem()
             option.rect = QRect(0, 0, item_size, item_size)
             option.state = QStyle.StateFlag.State_Enabled
-            delegate = StickerItemDelegate()
+            delegate = StickerItemDelegate(
+                thumbnail_provider=thumbnail_provider
+            )
             delegate.set_item_size(item_size)
             delegate.paint(painter, option, model.index(0, 0))
         finally:
@@ -408,6 +434,44 @@ class StickerListViewTests(unittest.TestCase):
                     color.red() < 90
                     and color.green() < 90
                     and color.blue() < 90
+                    ):
+                    count += 1
+        return count
+
+    @staticmethod
+    def _pink_pixel_bounds(image: QImage):
+        min_x = min_y = max_x = max_y = None
+        for y in range(image.height()):
+            for x in range(image.width()):
+                color = image.pixelColor(x, y)
+                if (
+                    color.red() > 235
+                    and 70 < color.green() < 140
+                    and 120 < color.blue() < 190
+                ):
+                    if min_x is None or x < min_x:
+                        min_x = x
+                    if min_y is None or y < min_y:
+                        min_y = y
+                    if max_x is None or x > max_x:
+                        max_x = x
+                    if max_y is None or y > max_y:
+                        max_y = y
+        if min_x is None:
+            return None
+        return (min_x, min_y, max_x, max_y)
+
+    @staticmethod
+    def _white_pixel_count(image: QImage, bounds) -> int:
+        min_x, min_y, max_x, max_y = bounds
+        count = 0
+        for y in range(min_y, max_y + 1):
+            for x in range(min_x, max_x + 1):
+                color = image.pixelColor(x, y)
+                if (
+                    color.red() > 230
+                    and color.green() > 230
+                    and color.blue() > 230
                 ):
                     count += 1
         return count
@@ -442,6 +506,82 @@ class StickerListViewTests(unittest.TestCase):
     def test_no_similarity_means_no_badge(self):
         canvas = self._paint_item(self._make_icon_item(), 160)
         self.assertIsNone(self._yellow_pixel_bounds(canvas))
+
+    def test_gif_badge_is_drawn_at_thumbnail_top_left(self):
+        provider = FakeThumbnailProvider()
+        canvas = self._paint_item(
+            self._make_blob_icon_item(".gif"),
+            160,
+            thumbnail_provider=provider,
+        )
+
+        bounds = self._pink_pixel_bounds(canvas)
+        self.assertIsNotNone(bounds)
+        min_x, min_y, max_x, max_y = bounds
+        self.assertLess(max_x, 80)
+        self.assertLess(max_y, 80)
+        self.assertLess(min_x, 30)
+        self.assertLess(min_y, 30)
+        self.assertGreater(self._white_pixel_count(canvas, bounds), 0)
+
+    def test_gif_badge_size_is_fixed_across_item_sizes(self):
+        provider = FakeThumbnailProvider()
+        small_canvas = self._paint_item(
+            self._make_blob_icon_item(".gif"),
+            96,
+            thumbnail_provider=provider,
+        )
+        large_canvas = self._paint_item(
+            self._make_blob_icon_item(".gif"),
+            200,
+            thumbnail_provider=provider,
+        )
+
+        small_bounds = self._pink_pixel_bounds(small_canvas)
+        large_bounds = self._pink_pixel_bounds(large_canvas)
+        self.assertIsNotNone(small_bounds)
+        self.assertIsNotNone(large_bounds)
+        self.assertEqual(
+            small_bounds[2] - small_bounds[0] + 1,
+            large_bounds[2] - large_bounds[0] + 1,
+        )
+        self.assertEqual(
+            small_bounds[3] - small_bounds[1] + 1,
+            large_bounds[3] - large_bounds[1] + 1,
+        )
+
+    def test_gif_badge_supports_uppercase_extension(self):
+        provider = FakeThumbnailProvider()
+        canvas = self._paint_item(
+            self._make_blob_icon_item(".GIF"),
+            160,
+            thumbnail_provider=provider,
+        )
+
+        self.assertIsNotNone(self._pink_pixel_bounds(canvas))
+
+    def test_non_gif_has_no_gif_badge(self):
+        provider = FakeThumbnailProvider()
+        canvas = self._paint_item(
+            self._make_blob_icon_item(".png"),
+            160,
+            thumbnail_provider=provider,
+        )
+
+        self.assertIsNone(self._pink_pixel_bounds(canvas))
+
+    def test_gif_badge_and_similarity_badge_can_coexist(self):
+        provider = FakeThumbnailProvider()
+        item = self._make_blob_icon_item(".gif")
+        item.setData(0.92, ROLE_SIMILARITY)
+        canvas = self._paint_item(
+            item,
+            160,
+            thumbnail_provider=provider,
+        )
+
+        self.assertIsNotNone(self._pink_pixel_bounds(canvas))
+        self.assertIsNotNone(self._yellow_pixel_bounds(canvas))
 
     def test_library_page_uses_sticker_list_view(self):
         page = InfiniteStickerCollectionPage(auto_refresh=False)
