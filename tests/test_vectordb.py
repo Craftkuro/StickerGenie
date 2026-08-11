@@ -111,7 +111,7 @@ class ChromaVectorStoreTests(unittest.TestCase):
         self.assertTrue(self.store.delete(vector_ids[1]))
         self.assertEqual(0, self.store.count())
 
-    def test_search_by_id_excludes_the_requested_record_by_id(self):
+    def test_search_by_id_includes_the_requested_record_as_reference(self):
         base = make_vector(0)
         nearby = make_vector(0)
         nearby[1] = 0.1
@@ -125,8 +125,10 @@ class ChromaVectorStoreTests(unittest.TestCase):
         results = self.store.search_by_id(vector_ids[0], top_k=2)
 
         self.assertEqual(2, len(results))
-        self.assertNotIn(vector_ids[0], [result.id for result in results])
-        self.assertEqual(vector_ids[1], results[0].id)
+        self.assertEqual(
+            [vector_ids[0], vector_ids[1]],
+            [result.id for result in results],
+        )
 
     def test_search_by_id_only_returns_records_from_the_same_model(self):
         base = make_vector(0)
@@ -144,7 +146,10 @@ class ChromaVectorStoreTests(unittest.TestCase):
 
         results = self.store.search_by_id(vector_ids[0], top_k=2)
 
-        self.assertEqual([vector_ids[1]], [result.id for result in results])
+        self.assertEqual(
+            [vector_ids[0], vector_ids[1]],
+            [result.id for result in results],
+        )
         self.assertNotIn(vector_ids[2], [result.id for result in results])
 
     def test_reset_recreates_collection_with_the_same_configuration(self):

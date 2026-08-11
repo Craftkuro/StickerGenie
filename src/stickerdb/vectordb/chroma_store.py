@@ -634,7 +634,7 @@ class ChromaVectorStore:
             include_distances: 是否包含距离信息
             
         返回:
-            SearchResult 列表，按相似度降序排列
+            SearchResult 列表，按相似度降序排列，包含查询向量自身作为参考
             
         抛出:
             VectorNotFoundError: 记录ID不存在
@@ -646,12 +646,13 @@ class ChromaVectorStore:
         
         results = self.search_by_vector(
             record.vector,
-            top_k=top_k + 1,  # +1 因为可能包含自己
+            top_k=top_k,
             include_distances=include_distances,
             # 只比较同一特征模型生成的向量，避免模型切换后新旧向量混算
             model_hash=record.metadata.model_hash,
         )
-        return [result for result in results if result.id != vector_id][:top_k]
+        # 保留查询向量自身：第一张图作为相似度比较的参考图
+        return results
     
     def search_by_vector(
         self,

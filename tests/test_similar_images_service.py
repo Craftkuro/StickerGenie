@@ -133,6 +133,25 @@ class SimilarImagesServiceTests(unittest.TestCase):
         # the result list to the first two candidates.
         self.assertEqual([3, 2], [sticker.id for sticker, _ in matches])
 
+    def test_similarity_results_include_source_as_reference(self):
+        self.vector_store.results = [
+            SimpleNamespace(sqlite_id=1, similarity=1.0),
+            SimpleNamespace(sqlite_id=3, similarity=0.95),
+            SimpleNamespace(sqlite_id=2, similarity=0.90),
+            SimpleNamespace(sqlite_id=999, similarity=0.80),
+        ]
+
+        matches = viewer_service.find_similar_stickers(self.source)
+
+        self.assertEqual(
+            [1, 3, 2],
+            [sticker.id for sticker, _ in matches],
+        )
+        self.assertEqual(
+            [1.0, 0.95, 0.90],
+            [similarity for _, similarity in matches],
+        )
+
     def test_missing_vector_reports_a_clear_error(self):
         sticker = make_sticker(4, "missing.png")
 
