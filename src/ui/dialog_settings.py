@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from PyQt6 import uic
 from PyQt6.QtWidgets import (
@@ -12,43 +11,10 @@ from PyQt6.QtWidgets import (
 )
 
 import apppath
-from config_manager import ConfigField, ConfigManager, ConfigType
+from config_manager import ConfigManager
+from services.settings import create_settings_manager
 
 logger = logging.getLogger(__name__)
-
-SETTINGS_VERSION = "1.2.0"
-SETTINGS_SCHEMA = [
-    ConfigField(
-        "recent_search_limit",
-        ConfigType.INT,
-        3,
-        "显示的最近搜索候选数量",
-    ),
-    ConfigField(
-        "tag_suggestion_limit",
-        ConfigType.INT,
-        10,
-        "显示的标签搜索候选数量",
-    ),
-    ConfigField(
-        "recent_searches",
-        ConfigType.LIST_STR,
-        [],
-        "最近搜索，最新的项目在前",
-    ),
-]
-
-
-def create_settings_manager(
-    config_path: str | Path | None = None,
-) -> ConfigManager:
-    """Create the application settings manager for the configured data path."""
-    if config_path is None:
-        config_path = apppath.main_config_file_path
-    if config_path is None:
-        raise RuntimeError("应用程序数据路径尚未初始化")
-
-    return ConfigManager(config_path, SETTINGS_SCHEMA, SETTINGS_VERSION)
 
 
 class SettingsDialog(QDialog):
@@ -86,6 +52,18 @@ class SettingsDialog(QDialog):
         self.spinBoxTagSuggestionLimit.setValue(
             self._config_manager.get("tag_suggestion_limit")
         )
+        self.doubleSpinBoxSimilarImageTargetDropRatio.setValue(
+            float(self._config_manager.get("similar_image_target_drop_ratio"))
+        )
+        self.spinBoxSimilarImageMinKeep.setValue(
+            self._config_manager.get("similar_image_min_keep")
+        )
+        self.doubleSpinBoxSimilarImageMinSimilarity.setValue(
+            float(self._config_manager.get("similar_image_min_similarity"))
+        )
+        self.spinBoxSimilarImageMaxResults.setValue(
+            self._config_manager.get("similar_image_max_results")
+        )
 
     def _connect_signals(self) -> None:
         self.listWidget.currentRowChanged.connect(
@@ -97,14 +75,30 @@ class SettingsDialog(QDialog):
 
         self.spinBoxRecentSearchLimit.valueChanged.connect(self._mark_dirty)
         self.spinBoxTagSuggestionLimit.valueChanged.connect(self._mark_dirty)
+        self.doubleSpinBoxSimilarImageTargetDropRatio.valueChanged.connect(
+            self._mark_dirty
+        )
+        self.spinBoxSimilarImageMinKeep.valueChanged.connect(self._mark_dirty)
+        self.doubleSpinBoxSimilarImageMinSimilarity.valueChanged.connect(
+            self._mark_dirty
+        )
+        self.spinBoxSimilarImageMaxResults.valueChanged.connect(self._mark_dirty)
 
     def _mark_dirty(self, _value=None) -> None:
         self._apply_button.setEnabled(True)
 
-    def _values_from_controls(self) -> dict[str, int]:
+    def _values_from_controls(self) -> dict[str, int | str]:
         return {
             "recent_search_limit": self.spinBoxRecentSearchLimit.value(),
             "tag_suggestion_limit": self.spinBoxTagSuggestionLimit.value(),
+            "similar_image_target_drop_ratio": (
+                f"{self.doubleSpinBoxSimilarImageTargetDropRatio.value():.2f}"
+            ),
+            "similar_image_min_keep": self.spinBoxSimilarImageMinKeep.value(),
+            "similar_image_min_similarity": (
+                f"{self.doubleSpinBoxSimilarImageMinSimilarity.value():.2f}"
+            ),
+            "similar_image_max_results": self.spinBoxSimilarImageMaxResults.value(),
         }
 
     def apply_settings(self) -> bool:

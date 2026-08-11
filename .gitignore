@@ -7,3 +7,4 @@ __pycache__
 /vendor/nvidia/
 /StickerGenie Settings/
 /src/*.onnx
+/experiments/similarity_large_library_siglip_*/

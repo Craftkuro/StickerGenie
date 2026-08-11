@@ -25,7 +25,8 @@ from .widgets.custom_tag_widget import CustomTagWidget
 from .dialog_image_import import ImageImportDialog
 from .dialog_image_import_progress import ImageImportProgressDialog
 from .dialog_database_maintenance import DatabaseMaintenanceDialog
-from .dialog_settings import SettingsDialog, create_settings_manager
+from .dialog_settings import SettingsDialog
+from services.settings import create_settings_manager
 from .dialog_tag_manager import TagManagerDialog
 
 logger = logging.getLogger(__name__)

@@ -4,6 +4,7 @@ import blob_storage
 import thumbnail_disk_storage
 import services.global_instances
 import services.thumbnail_provider
+import services.settings
 from stickerdb.v1.sticker_db import StickerDBV1
 from stickerdb.vectordb import ChromaVectorStore
 
@@ -13,6 +14,12 @@ def run_startup_tasks():
     init_blob_storage()
     init_thumbnail_cache()
     init_vector_store()
+    init_settings_manager()
+
+
+def init_settings_manager():
+    settings_manager = services.settings.create_settings_manager()
+    services.global_instances.current_settings_manager = settings_manager
 
 
 def open_db():

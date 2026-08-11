@@ -2,6 +2,7 @@
 import threading
 
 from blob_storage import BlobStorage
+from config_manager import ConfigManager
 from stickerdb.v1.sticker_db import StickerDBV1
 from stickerdb.vectordb import ChromaVectorStore
 from PyQt6.QtWidgets import QMainWindow
@@ -20,6 +21,9 @@ current_thumbnail_provider = None
 
 # 已打开的向量数据库实例
 current_vector_store: ChromaVectorStore | None = None
+
+# 应用程序设置管理器实例
+current_settings_manager: ConfigManager | None = None
 
 # 导入、检索和删除可能从不同线程访问 Chroma。
 vector_store_lock = threading.RLock()

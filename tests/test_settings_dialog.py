@@ -52,6 +52,10 @@ class SettingsDialogTests(unittest.TestCase):
                 "recent_search_limit",
                 "tag_suggestion_limit",
                 "recent_searches",
+                "similar_image_target_drop_ratio",
+                "similar_image_min_keep",
+                "similar_image_min_similarity",
+                "similar_image_max_results",
             ],
             self.manager.schema.keys,
         )
@@ -69,6 +73,10 @@ class SettingsDialogTests(unittest.TestCase):
             {
                 "spinBoxRecentSearchLimit",
                 "spinBoxTagSuggestionLimit",
+                "doubleSpinBoxSimilarImageTargetDropRatio",
+                "spinBoxSimilarImageMinKeep",
+                "doubleSpinBoxSimilarImageMinSimilarity",
+                "spinBoxSimilarImageMaxResults",
             }.issubset(widget_names)
         )
         self.assertTrue(

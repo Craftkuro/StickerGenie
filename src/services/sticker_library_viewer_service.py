@@ -9,6 +9,7 @@ from PyQt6.QtGui import QStandardItemModel, QIcon, QStandardItem
 
 import services.global_instances
 import commons.constants
+import services.similarity_result_filter as similarity_filter
 from blob_storage import BlobFileEntity
 from commons.dto import StickerImage
 from commons.roles import (
@@ -109,74 +110,11 @@ def load_library_page(offset: int, count: int) -> list[StickerImage]:
     return db.list_stickers(offset=offset, count=count)
 
 
-def _select_similar_count(scores: list[float]) -> int:
-    """根据相似度曲线上的最大落差决定保留的相似图片数量。
-
-    scores 是向量库返回的候选相似度，必须按降序排列（Chroma 查询天然
-    按相似度从高到低返回）。返回值表示最终保留几个候选，调用方用
-    ``search_results[:返回值]`` 截断即可。
-
-    为什么不用固定阈值：真实图库中“相关图片”和“无关图片”的相似度区间
-    会重叠（例如相关结果可能落在 0.35~0.50，而无关结果也能到 0.40），
-    单一阈值要么漏掉相关结果，要么放进大量噪音。改为观察排序曲线上
-    的“最大落差”后，截断位置由每个查询自己的分数分布决定，不再依赖
-    一个全局固定的相似度数值。
-    """
-    if not scores:
-        return 0
-
-    # 相邻排名之间的相似度差，即“名次每前进一位，分数跳了多少”。
-    # gaps[i] 表示第 i 名与第 i+1 名之间的落差。
-    gaps = [
-        scores[index] - scores[index + 1]
-        for index in range(len(scores) - 1)
-    ]
-    max_gap = max(gaps, default=0.0)
-
-    if max_gap >= commons.constants.SIMILAR_IMAGE_MIN_GAP:
-        # 存在明显分群：最大落差之前的候选属于一个“相似群体”，
-        # 落差之后的结果分数骤降，视为另一个（不相关的）群体，直接排除。
-        # gaps.index(max_gap) 是最大落差出现的位置，+1 是因为要保留
-        # 该位置本身（例如 gaps[1] 是第 1 名和第 2 名之间的落差，
-        # 最大落差在 gaps[1] 时保留前 2 名）。
-        keep_count = gaps.index(max_gap) + 1
-    elif (
-        scores[0] < commons.constants.SIMILAR_IMAGE_NO_GAP_MIN_TOP_SIMILARITY
-    ):
-        # 分数曲线非常平缓，找不到明显的“分群边界”，同时最高分也很低：
-        # 说明没有任何候选与查询图片拉开差距，此时返回空比返回一批
-        # 似是而非的结果更符合直觉。
-        return 0
-    else:
-        # 分数曲线平缓但整体分数较高：例如一整组相近图片的分数都挤在
-        # 0.50 附近，内部落差很小。这种情况不应该因为“没有大落差”就
-        # 全部丢掉，而是保留整个高分平台，后续再用最低相似度过滤尾部。
-        keep_count = len(scores)
-
-    # 绝对相似度下限：即使落差策略把某个候选划进了“相似群体”，
-    # 分数低于该值的仍然不展示，避免把低分噪音带进结果。
-    kept_scores = [
-        score for score in scores[:keep_count]
-        if score >= commons.constants.SIMILAR_IMAGE_MIN_SIMILARITY
-    ]
-    if (
-        len(kept_scores) == 1
-        and kept_scores[0]
-        < commons.constants.SIMILAR_IMAGE_LONE_RESULT_MIN_SIMILARITY
-    ):
-        # 只有一个候选活过前面的过滤，且它的分数并不高：这种“孤点”
-        # 多半是库里碰巧最像的一张无关图片，而不是真正的相似图片，
-        # 直接返回空。只有单个候选分数足够高时才值得展示。
-        return 0
-    # 防止图库很大或某个查询确实有大量相近图片时结果页被撑爆，
-    # 最多展示 SIMILAR_IMAGE_MAX_RESULTS 个。
-    return min(len(kept_scores), commons.constants.SIMILAR_IMAGE_MAX_RESULTS)
-
-
 def find_similar_stickers(
     sticker: StickerImage,
     *,
     top_k: int = commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT,
+    result_filter: similarity_filter.SimilarityResultFilter | None = None,
 ) -> list[tuple[StickerImage, float]]:
     db = services.global_instances.current_library_db
     vector_store = services.global_instances.current_vector_store
@@ -193,10 +131,19 @@ def find_similar_stickers(
             raise ValueError("该图片还没有特征向量。")
         search_results = vector_store.search_by_id(record.id, top_k=top_k)
 
-    keep_count = _select_similar_count(
-        [result.similarity for result in search_results]
-    )
-    search_results = search_results[:keep_count]
+    if result_filter is None:
+        settings_manager = (
+            services.global_instances.current_settings_manager
+        )
+        if settings_manager is None:
+            result_filter = similarity_filter.SimilarityResultFilter()
+        else:
+            result_filter = (
+                similarity_filter.create_filter_from_settings(
+                    settings_manager
+                )
+            )
+    search_results = result_filter.filter(search_results)
 
     similarity_by_sticker_id = {
         result.sqlite_id: result.similarity
@@ -215,8 +162,11 @@ def open_similar_stickers_tab(
     sticker: StickerImage,
     *,
     top_k: int = commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT,
+    result_filter: similarity_filter.SimilarityResultFilter | None = None,
 ) -> None:
-    matches = find_similar_stickers(sticker, top_k=top_k)
+    matches = find_similar_stickers(
+        sticker, top_k=top_k, result_filter=result_filter
+    )
     similarities = {
         similar_sticker.id: similarity
         for similar_sticker, similarity in matches

@@ -18,11 +18,3 @@ THUMBNAIL_CACHE_MAX_COUNT = 1000
 SIMILAR_IMAGE_CANDIDATE_COUNT = 200
 # 相似图片查找：最终展示的结果数量上限
 SIMILAR_IMAGE_MAX_RESULTS = 100
-# 相似图片查找：相邻排名之间多大的相似度落差才算明显分群
-SIMILAR_IMAGE_MIN_GAP = 0.02
-# 相似图片查找：结果的最低绝对相似度
-SIMILAR_IMAGE_MIN_SIMILARITY = 0.25
-# 相似图片查找：只有孤零零一个结果时，要求的最低相似度
-SIMILAR_IMAGE_LONE_RESULT_MIN_SIMILARITY = 0.5
-# 相似图片查找：分数曲线没有明显落差时，最高分必须达到该值才返回结果
-SIMILAR_IMAGE_NO_GAP_MIN_TOP_SIMILARITY = 0.4
