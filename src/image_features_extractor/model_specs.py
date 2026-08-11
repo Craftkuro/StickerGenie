@@ -102,6 +102,18 @@ def _siglip_base_patch16_224_spec() -> ImageFeatureModelSpec:
     )
 
 
+def _vit_b_16_spec() -> ImageFeatureModelSpec:
+    return ImageFeatureModelSpec(
+        name="vit_b_16",
+        model_filename="vit_b_16_features.onnx",
+        feature_vector_size=768,
+        input_size=224,
+        resize_size=256,
+        normalize_mean=(0.485, 0.456, 0.406),
+        normalize_std=(0.229, 0.224, 0.225),
+    )
+
+
 DINOV2_VITB14_SPEC = _dinov2_vitb14_spec(
     "dinov2_vitb14",
     "dinov2_vitb14_features.onnx",
@@ -111,8 +123,10 @@ DINOV2_VITB14_REG4_SPEC = _dinov2_vitb14_spec(
     "dinov2_vitb14_reg4_features.onnx",
 )
 SIGLIP_BASE_PATCH16_224_SPEC = _siglip_base_patch16_224_spec()
+VIT_B_16_SPEC = _vit_b_16_spec()
 
 MODEL_SPECS = (
+    VIT_B_16_SPEC,
     DINOV2_VITB14_SPEC,
     DINOV2_VITB14_REG4_SPEC,
     SIGLIP_BASE_PATCH16_224_SPEC,
