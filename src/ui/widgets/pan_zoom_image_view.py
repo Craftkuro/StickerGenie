@@ -1,6 +1,6 @@
 # coding=utf-8
 from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QPainter, QPixmap, QTransform
+from PyQt6.QtGui import QMovie, QPainter, QPixmap, QTransform
 from PyQt6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsScene,
@@ -12,6 +12,7 @@ class PanZoomImageView(QGraphicsView):
     """
     Image viewer that fits images to the viewport and supports wheel zoom
     plus mouse-drag panning once the image is larger than the viewport.
+    Also supports animated images (e.g. GIF) through QMovie.
     """
 
     MAX_ZOOM_FACTOR = 8.0
@@ -37,9 +38,12 @@ class PanZoomImageView(QGraphicsView):
         self._fit_scale = 0.0
         self._zoom_factor = 1.0
         self._last_widget_size = self.size()
+        self._movie = None
+        self._movie_frame_connection = None
 
     def set_image(self, pixmap: QPixmap) -> None:
         """Replace the displayed image and return to fit-to-window state."""
+        self._stop_movie()
         self._image_item.setPixmap(pixmap)
         if pixmap.isNull():
             self._scene.setSceneRect(QRectF())
@@ -48,6 +52,59 @@ class PanZoomImageView(QGraphicsView):
         self._zoom_factor = 1.0
         self._fit_scale = 0.0
         self._refit()
+
+    def set_movie(self, movie: QMovie) -> None:
+        """
+        Replace the displayed content with an animated movie and start it.
+
+        The first frame is fitted to the viewport; later frames only replace
+        the pixmap so the current zoom and pan stay intact.
+        """
+        self._stop_movie()
+        self._movie = movie
+        pixmap = movie.currentPixmap()
+        self._image_item.setPixmap(pixmap)
+        if pixmap.isNull():
+            self._scene.setSceneRect(QRectF())
+        else:
+            self._scene.setSceneRect(self._image_item.boundingRect())
+        self._zoom_factor = 1.0
+        self._fit_scale = 0.0
+        self._refit()
+        self._movie_frame_connection = movie.frameChanged.connect(
+            self._on_movie_frame_changed
+        )
+        movie.start()
+
+    def _on_movie_frame_changed(self, frame: int) -> None:
+        movie = self._movie
+        if movie is None:
+            return
+        pixmap = movie.currentPixmap()
+        if pixmap.isNull():
+            return
+        self._image_item.setPixmap(pixmap)
+        # The movie may still be loading when set_movie() is called, so the
+        # first rendered frame also establishes the scene bounds and fit.
+        if self._fit_scale == 0.0 or self._scene.sceneRect().isEmpty():
+            self._scene.setSceneRect(self._image_item.boundingRect())
+            self._refit()
+
+    def _stop_movie(self) -> None:
+        movie = self._movie
+        if movie is None:
+            return
+        try:
+            movie.stop()
+        except RuntimeError:
+            pass
+        if self._movie_frame_connection is not None:
+            try:
+                movie.frameChanged.disconnect(self._movie_frame_connection)
+            except (RuntimeError, TypeError):
+                pass
+        self._movie = None
+        self._movie_frame_connection = None
 
     def fit_to_window(self) -> None:
         """Reset zoom so the whole image fits inside the viewport."""

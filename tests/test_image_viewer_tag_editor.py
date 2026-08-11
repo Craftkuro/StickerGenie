@@ -7,8 +7,10 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PIL import Image
 from PyQt6.QtCore import QItemSelectionModel, Qt
-from PyQt6.QtGui import QImage
+from PyQt6.QtGui import QImage, QMovie
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 import apppath
@@ -116,6 +118,43 @@ class ImageViewerTagEditorTests(unittest.TestCase):
         )
         self.assertEqual("2026-01-01 00:00:00", values["导入时间"])
         self.assertEqual("viewer-test-hash", values["文件哈希"])
+
+    def test_loads_animated_gif_with_movie(self):
+        gif_path = Path(self._temp_dir.name) / "animated.gif"
+        first_frame = Image.new("RGBA", (2, 2), "red")
+        second_frame = Image.new("RGBA", (2, 2), "blue")
+        first_frame.save(
+            gif_path,
+            save_all=True,
+            append_images=[second_frame],
+            duration=50,
+            loop=0,
+        )
+
+        self.sticker.original_file_name = "动画.gif"
+        self.dialog.load_image(str(gif_path), "动画.gif", self.sticker)
+        for _ in range(50):
+            if self.dialog._movie.currentFrameNumber() > 0:
+                break
+            QTest.qWait(20)
+
+        self.assertIsNotNone(self.dialog._movie)
+        self.assertEqual(
+            QMovie.MovieState.Running,
+            self.dialog._movie.state(),
+        )
+        self.assertFalse(
+            self.dialog.widgetImageViewer._image_item.pixmap().isNull()
+        )
+
+        table = self.dialog.tableWidgetFileInfo
+        values = {
+            table.item(row, 0).text(): table.item(row, 1).text()
+            for row in range(table.rowCount())
+        }
+        self.assertEqual("动画.gif", values["文件名"])
+        self.assertEqual("GIF", values["文件格式"])
+        self.assertEqual("2 x 2 像素", values["图片尺寸"])
 
     def test_missing_file_information_remains_available(self):
         missing_path = str(Path(self._temp_dir.name) / "missing.webp")

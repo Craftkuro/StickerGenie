@@ -1,11 +1,20 @@
 import os
+import tempfile
 import unittest
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt6.QtGui import QImage, QMouseEvent, QPainter, QPixmap, QWheelEvent
+from PIL import Image
+from PyQt6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import (
+    QImage,
+    QMouseEvent,
+    QMovie,
+    QPainter,
+    QPixmap,
+    QWheelEvent,
+)
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -17,6 +26,20 @@ def make_pixmap(width=800, height=400) -> QPixmap:
     image = QImage(width, height, QImage.Format.Format_RGB32)
     image.fill(0xFFFFFFFF)
     return QPixmap.fromImage(image)
+
+
+def make_animated_gif(path, width=80, height=60, frames=5, duration=50) -> None:
+    images = [
+        Image.new("RGB", (width, height), (i * 40 % 256, 120, 200))
+        for i in range(frames)
+    ]
+    images[0].save(
+        path,
+        save_all=True,
+        append_images=images[1:],
+        duration=duration,
+        loop=0,
+    )
 
 
 class PanZoomImageViewTests(unittest.TestCase):
@@ -50,6 +73,22 @@ class PanZoomImageViewTests(unittest.TestCase):
             False,
         )
         QApplication.sendEvent(view.viewport(), event)
+
+    def _wait_until(self, predicate, timeout_ms=2000):
+        elapsed = 0
+        while not predicate() and elapsed < timeout_ms:
+            QTest.qWait(20)
+            elapsed += 20
+
+    def _release_movie(self, view, movie):
+        if view._movie is movie:
+            view.set_image(QPixmap())
+        movie.stop()
+        movie.setFileName("")
+        movie.deleteLater()
+        QCoreApplication.sendPostedEvents(
+            None, QEvent.Type.DeferredDelete
+        )
 
     def _drag(self, view, start, end):
         QTest.mousePress(
@@ -212,6 +251,88 @@ class PanZoomImageViewTests(unittest.TestCase):
 
         self.assertAlmostEqual(1.0, view.zoom_factor(), places=6)
         self.assertFalse(view.is_pannable())
+
+    def test_set_movie_plays_animation_fitted_to_window(self):
+        view = self._make_view()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            gif_path = Path(temp_dir) / "anim.gif"
+            make_animated_gif(gif_path, width=80, height=60, frames=5)
+            movie = QMovie(str(gif_path))
+            view.set_movie(movie)
+            self._wait_until(lambda: movie.currentFrameNumber() > 0)
+
+            pixmap = view._image_item.pixmap()
+            self.assertFalse(pixmap.isNull())
+            self.assertGreater(movie.frameCount(), 1)
+
+            expected = min(
+                view.viewport().width() / 80,
+                view.viewport().height() / 60,
+            )
+            self.assertAlmostEqual(expected, view.transform().m11(), places=6)
+            self.assertAlmostEqual(1.0, view.zoom_factor(), places=6)
+
+            self._release_movie(view, movie)
+
+    def test_set_movie_keeps_zoom_during_playback(self):
+        view = self._make_view()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            gif_path = Path(temp_dir) / "anim.gif"
+            make_animated_gif(gif_path, frames=10)
+            movie = QMovie(str(gif_path))
+            view.set_movie(movie)
+            QTest.qWait(100)
+
+            self._send_wheel(view, view.viewport().rect().center(), 120)
+            zoom = view.zoom_factor()
+            scale = view.transform().m11()
+
+            QTest.qWait(250)
+
+            self.assertGreater(zoom, 1.0)
+            self.assertEqual(zoom, view.zoom_factor())
+            self.assertEqual(scale, view.transform().m11())
+
+            self._release_movie(view, movie)
+
+    def test_set_movie_replaces_previous_movie(self):
+        view = self._make_view()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first_path = Path(temp_dir) / "first.gif"
+            second_path = Path(temp_dir) / "second.gif"
+            make_animated_gif(first_path, frames=4)
+            make_animated_gif(second_path, frames=4)
+            first = QMovie(str(first_path))
+            second = QMovie(str(second_path))
+            view.set_movie(first)
+            QTest.qWait(100)
+
+            view.set_movie(second)
+            QTest.qWait(100)
+
+            self.assertEqual(QMovie.MovieState.NotRunning, first.state())
+            self.assertEqual(QMovie.MovieState.Running, second.state())
+            self.assertIs(second, view._movie)
+
+            self._release_movie(view, second)
+            self._release_movie(view, first)
+
+    def test_set_image_stops_previous_movie(self):
+        view = self._make_view()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            gif_path = Path(temp_dir) / "anim.gif"
+            make_animated_gif(gif_path)
+            movie = QMovie(str(gif_path))
+            view.set_movie(movie)
+            QTest.qWait(100)
+
+            view.set_image(make_pixmap(200, 100))
+            QApplication.processEvents()
+
+            self.assertEqual(QMovie.MovieState.NotRunning, movie.state())
+            self.assertIsNone(view._movie)
+
+            self._release_movie(view, movie)
 
     def test_resize_preserves_zoom_factor(self):
         view = self._make_view()

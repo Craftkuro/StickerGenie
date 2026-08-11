@@ -6,7 +6,7 @@ from typing import Optional
 
 from PyQt6 import uic
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QMovie, QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -44,6 +44,7 @@ class ImageViewerDialog(QDialog):
             else services.global_instances.current_library_db
         )
         self._sticker: Optional[StickerImage] = None
+        self._movie: Optional[QMovie] = None
 
         ui_file_path = apppath.app_path / 'ui' / 'dialog_image_viewer.ui'
         uic.loadUi(ui_file_path, self)
@@ -94,8 +95,17 @@ class ImageViewerDialog(QDialog):
         :param title: 窗口标题中显示的图片名称，为空时使用默认标题
         :param sticker: 图片对应的 StickerImage DTO，用于编辑标签
         """
+        self._stop_movie()
         pixmap = QPixmap(file_path)
-        self.widgetImageViewer.set_image(pixmap)
+        if Path(file_path).suffix.lower() == ".gif":
+            movie = QMovie(file_path)
+            self._movie = movie
+            self.widgetImageViewer.set_movie(movie)
+            if not movie.isValid():
+                self._movie = None
+                self.widgetImageViewer.set_image(pixmap)
+        else:
+            self.widgetImageViewer.set_image(pixmap)
         if pixmap.isNull():
             logger.warning("无法加载图片: %s", file_path)
 
@@ -108,6 +118,18 @@ class ImageViewerDialog(QDialog):
         self.widgetTagEditor.setVisible(sticker is not None)
         self._reload_tag_model()
         self._reload_file_info(file_path, pixmap, title)
+
+    def closeEvent(self, event):
+        self._stop_movie()
+        super().closeEvent(event)
+
+    def _stop_movie(self) -> None:
+        movie = self._movie
+        if movie is not None:
+            movie.stop()
+            movie.setFileName("")
+            movie.deleteLater()
+            self._movie = None
 
     def _reload_file_info(self, file_path: str, pixmap: QPixmap, title: str):
         path = Path(file_path)
