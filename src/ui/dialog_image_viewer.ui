@@ -38,7 +38,7 @@
        </sizepolicy>
       </property>
       <property name="currentIndex">
-       <number>1</number>
+       <number>2</number>
       </property>
       <widget class="QWidget" name="tabTags">
        <attribute name="title">
@@ -61,6 +61,23 @@
             <number>0</number>
            </property>
           </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="tabText">
+       <attribute name="title">
+        <string>文本</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayoutText">
+        <item>
+         <widget class="ImageTextEditWidget" name="imageTextEditWidget">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
          </widget>
         </item>
        </layout>
@@ -114,6 +131,11 @@
    <class>PanZoomImageView</class>
    <extends>QGraphicsView</extends>
    <header>ui.widgets.pan_zoom_image_view</header>
+  </customwidget>
+  <customwidget>
+   <class>ImageTextEditWidget</class>
+   <extends>QWidget</extends>
+   <header>ui.widgets.image_text_edit_widget</header>
   </customwidget>
  </customwidgets>
 </ui>

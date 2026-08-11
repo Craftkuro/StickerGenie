@@ -44,6 +44,7 @@ hiddenimports = chromadb_hiddenimports + rust_hiddenimports + rapidocr_hiddenimp
     # PyInstaller 静态分析发现不了，必须显式声明，否则打包后
     # 加载表情包标签页会报 ModuleNotFoundError。
     "ui.widgets.sticker_list_view_widget",
+    "ui.widgets.image_text_edit_widget",
 ]
 
 # NVIDIA CUDA/cuDNN 运行库：打包后统一放到 onnxruntime/capi 目录，

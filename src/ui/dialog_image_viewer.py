@@ -53,10 +53,14 @@ class ImageViewerDialog(QDialog):
             self.windowFlags() | Qt.WindowType.WindowMaximizeButtonHint
         )
 
+        self._init_text_editor()
         self._init_tag_editor()
         self.widgetTagEditor.hide()
         self._init_file_info_table()
         self._init_image_viewer()
+
+    def _init_text_editor(self):
+        self.imageTextEditWidget.set_database(self._database)
 
     def _init_tag_editor(self):
         self._tag_model = QStandardItemModel(self)
@@ -93,7 +97,7 @@ class ImageViewerDialog(QDialog):
 
         :param file_path: 图片文件路径
         :param title: 窗口标题中显示的图片名称，为空时使用默认标题
-        :param sticker: 图片对应的 StickerImage DTO，用于编辑标签
+        :param sticker: 图片对应的 StickerImage DTO，用于编辑标签和图片文本
         """
         self._stop_movie()
         pixmap = QPixmap(file_path)
@@ -115,6 +119,7 @@ class ImageViewerDialog(QDialog):
             self.setWindowTitle(DEFAULT_WINDOW_TITLE)
 
         self._sticker = sticker
+        self.imageTextEditWidget.set_sticker(sticker)
         self.widgetTagEditor.setVisible(sticker is not None)
         self._reload_tag_model()
         self._reload_file_info(file_path, pixmap, title)
