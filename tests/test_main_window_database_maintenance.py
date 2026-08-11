@@ -119,7 +119,10 @@ class MainWindowDatabaseMaintenanceTests(unittest.TestCase):
         with patch("ui.main_window.QMessageBox.information") as information:
             MainWindow._on_database_maintenance_finished(window, result)
 
-        message = "已删除 2 个未引用Blob，生成 3 个向量，修复 1 个向量关联。"
+        message = (
+            "已删除 2 个未引用Blob，识别 0 张图片文字，"
+            "生成 3 个向量，修复 1 个向量关联。"
+        )
         action.setEnabled.assert_called_once_with(True)
         close_dialog.assert_called_once_with()
         status_bar.showMessage.assert_called_once_with(message, 8000)
@@ -134,8 +137,8 @@ class MainWindowDatabaseMaintenanceTests(unittest.TestCase):
         message = MainWindow._database_maintenance_summary(result)
 
         self.assertEqual(
-            "已删除 0 个未引用Blob，删除 5 个缩略图缓存，"
-            "生成 0 个向量，修复 0 个向量关联。",
+            "已删除 0 个未引用Blob，识别 0 张图片文字，"
+            "删除 5 个缩略图缓存，生成 0 个向量，修复 0 个向量关联。",
             message,
         )
 

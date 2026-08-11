@@ -34,12 +34,14 @@ class DatabaseMaintenanceDialogTests(unittest.TestCase):
         options = self.dialog.selected_options()
 
         self.assertTrue(options.delete_orphan_blobs)
+        self.assertTrue(options.extract_text)
         self.assertTrue(options.generate_vectors)
         self.assertFalse(options.delete_thumbnail_cache)
         self.assertIs(VectorMaintenanceScope.MISSING, options.vector_scope)
 
     def test_start_is_disabled_when_no_task_is_selected(self):
         self.dialog.checkBoxDeleteOrphanBlobs.setChecked(False)
+        self.dialog.checkBoxExtractText.setChecked(False)
         self.dialog.checkBoxGenerateVectors.setChecked(False)
         self.dialog.checkBoxDeleteThumbnailCache.setChecked(False)
 
@@ -48,12 +50,14 @@ class DatabaseMaintenanceDialogTests(unittest.TestCase):
 
     def test_thumbnail_cache_task_alone_enables_start(self):
         self.dialog.checkBoxDeleteOrphanBlobs.setChecked(False)
+        self.dialog.checkBoxExtractText.setChecked(False)
         self.dialog.checkBoxGenerateVectors.setChecked(False)
         self.dialog.checkBoxDeleteThumbnailCache.setChecked(True)
 
         self.assertTrue(self.dialog.pushButtonStart.isEnabled())
         options = self.dialog.selected_options()
         self.assertFalse(options.delete_orphan_blobs)
+        self.assertFalse(options.extract_text)
         self.assertFalse(options.generate_vectors)
         self.assertTrue(options.delete_thumbnail_cache)
 
@@ -106,7 +110,7 @@ class DatabaseMaintenanceDialogTests(unittest.TestCase):
         self.dialog.pushButtonCancel.click()
         self.app.processEvents()
         self.assertEqual([True], cancel_requests)
-        self.assertEqual("正在中止向量生成", self.dialog.labelStatus.text())
+        self.assertEqual("正在中止当前任务", self.dialog.labelStatus.text())
 
 
 if __name__ == "__main__":

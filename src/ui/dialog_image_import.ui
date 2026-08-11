@@ -135,6 +135,16 @@
          </property>
         </widget>
        </item>
+       <item>
+        <widget class="QCheckBox" name="checkBoxDoTextExtraction">
+         <property name="text">
+          <string>识别图片中的文字（OCR）</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </widget>

@@ -273,6 +273,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _database_maintenance_summary(result) -> str:
         parts = [f"已删除 {result.deleted_blob_count} 个未引用Blob"]
+        parts.append(f"识别 {result.ocr_count} 张图片文字")
         if result.deleted_thumbnail_count:
             parts.append(
                 f"删除 {result.deleted_thumbnail_count} 个缩略图缓存"
@@ -291,6 +292,7 @@ class MainWindow(QMainWindow):
 
         errors = (
             result.blob_errors
+            + result.ocr_errors
             + result.vector_errors
             + result.thumbnail_errors
         )
@@ -396,11 +398,15 @@ class MainWindow(QMainWindow):
         message = f"已导入 {imported_count} 张图片"
         if result.vectorized_count:
             message += f"，生成 {result.vectorized_count} 个向量"
+        if result.ocr_count:
+            message += f"，识别 {result.ocr_count} 张图片文字"
         self.statusBar().showMessage(message, 8000)
 
         detail_parts = [f"已导入 {imported_count} 张图片"]
         if result.vectorized_count:
             detail_parts.append(f"生成 {result.vectorized_count} 个向量")
+        if result.ocr_count:
+            detail_parts.append(f"识别 {result.ocr_count} 张图片文字")
         if result.duplicate_count:
             detail_parts.append(
                 f"另有 {result.duplicate_count} 个重复图片未导入"
@@ -411,14 +417,15 @@ class MainWindow(QMainWindow):
             "，".join(detail_parts) + "。",
         )
 
-        if result.vector_errors:
-            details = "\n".join(result.vector_errors[:10])
-            remaining = len(result.vector_errors) - 10
+        errors = result.vector_errors + result.ocr_errors
+        if errors:
+            details = "\n".join(errors[:10])
+            remaining = len(errors) - 10
             if remaining > 0:
                 details += f"\n另有 {remaining} 项未显示。"
             QMessageBox.warning(
                 self,
-                "部分向量未生成",
+                "部分图片处理失败",
                 details,
             )
 
@@ -434,7 +441,9 @@ class MainWindow(QMainWindow):
             message += f"，已导入 {imported_count} 张图片"
         if result.vectorized_count:
             message += f"，已生成 {result.vectorized_count} 个向量"
-        if not imported_count and not result.vectorized_count:
+        if result.ocr_count:
+            message += f"，已识别 {result.ocr_count} 张图片文字"
+        if not imported_count and not result.vectorized_count and not result.ocr_count:
             message += "，未导入图片"
         message += "。"
         self.statusBar().showMessage(message, 8000)

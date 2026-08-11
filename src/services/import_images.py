@@ -22,15 +22,19 @@ from commons.dto import StickerImage, Tag
 from commons.image_metadata import StickerImageMetadata
 from commons.signal_objects import ImportImagesRequest
 from image_features_extractor import ExtractionCancelledError, iter_features
+from image_text_extractor import TextExtractionCancelledError, iter_texts
 from stickerdb.vectordb import VectorMetadata
 from utils.image_metadata import get_image_metadata
 
 logger = logging.getLogger(__name__)
 
 IMPORT_BATCH_SIZE = 32
-PREPROCESS_END_PERCENT = 1
-SQLITE_END_PERCENT = 30
-VECTOR_START_PERCENT = 30
+OCR_BATCH_SIZE = 8
+PREPROCESS_END_PERCENT = 5
+SQLITE_END_PERCENT = 15
+OCR_START_PERCENT = 15
+OCR_END_PERCENT = 40
+VECTOR_START_PERCENT = 40
 
 
 def _percent_in_range(value: int, total: int, start: int, end: int) -> int:
@@ -47,6 +51,8 @@ class ImportImagesResult:
     duplicate_count: int = 0
     vectorized_count: int = 0
     vector_errors: tuple[str, ...] = ()
+    ocr_count: int = 0
+    ocr_errors: tuple[str, ...] = ()
     cancelled: bool = False
 
 
@@ -246,11 +252,105 @@ def _generate_vectors(
     return vectorized_count, tuple(errors)
 
 
+def _extract_texts(
+    stickers_and_blob_paths: list[tuple[StickerImage, str]],
+    progress_callback: ProgressCallback | None = None,
+    *,
+    cancel_event: threading.Event | None = None,
+    start_percent: int = OCR_START_PERCENT,
+    end_percent: int = OCR_END_PERCENT,
+) -> tuple[int, tuple[str, ...]]:
+    current_library_db = services.global_instances.current_library_db
+    if current_library_db is None:
+        return 0, ("图库尚未初始化，无法回填图片文字。",)
+
+    if not stickers_and_blob_paths:
+        return 0, ()
+
+    image_paths = [blob_path for _, blob_path in stickers_and_blob_paths]
+    sticker_by_path = {
+        blob_path: sticker
+        for sticker, blob_path in stickers_and_blob_paths
+    }
+    total = len(image_paths)
+    ocr_count = 0
+    errors: list[str] = []
+
+    if _is_cancelled(cancel_event):
+        return 0, tuple(errors)
+    _report_progress(
+        progress_callback,
+        start_percent,
+        "正在识别图片文字",
+        completed=0,
+        total=total,
+    )
+
+    try:
+        for result_batch in iter_texts(
+            image_paths,
+            batch_size=OCR_BATCH_SIZE,
+            total=total,
+            cancel_event=cancel_event,
+        ):
+            text_by_sticker_id: dict[int, str | None] = {}
+            batch_last_file_name = None
+
+            for text_result in result_batch.results:
+                sticker = sticker_by_path.get(text_result.image_path)
+                if sticker is None:
+                    errors.append(
+                        f"{text_result.image_path}：缺少对应的导入记录"
+                    )
+                    continue
+                if not text_result.success:
+                    errors.append(
+                        f"{sticker.original_file_name}：{text_result.error}"
+                    )
+                    continue
+
+                sticker.text_in_image = text_result.text
+                text_by_sticker_id[sticker.id] = text_result.text
+                batch_last_file_name = sticker.original_file_name
+
+            if text_by_sticker_id:
+                try:
+                    current_library_db.set_sticker_texts(text_by_sticker_id)
+                except Exception as exc:
+                    logger.exception("回填图片文字失败")
+                    errors.append(f"文字回填失败：{exc}")
+                else:
+                    ocr_count += len(text_by_sticker_id)
+
+            completed = min(total, result_batch.progress.completed)
+            _report_progress(
+                progress_callback,
+                _percent_in_range(
+                    completed,
+                    total,
+                    start_percent,
+                    end_percent,
+                ),
+                "正在识别图片文字",
+                completed=completed,
+                total=total,
+                last_file_name=batch_last_file_name,
+            )
+    except TextExtractionCancelledError:
+        return ocr_count, tuple(errors)
+    except Exception as exc:
+        logger.exception("图片文字识别任务失败")
+        return ocr_count, tuple(errors + [str(exc)])
+
+    return ocr_count, tuple(errors)
+
+
 def import_images_with_result(
     file_paths: List[str],
     tags: Optional[List[Tag]] = None,
     *,
     generate_vectors: bool = False,
+    extract_text: bool = False,
     progress: ProgressCallback | None = None,
     cancel_event: threading.Event | None = None,
 ) -> ImportImagesResult:
@@ -275,6 +375,8 @@ def import_images_with_result(
     imported_stickers = []
     vectorized_count = 0
     vector_errors: list[str] = []
+    ocr_count = 0
+    ocr_errors: list[str] = []
 
     def make_result(*, cancelled: bool = False) -> ImportImagesResult:
         return ImportImagesResult(
@@ -282,6 +384,8 @@ def import_images_with_result(
             duplicate_count=duplicate_count,
             vectorized_count=vectorized_count,
             vector_errors=tuple(vector_errors),
+            ocr_count=ocr_count,
+            ocr_errors=tuple(ocr_errors),
             cancelled=cancelled,
         )
 
@@ -397,7 +501,11 @@ def import_images_with_result(
         )
 
         completed = len(imported_stickers)
-        sqlite_end = SQLITE_END_PERCENT if generate_vectors else 100
+        sqlite_end = (
+            SQLITE_END_PERCENT
+            if (generate_vectors or extract_text)
+            else 100
+        )
         percent = _percent_in_range(
             completed,
             candidate_count,
@@ -420,6 +528,19 @@ def import_images_with_result(
 
         if _is_cancelled(cancel_event):
             return make_result(cancelled=True)
+
+    if extract_text and all_inserted_stickers_and_blob_paths:
+        try:
+            ocr_count, ocr_errors = _extract_texts(
+                all_inserted_stickers_and_blob_paths,
+                progress,
+                cancel_event=cancel_event,
+                start_percent=OCR_START_PERCENT,
+                end_percent=OCR_END_PERCENT if generate_vectors else 100,
+            )
+        except Exception as exc:
+            logger.exception("图片文字识别失败")
+            ocr_errors.append(f"文字识别失败：{exc}")
 
     if generate_vectors and all_inserted_stickers_and_blob_paths:
         try:
@@ -488,6 +609,7 @@ class _ImportImagesWorker(QObject):
             result = import_images_with_result(
                 list(self._request.file_paths),
                 generate_vectors=self._request.generate_vectors,
+                extract_text=self._request.extract_text,
                 progress=self.progress_changed.emit,
                 cancel_event=self._cancel_event,
             )

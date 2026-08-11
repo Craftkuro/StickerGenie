@@ -23,6 +23,7 @@ class StickerMaintenanceRecord:
     size_width: int
     size_height: int
     vectordb_id: str | None
+    text_in_image: str | None = None
 
 
 def _existing_hashes_in_session(
@@ -247,6 +248,7 @@ class StickerDBV1:
                     DBStickerImage.size_width,
                     DBStickerImage.size_height,
                     DBStickerImage.vectordb_id,
+                    DBStickerImage.text_in_image,
                 ).order_by(DBStickerImage.id.asc())
             ).all()
         return [StickerMaintenanceRecord(*row) for row in rows]
@@ -395,6 +397,24 @@ class StickerDBV1:
             ).scalars().all()
             for db_sticker in db_stickers:
                 db_sticker.vectordb_id = vector_ids_by_sticker_id[db_sticker.id]
+            session.commit()
+
+    def set_sticker_texts(
+        self,
+        text_by_sticker_id: dict[int, str | None],
+    ) -> None:
+        """批量回填图片 OCR 文本；None 表示无有效文本。"""
+        if not text_by_sticker_id:
+            return
+
+        with self._write_lock, self._get_session() as session:
+            db_stickers = session.execute(
+                select(DBStickerImage).where(
+                    DBStickerImage.id.in_(text_by_sticker_id)
+                )
+            ).scalars().all()
+            for db_sticker in db_stickers:
+                db_sticker.text_in_image = text_by_sticker_id[db_sticker.id]
             session.commit()
 
     def replace_sticker_vector_ids(

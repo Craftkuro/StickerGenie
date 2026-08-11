@@ -15,6 +15,8 @@ from blob_storage import BlobStorage
 from commons.signal_objects import ImportImagesRequest
 from image_features_extractor import ImageFeatureResult
 from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
+from image_text_extractor import ImageTextResult
+from image_text_extractor.models import TextExtractionProgress, TextResultBatch
 from services.import_images import (
     ImageImportService,
     ImportImagesProgress,
@@ -118,7 +120,7 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual([cancel_event], captured_cancel_events)
         percents = [event.percent for event in progress_events]
         self.assertEqual(sorted(percents), percents)
-        self.assertEqual([0, 1], percents[:2])
+        self.assertEqual([0, 5], percents[:2])
         self.assertEqual(100, percents[-1])
         vector_progress = [
             event
@@ -126,7 +128,7 @@ class ImportImagesVectorTests(unittest.TestCase):
             if event.status == "正在生成图片向量"
         ]
         self.assertTrue(vector_progress)
-        self.assertEqual([30, 100], [
+        self.assertEqual([40, 100], [
             event.percent for event in vector_progress
         ])
         self.assertEqual([0, 1], [
@@ -225,7 +227,7 @@ class ImportImagesVectorTests(unittest.TestCase):
             for event in progress_events
             if event.status == "正在生成图片向量"
         ]
-        self.assertEqual([30, 53, 76, 100], vector_progress)
+        self.assertEqual([40, 60, 80, 100], vector_progress)
 
     def test_reports_preprocessing_import_and_completion_progress(self):
         progress_events = []
@@ -238,7 +240,7 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(1, len(result.imported_stickers))
         self.assertEqual(0, progress_events[0].percent)
         self.assertEqual("正在预处理图片", progress_events[0].status)
-        self.assertEqual(1, progress_events[1].percent)
+        self.assertEqual(5, progress_events[1].percent)
         self.assertEqual("正在写入图库", progress_events[1].status)
         self.assertEqual(100, progress_events[-1].percent)
         self.assertEqual("导入完成", progress_events[-1].status)
@@ -274,6 +276,74 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(0, result.vectorized_count)
         self.assertIn("vector store unavailable", result.vector_errors[0])
         self.assertEqual(1, len(self.db.list_stickers()))
+
+    def test_extract_text_backfills_blob_path_and_reports_progress(self):
+        captured_paths = []
+        progress_events = []
+
+        def extract(image_paths, **kwargs):
+            captured_paths.extend(image_paths)
+            yield TextResultBatch(
+                results=(
+                    ImageTextResult.succeeded(
+                        image_paths[0],
+                        "[OCR]hello 世界",
+                    ),
+                ),
+                progress=TextExtractionProgress(
+                    completed=1,
+                    total=1,
+                    succeeded=1,
+                    failed=0,
+                ),
+            )
+
+        with patch(
+            "services.import_images.iter_texts",
+            side_effect=extract,
+        ):
+            result = import_images_with_result(
+                [str(self.source_path)],
+                extract_text=True,
+                progress=progress_events.append,
+            )
+
+        self.assertEqual(1, len(result.imported_stickers))
+        self.assertEqual(1, result.ocr_count)
+        self.assertEqual((), result.ocr_errors)
+        self.assertNotEqual(str(self.source_path), captured_paths[0])
+        self.assertTrue(
+            Path(captured_paths[0]).is_relative_to(self.blob_storage.base_path)
+        )
+        sticker = self.db.list_stickers()[0]
+        self.assertEqual("[OCR]hello 世界", sticker.text_in_image)
+        ocr_progress = [
+            event
+            for event in progress_events
+            if event.status == "正在识别图片文字"
+        ]
+        self.assertEqual([15, 100], [event.percent for event in ocr_progress])
+        self.assertEqual([0, 1], [event.completed for event in ocr_progress])
+
+    def test_extract_text_failure_keeps_sqlite_rows_without_raising(self):
+        def fail_texts(_image_paths, **kwargs):
+            raise RuntimeError("ocr unavailable")
+
+        with patch(
+            "services.import_images.iter_texts",
+            side_effect=fail_texts,
+        ):
+            result = import_images_with_result(
+                [str(self.source_path)],
+                extract_text=True,
+            )
+
+        self.assertEqual(1, len(result.imported_stickers))
+        self.assertEqual(0, result.ocr_count)
+        self.assertTrue(
+            any("ocr unavailable" in error for error in result.ocr_errors)
+        )
+        self.assertIsNone(self.db.list_stickers()[0].text_in_image)
 
     def test_import_service_executes_the_request_outside_the_main_thread(self):
         app = QCoreApplication.instance() or QCoreApplication([])
@@ -341,6 +411,39 @@ class ImportImagesVectorTests(unittest.TestCase):
             self.assertEqual(sticker.id, record.metadata.sqlite_id)
         finally:
             real_vector_store.close()
+
+    @unittest.skipUnless(
+        os.environ.get("STICKERGENIE_RUN_MODEL_TESTS") == "1",
+        "set STICKERGENIE_RUN_MODEL_TESTS=1 to run the real OCR import test",
+    )
+    def test_real_ocr_import_is_searchable_by_text(self):
+        from PIL import Image, ImageDraw, ImageFont
+
+        image_path = self.root / "real-ocr.png"
+        image = Image.new("RGB", (640, 180), "white")
+        draw = ImageDraw.Draw(image)
+        try:
+            font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 48)
+        except OSError:
+            font = ImageFont.load_default()
+        draw.text((30, 50), "Hello World 123", fill="black", font=font)
+        image.save(image_path)
+
+        result = import_images_with_result(
+            [str(image_path)],
+            extract_text=True,
+        )
+        sticker = result.imported_stickers[0]
+
+        self.assertEqual(1, result.ocr_count)
+        self.assertEqual((), result.ocr_errors)
+        self.assertIsNotNone(sticker.text_in_image)
+        self.assertTrue(
+            any(
+                sticker.id == found.id
+                for found in self.db.search_stickers_by_text("Hello")
+            )
+        )
 
 
 if __name__ == "__main__":

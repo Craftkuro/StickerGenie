@@ -26,6 +26,7 @@ class DatabaseMaintenanceDialog(QDialog):
 
         self.setModal(True)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.checkBoxExtractText.toggled.connect(self._update_controls)
         self.checkBoxGenerateVectors.toggled.connect(self._update_controls)
         self.checkBoxDeleteOrphanBlobs.toggled.connect(self._update_controls)
         self.checkBoxDeleteThumbnailCache.toggled.connect(self._update_controls)
@@ -41,6 +42,7 @@ class DatabaseMaintenanceDialog(QDialog):
         )
         return DatabaseMaintenanceOptions(
             delete_orphan_blobs=self.checkBoxDeleteOrphanBlobs.isChecked(),
+            extract_text=self.checkBoxExtractText.isChecked(),
             generate_vectors=self.checkBoxGenerateVectors.isChecked(),
             vector_scope=scope,
             delete_thumbnail_cache=self.checkBoxDeleteThumbnailCache.isChecked(),
@@ -52,7 +54,7 @@ class DatabaseMaintenanceDialog(QDialog):
 
         self.progressBar.setValue(progress.percent)
         if self._cancel_requested:
-            self.labelStatus.setText("正在中止向量生成")
+            self.labelStatus.setText("正在中止当前任务")
         else:
             self.labelStatus.setText(progress.status)
 
@@ -79,6 +81,7 @@ class DatabaseMaintenanceDialog(QDialog):
         )
         self.pushButtonStart.setEnabled(
             self.checkBoxDeleteOrphanBlobs.isChecked()
+            or self.checkBoxExtractText.isChecked()
             or self.checkBoxGenerateVectors.isChecked()
             or self.checkBoxDeleteThumbnailCache.isChecked()
         )
@@ -108,7 +111,7 @@ class DatabaseMaintenanceDialog(QDialog):
 
         self._cancel_requested = True
         self.pushButtonCancel.setEnabled(False)
-        self.labelStatus.setText("正在中止向量生成")
+        self.labelStatus.setText("正在中止当前任务")
         self.cancel_requested.emit()
 
     def closeEvent(self, event: QCloseEvent) -> None:

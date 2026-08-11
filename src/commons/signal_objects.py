@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QWidget
 class ImportImagesRequest:
     file_paths: tuple[str, ...]
     generate_vectors: bool = False
+    extract_text: bool = False
 
 
 @dataclass

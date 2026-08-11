@@ -27,10 +27,11 @@ datas = [
 # 不显式收集时，打包后向量库初始化会报找不到模块或 DLL。
 chromadb_datas, chromadb_binaries, chromadb_hiddenimports = collect_all("chromadb")
 rust_datas, rust_binaries, rust_hiddenimports = collect_all("chromadb_rust_bindings")
+rapidocr_datas, rapidocr_binaries, rapidocr_hiddenimports = collect_all("rapidocr")
 
-datas += chromadb_datas + rust_datas
-binaries = chromadb_binaries + rust_binaries
-hiddenimports = chromadb_hiddenimports + rust_hiddenimports + [
+datas += chromadb_datas + rust_datas + rapidocr_datas
+binaries = chromadb_binaries + rust_binaries + rapidocr_binaries
+hiddenimports = chromadb_hiddenimports + rust_hiddenimports + rapidocr_hiddenimports + [
     # .ui 通过 uic 在运行时按字符串 header 动态导入该控件模块，
     # PyInstaller 静态分析发现不了，必须显式声明，否则打包后
     # 加载表情包标签页会报 ModuleNotFoundError。

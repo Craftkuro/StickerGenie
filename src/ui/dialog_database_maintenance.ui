@@ -52,9 +52,12 @@
        </widget>
       </item>
       <item>
-       <widget class="QCheckBox" name="checkBoxDeleteThumbnailCache">
+       <widget class="QCheckBox" name="checkBoxExtractText">
         <property name="text">
-         <string>删除缩略图缓存</string>
+         <string>为尚未识别文字的图片提取文字（OCR）</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
         </property>
        </widget>
       </item>
@@ -98,6 +101,13 @@
          </spacer>
         </item>
        </layout>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBoxDeleteThumbnailCache">
+        <property name="text">
+         <string>删除缩略图缓存</string>
+        </property>
+       </widget>
       </item>
      </layout>
     </widget>

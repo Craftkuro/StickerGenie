@@ -19,6 +19,7 @@ from image_features_extractor import (
     iter_features,
     normalize_image_path,
 )
+from image_text_extractor import TextExtractionCancelledError, iter_texts
 from services.image_vector_model import get_model_hash
 from stickerdb.v1.sticker_db import StickerMaintenanceRecord
 from stickerdb.vectordb import VectorMetadata, VectorRecord
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 VECTOR_BATCH_SIZE = 32
 VECTOR_PREP_FRACTION = 0.3
+OCR_BATCH_SIZE = 8
 
 
 class VectorMaintenanceScope(str, Enum):
@@ -37,6 +39,7 @@ class VectorMaintenanceScope(str, Enum):
 @dataclass(frozen=True, slots=True)
 class DatabaseMaintenanceOptions:
     delete_orphan_blobs: bool = True
+    extract_text: bool = True
     generate_vectors: bool = True
     vector_scope: VectorMaintenanceScope = VectorMaintenanceScope.MISSING
     delete_thumbnail_cache: bool = False
@@ -44,6 +47,7 @@ class DatabaseMaintenanceOptions:
     def __post_init__(self) -> None:
         if not (
             self.delete_orphan_blobs
+            or self.extract_text
             or self.generate_vectors
             or self.delete_thumbnail_cache
         ):
@@ -71,11 +75,13 @@ class DatabaseMaintenanceProgress:
 @dataclass(frozen=True, slots=True)
 class DatabaseMaintenanceResult:
     deleted_blob_count: int = 0
+    ocr_count: int = 0
     vectorized_count: int = 0
     relinked_vector_count: int = 0
     skipped_vector_count: int = 0
     deleted_thumbnail_count: int = 0
     blob_errors: tuple[str, ...] = ()
+    ocr_errors: tuple[str, ...] = ()
     vector_errors: tuple[str, ...] = ()
     thumbnail_errors: tuple[str, ...] = ()
     cancelled: bool = False
@@ -246,6 +252,125 @@ def _delete_thumbnail_cache(
         cancellable=False,
     )
     return deleted_count, tuple(errors)
+
+
+def _extract_missing_texts(
+    records: list[StickerMaintenanceRecord],
+    *,
+    task_index: int,
+    task_count: int,
+    progress: ProgressCallback | None,
+    cancel_event: threading.Event | None,
+) -> tuple[int, tuple[str, ...], bool]:
+    database = services.global_instances.current_library_db
+    blob_storage = services.global_instances.current_blob_storage
+    if database is None or blob_storage is None:
+        raise RuntimeError("图库尚未初始化，无法识别图片文字")
+
+    task_name = "识别图片文字"
+    candidates: list[StickerMaintenanceRecord] = []
+    image_paths: list[str] = []
+    errors: list[str] = []
+
+    for record in records:
+        if record.text_in_image is not None:
+            continue
+        try:
+            image_path = blob_storage.read_file(
+                BlobFileEntity(record.hash, record.extension)
+            )
+        except Exception as exc:
+            errors.append(f"{record.original_file_name}：{exc}")
+            continue
+        candidates.append(record)
+        image_paths.append(image_path)
+
+    candidate_total = len(image_paths)
+    if not candidate_total:
+        _report_progress(
+            progress,
+            task_index=task_index,
+            task_count=task_count,
+            task_fraction=1.0,
+            task_name=task_name,
+            status="文字识别完成",
+            completed=0,
+            total=0,
+            cancellable=True,
+        )
+        return 0, tuple(errors), False
+
+    _report_progress(
+        progress,
+        task_index=task_index,
+        task_count=task_count,
+        task_fraction=0.0,
+        task_name=task_name,
+        status="正在识别图片文字",
+        completed=0,
+        total=candidate_total,
+        cancellable=True,
+    )
+
+    if cancel_event is not None and cancel_event.is_set():
+        return 0, tuple(errors), True
+
+    sticker_by_path = {
+        normalize_image_path(blob_path): sticker
+        for sticker, blob_path in zip(candidates, image_paths)
+    }
+    ocr_count = 0
+
+    try:
+        for result_batch in iter_texts(
+            image_paths,
+            batch_size=OCR_BATCH_SIZE,
+            total=candidate_total,
+            cancel_event=cancel_event,
+        ):
+            text_by_sticker_id: dict[int, str | None] = {}
+            for text_result in result_batch.results:
+                sticker = sticker_by_path.get(text_result.image_path)
+                if sticker is None:
+                    errors.append(
+                        f"{text_result.image_path}：缺少对应的维护记录"
+                    )
+                    continue
+                if not text_result.success:
+                    errors.append(
+                        f"{sticker.original_file_name}：{text_result.error}"
+                    )
+                    continue
+                text_by_sticker_id[sticker.id] = text_result.text
+
+            if text_by_sticker_id:
+                try:
+                    database.set_sticker_texts(text_by_sticker_id)
+                except Exception as exc:
+                    logger.exception("回填图片文字失败")
+                    errors.append(f"文字回填失败：{exc}")
+                else:
+                    ocr_count += len(text_by_sticker_id)
+
+            completed = min(candidate_total, result_batch.progress.completed)
+            _report_progress(
+                progress,
+                task_index=task_index,
+                task_count=task_count,
+                task_fraction=completed / candidate_total,
+                task_name=task_name,
+                status="正在识别图片文字",
+                completed=completed,
+                total=candidate_total,
+                cancellable=True,
+            )
+    except TextExtractionCancelledError:
+        return ocr_count, tuple(errors), True
+    except Exception as exc:
+        logger.exception("图片文字识别任务失败")
+        return ocr_count, tuple(errors + [str(exc)]), False
+
+    return ocr_count, tuple(errors), False
 
 
 def _generate_vectors(
@@ -510,16 +635,19 @@ def run_database_maintenance(
 
     task_count = (
         int(options.delete_orphan_blobs)
+        + int(options.extract_text)
         + int(options.generate_vectors)
         + int(options.delete_thumbnail_cache)
     )
     task_index = 0
     deleted_blob_count = 0
+    ocr_count = 0
     vectorized_count = 0
     relinked_vector_count = 0
     skipped_vector_count = 0
     deleted_thumbnail_count = 0
     blob_errors: tuple[str, ...] = ()
+    ocr_errors: tuple[str, ...] = ()
     vector_errors: tuple[str, ...] = ()
     thumbnail_errors: tuple[str, ...] = ()
 
@@ -534,6 +662,18 @@ def run_database_maintenance(
         task_index += 1
 
     cancelled = False
+    if options.extract_text:
+        records = database.list_maintenance_records()
+        ocr_count, ocr_errors, ocr_cancelled = _extract_missing_texts(
+            records,
+            task_index=task_index,
+            task_count=task_count,
+            progress=progress,
+            cancel_event=cancel_event,
+        )
+        cancelled = cancelled or ocr_cancelled
+        task_index += 1
+
     if options.generate_vectors:
         records = database.list_maintenance_records()
         (
@@ -550,6 +690,7 @@ def run_database_maintenance(
             progress=progress,
             cancel_event=cancel_event,
         )
+        task_index += 1
 
     if options.delete_thumbnail_cache:
         deleted_thumbnail_count, thumbnail_errors = _delete_thumbnail_cache(
@@ -561,11 +702,13 @@ def run_database_maintenance(
 
     return DatabaseMaintenanceResult(
         deleted_blob_count=deleted_blob_count,
+        ocr_count=ocr_count,
         vectorized_count=vectorized_count,
         relinked_vector_count=relinked_vector_count,
         skipped_vector_count=skipped_vector_count,
         deleted_thumbnail_count=deleted_thumbnail_count,
         blob_errors=blob_errors,
+        ocr_errors=ocr_errors,
         vector_errors=vector_errors,
         thumbnail_errors=thumbnail_errors,
         cancelled=cancelled,

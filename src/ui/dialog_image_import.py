@@ -206,6 +206,7 @@ class ImageImportDialog(QDialog):
         request = ImportImagesRequest(
             file_paths=tuple(self._prepared_file_paths),
             generate_vectors=self.checkBoxDoVectorGeneration.isChecked(),
+            extract_text=self.checkBoxDoTextExtraction.isChecked(),
         )
         self.accept()
         self.signal_import_requested.emit(request)

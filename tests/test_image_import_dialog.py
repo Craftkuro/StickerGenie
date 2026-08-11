@@ -142,6 +142,7 @@ class ImageImportDialogTests(unittest.TestCase):
         self.assertEqual(1, len(requests))
         self.assertEqual((str(image_path.resolve()),), requests[0].file_paths)
         self.assertTrue(requests[0].generate_vectors)
+        self.assertTrue(requests[0].extract_text)
         self.assertEqual(QDialog.DialogCode.Accepted, self.dialog.result())
 
 

@@ -14,6 +14,11 @@ from blob_storage import BlobFileEntity, BlobStorage
 from commons.dto import StickerImage
 from image_features_extractor import ExtractionCancelledError, ImageFeatureResult
 from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
+from image_text_extractor import (
+    ImageTextResult,
+    TextExtractionCancelledError,
+)
+from image_text_extractor.models import TextExtractionProgress, TextResultBatch
 from services.database_maintenance import (
     DatabaseMaintenanceOptions,
     VectorMaintenanceScope,
@@ -168,6 +173,24 @@ class DatabaseMaintenanceTests(unittest.TestCase):
                 ),
             )
 
+    @staticmethod
+    def _successful_iter_texts(image_paths, **kwargs):
+        for index, image_path in enumerate(image_paths, start=1):
+            yield TextResultBatch(
+                results=(
+                    ImageTextResult.succeeded(
+                        image_path,
+                        f"[OCR]text-{index}",
+                    ),
+                ),
+                progress=TextExtractionProgress(
+                    completed=index,
+                    total=len(image_paths),
+                    succeeded=index,
+                    failed=0,
+                ),
+            )
+
     def test_deletes_only_managed_blobs_missing_from_sqlite(self):
         sticker = self._add_sticker("kept.png", "white")
         orphan_path = self.root / "orphan.png"
@@ -180,6 +203,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         result = run_database_maintenance(
             DatabaseMaintenanceOptions(
                 delete_orphan_blobs=True,
+                extract_text=False,
                 generate_vectors=False,
             ),
             progress=progress_events.append,
@@ -211,6 +235,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
             result = run_database_maintenance(
                 DatabaseMaintenanceOptions(
                     delete_orphan_blobs=False,
+                    extract_text=False,
                     generate_vectors=True,
                     vector_scope=VectorMaintenanceScope.MISSING,
                 )
@@ -239,6 +264,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
             result = run_database_maintenance(
                 DatabaseMaintenanceOptions(
                     delete_orphan_blobs=False,
+                    extract_text=False,
                     generate_vectors=True,
                     vector_scope=VectorMaintenanceScope.ALL,
                 )
@@ -268,6 +294,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
             result = run_database_maintenance(
                 DatabaseMaintenanceOptions(
                     delete_orphan_blobs=False,
+                    extract_text=False,
                     generate_vectors=True,
                 )
             )
@@ -299,6 +326,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
             result = run_database_maintenance(
                 DatabaseMaintenanceOptions(
                     delete_orphan_blobs=False,
+                    extract_text=False,
                     generate_vectors=True,
                 ),
                 cancel_event=cancel_event,
@@ -320,7 +348,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
             return_value="current-model",
         ):
             run_database_maintenance(
-                DatabaseMaintenanceOptions(),
+                DatabaseMaintenanceOptions(extract_text=False),
                 progress=progress_events.append,
             )
 
@@ -348,6 +376,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         result = run_database_maintenance(
             DatabaseMaintenanceOptions(
                 delete_orphan_blobs=False,
+                extract_text=False,
                 generate_vectors=False,
                 delete_thumbnail_cache=True,
             ),
@@ -398,6 +427,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
             result = run_database_maintenance(
                 DatabaseMaintenanceOptions(
                     delete_orphan_blobs=False,
+                    extract_text=False,
                     generate_vectors=True,
                     vector_scope=VectorMaintenanceScope.MISSING,
                 ),
@@ -419,6 +449,78 @@ class DatabaseMaintenanceTests(unittest.TestCase):
             if event.task_name == "生成图片特征向量"
         ]
         self.assertEqual(sorted(vector_task_completed), vector_task_completed)
+
+    def test_ocr_only_handles_null_text_and_backfills_sqlite(self):
+        missing = self._add_sticker("missing.png", "white")
+        handwritten = self._add_sticker("handwritten.png", "red")
+        self.db.set_sticker_texts({handwritten.id: "手填文本"})
+
+        with patch(
+            "services.database_maintenance.iter_texts",
+            side_effect=self._successful_iter_texts,
+        ):
+            result = run_database_maintenance(
+                DatabaseMaintenanceOptions(
+                    delete_orphan_blobs=False,
+                    extract_text=True,
+                    generate_vectors=False,
+                )
+            )
+
+        stickers = {
+            sticker.id: sticker
+            for sticker in self.db.list_stickers(count=None)
+        }
+        self.assertEqual(1, result.ocr_count)
+        self.assertEqual((), result.ocr_errors)
+        self.assertEqual("[OCR]text-1", stickers[missing.id].text_in_image)
+        self.assertEqual("手填文本", stickers[handwritten.id].text_in_image)
+
+    def test_ocr_stage_failure_skips_stage_without_raising(self):
+        self._add_sticker("failure.png", "blue")
+
+        def fail_texts(_image_paths, **kwargs):
+            raise RuntimeError("ocr unavailable")
+
+        with patch(
+            "services.database_maintenance.iter_texts",
+            side_effect=fail_texts,
+        ):
+            result = run_database_maintenance(
+                DatabaseMaintenanceOptions(
+                    delete_orphan_blobs=False,
+                    extract_text=True,
+                    generate_vectors=False,
+                )
+            )
+
+        self.assertEqual(0, result.ocr_count)
+        self.assertFalse(result.cancelled)
+        self.assertTrue(
+            any("ocr unavailable" in error for error in result.ocr_errors)
+        )
+        self.assertIsNone(self.db.list_stickers()[0].text_in_image)
+
+    def test_ocr_cancel_sets_maintenance_cancelled(self):
+        self._add_sticker("cancel-ocr.png", "green")
+
+        def cancel_texts(_image_paths, **kwargs):
+            raise TextExtractionCancelledError("cancelled")
+
+        with patch(
+            "services.database_maintenance.iter_texts",
+            side_effect=cancel_texts,
+        ):
+            result = run_database_maintenance(
+                DatabaseMaintenanceOptions(
+                    delete_orphan_blobs=False,
+                    extract_text=True,
+                    generate_vectors=False,
+                )
+            )
+
+        self.assertTrue(result.cancelled)
+        self.assertIsNone(self.db.list_stickers()[0].text_in_image)
 
 
 if __name__ == "__main__":
