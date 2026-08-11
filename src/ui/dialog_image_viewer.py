@@ -51,6 +51,10 @@ class ImageViewerDialog(QDialog):
         ui_file_path = apppath.app_path / 'ui' / 'dialog_image_viewer.ui'
         uic.loadUi(ui_file_path, self)
 
+        self.setWindowFlags(
+            self.windowFlags() | Qt.WindowType.WindowMaximizeButtonHint
+        )
+
         self._init_tag_editor()
         self.widgetTagEditor.hide()
         self._init_file_info_table()

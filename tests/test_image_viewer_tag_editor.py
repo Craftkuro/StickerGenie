@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QItemSelectionModel
+from PyQt6.QtCore import QItemSelectionModel, Qt
 from PyQt6.QtGui import QImage
 from PyQt6.QtWidgets import QApplication
 
@@ -77,6 +77,11 @@ class ImageViewerTagEditorTests(unittest.TestCase):
         item = self.dialog._tag_model.item(0)
         self.assertEqual(self.first.id, item.data(TAG_DATA_ROLE).id)
         self.assertEqual("#123456", item.data(TAG_ACCENT_COLOR_ROLE))
+
+    def test_supports_maximization(self):
+        self.assertTrue(
+            self.dialog.windowFlags() & Qt.WindowType.WindowMaximizeButtonHint
+        )
 
     def test_loads_file_information(self):
         table = self.dialog.tableWidgetFileInfo
