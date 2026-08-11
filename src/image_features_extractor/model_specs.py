@@ -26,6 +26,8 @@ class ImageFeatureModelSpec:
     normalize_mean: tuple[float, float, float]
     normalize_std: tuple[float, float, float]
     resize_mode: str = "shorter_side_crop"
+    # "shorter_side_crop": DINOv2-style short-side resize then center crop;
+    # "resize": SigLIP-style direct resize to (input_size, input_size).
     output_index: int = 0
 
     def __post_init__(self) -> None:
