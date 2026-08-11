@@ -9,8 +9,15 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6 import sip
-from PyQt6.QtCore import QCoreApplication, QEvent, QRect, QSize
-from PyQt6.QtGui import QIcon, QImage, QPainter, QStandardItem, QStandardItemModel
+from PyQt6.QtCore import QCoreApplication, QEvent, QRect, QSize, Qt
+from PyQt6.QtGui import (
+    QIcon,
+    QImage,
+    QPainter,
+    QPixmap,
+    QStandardItem,
+    QStandardItemModel,
+)
 from PyQt6.QtTest import QSignalSpy
 from PyQt6.QtWidgets import (
     QApplication,
@@ -24,7 +31,7 @@ from PyQt6.QtWidgets import (
 import apppath
 from blob_storage import BlobFileEntity
 from commons.dto import StickerImage
-from commons.roles import ROLE_BLOB_ENTITY
+from commons.roles import ROLE_BLOB_ENTITY, ROLE_SIMILARITY
 from services.sticker_library_viewer_service import build_sticker_model
 from services.thumbnail_provider import ThumbnailProvider
 from ui.page_finite_sticker_collection import FiniteStickerCollectionPage
@@ -338,6 +345,103 @@ class StickerListViewTests(unittest.TestCase):
             width = max_x - min_x + 1
             height = max_y - min_y + 1
             self.assertEqual((144, 36), (width, height))
+
+    def _make_icon_item(
+        self,
+        similarity: float | None = None,
+    ) -> QStandardItem:
+        pixmap = QPixmap(64, 64)
+        pixmap.fill(Qt.GlobalColor.white)
+        item = QStandardItem(QIcon(pixmap), "")
+        if similarity is not None:
+            item.setData(similarity, ROLE_SIMILARITY)
+        return item
+
+    def _paint_item(self, item: QStandardItem, item_size: int) -> QImage:
+        model = QStandardItemModel()
+        model.appendRow(item)
+        canvas = QImage(item_size, item_size, QImage.Format.Format_ARGB32)
+        canvas.fill(0xFF00FF00)
+        painter = QPainter(canvas)
+        try:
+            option = QStyleOptionViewItem()
+            option.rect = QRect(0, 0, item_size, item_size)
+            option.state = QStyle.StateFlag.State_Enabled
+            delegate = StickerItemDelegate()
+            delegate.set_item_size(item_size)
+            delegate.paint(painter, option, model.index(0, 0))
+        finally:
+            painter.end()
+        return canvas
+
+    @staticmethod
+    def _yellow_pixel_bounds(image: QImage):
+        min_x = min_y = max_x = max_y = None
+        for y in range(image.height()):
+            for x in range(image.width()):
+                color = image.pixelColor(x, y)
+                if (
+                    color.red() > 230
+                    and color.green() > 190
+                    and color.blue() < 110
+                ):
+                    if min_x is None or x < min_x:
+                        min_x = x
+                    if min_y is None or y < min_y:
+                        min_y = y
+                    if max_x is None or x > max_x:
+                        max_x = x
+                    if max_y is None or y > max_y:
+                        max_y = y
+        if min_x is None:
+            return None
+        return (min_x, min_y, max_x, max_y)
+
+    @staticmethod
+    def _black_pixel_count(image: QImage, bounds) -> int:
+        min_x, min_y, max_x, max_y = bounds
+        count = 0
+        for y in range(min_y, max_y + 1):
+            for x in range(min_x, max_x + 1):
+                color = image.pixelColor(x, y)
+                if (
+                    color.red() < 90
+                    and color.green() < 90
+                    and color.blue() < 90
+                ):
+                    count += 1
+        return count
+
+    def test_similarity_badge_is_drawn_at_thumbnail_top_right(self):
+        canvas = self._paint_item(self._make_icon_item(0.92), 160)
+
+        bounds = self._yellow_pixel_bounds(canvas)
+        self.assertIsNotNone(bounds)
+        min_x, min_y, max_x, max_y = bounds
+        self.assertGreater(min_x, 80)
+        self.assertLess(max_y, 80)
+        self.assertGreater(self._black_pixel_count(canvas, bounds), 0)
+
+    def test_similarity_badge_size_is_fixed_across_item_sizes(self):
+        small_canvas = self._paint_item(self._make_icon_item(0.92), 96)
+        large_canvas = self._paint_item(self._make_icon_item(0.92), 200)
+
+        small_bounds = self._yellow_pixel_bounds(small_canvas)
+        large_bounds = self._yellow_pixel_bounds(large_canvas)
+        self.assertIsNotNone(small_bounds)
+        self.assertIsNotNone(large_bounds)
+        self.assertEqual(
+            small_bounds[2] - small_bounds[0] + 1,
+            large_bounds[2] - large_bounds[0] + 1,
+        )
+        self.assertEqual(
+            small_bounds[3] - small_bounds[1] + 1,
+            large_bounds[3] - large_bounds[1] + 1,
+        )
+
+    def test_no_similarity_means_no_badge(self):
+        canvas = self._paint_item(self._make_icon_item(), 160)
+        self.assertIsNone(self._yellow_pixel_bounds(canvas))
 
     def test_library_page_uses_sticker_list_view(self):
         page = InfiniteStickerCollectionPage(auto_refresh=False)

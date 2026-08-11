@@ -1,8 +1,16 @@
 # coding=utf-8
 import logging
 
-from PyQt6.QtCore import QModelIndex, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QStandardItemModel
+from PyQt6.QtCore import QModelIndex, QRect, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import (
+    QColor,
+    QFontMetrics,
+    QIcon,
+    QPainter,
+    QPen,
+    QPixmap,
+    QStandardItemModel,
+)
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QListView,
@@ -13,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 import commons.constants
-from commons.roles import ROLE_BLOB_ENTITY
+from commons.roles import ROLE_BLOB_ENTITY, ROLE_SIMILARITY
 import services.global_instances
 from services.thumbnail_provider import ThumbnailProvider
 
@@ -25,6 +33,12 @@ class StickerItemDelegate(QStyledItemDelegate):
 
     PADDING = 8
     ITEM_SIZE = 160
+    SIMILARITY_BADGE_MARGIN = 1
+    SIMILARITY_BADGE_PADDING_X = 4
+    SIMILARITY_BADGE_PADDING_Y = 2
+    SIMILARITY_BADGE_FONT_POINT_SIZE = 7
+    SIMILARITY_BADGE_BACKGROUND = QColor("#FFD400")
+    SIMILARITY_BADGE_FOREGROUND = QColor("#000000")
 
     def __init__(
         self,
@@ -117,8 +131,55 @@ class StickerItemDelegate(QStyledItemDelegate):
             pixmap_rect = pixmap.rect()
             pixmap_rect.moveCenter(icon_rect.center())
             painter.drawPixmap(pixmap_rect, pixmap)
+
+            # 对于有相似度数据的图，在右上角画一个相似度的角标
+            similarity = index.data(ROLE_SIMILARITY)
+            if similarity is not None:
+                self._draw_similarity_badge(
+                    painter,
+                    pixmap_rect,
+                    float(similarity),
+                )
         finally:
             painter.restore()
+
+    def _draw_similarity_badge(
+        self,
+        painter: QPainter,
+        thumbnail_rect: QRect,
+        similarity: float,
+    ) -> None:
+        """在缩略图右上角绘制固定大小的相似度角标。"""
+        text = f"{similarity:.1%}"
+        font = painter.font()
+        font.setPointSize(self.SIMILARITY_BADGE_FONT_POINT_SIZE)
+        font.setBold(True)
+        painter.setFont(font)
+
+        metrics = QFontMetrics(font)
+        badge_width = (
+            metrics.horizontalAdvance(text)
+            + 2 * self.SIMILARITY_BADGE_PADDING_X
+        )
+        badge_height = (
+            metrics.height() + 2 * self.SIMILARITY_BADGE_PADDING_Y
+        )
+        badge_rect = QRect(
+            thumbnail_rect.right() - badge_width - self.SIMILARITY_BADGE_MARGIN,
+            thumbnail_rect.top() + self.SIMILARITY_BADGE_MARGIN,
+            badge_width,
+            badge_height,
+        )
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self.SIMILARITY_BADGE_BACKGROUND)
+        painter.drawRoundedRect(badge_rect, 3, 3)
+        painter.setPen(self.SIMILARITY_BADGE_FOREGROUND)
+        painter.drawText(
+            badge_rect,
+            Qt.AlignmentFlag.AlignCenter,
+            text,
+        )
 
     def sizeHint(
         self,
