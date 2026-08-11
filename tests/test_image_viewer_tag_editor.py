@@ -83,6 +83,14 @@ class ImageViewerTagEditorTests(unittest.TestCase):
         self.assertIsInstance(self.dialog.widgetImageViewer, PanZoomImageView)
         self.assertIs(self.dialog._image_view, self.dialog.widgetImageViewer)
 
+    def test_image_viewer_occupies_two_thirds_of_splitter_height(self):
+        self.dialog.show()
+        QApplication.processEvents()
+        sizes = self.dialog.splitter.sizes()
+        self.assertEqual(2, len(sizes))
+        ratio = sizes[0] / max(1, sizes[1])
+        self.assertAlmostEqual(ratio, 2.0, delta=0.2)
+
     def test_supports_maximization(self):
         self.assertTrue(
             self.dialog.windowFlags() & Qt.WindowType.WindowMaximizeButtonHint

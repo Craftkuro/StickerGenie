@@ -66,6 +66,7 @@ class ImageViewerDialog(QDialog):
 
     def _init_image_viewer(self):
         self._image_view = self.widgetImageViewer
+        self.splitter.setSizes([320, 160])
 
     def _init_file_info_table(self):
         table = self.tableWidgetFileInfo
