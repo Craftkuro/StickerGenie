@@ -30,6 +30,7 @@ from PyQt6.QtTest import QSignalSpy
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
+    QComboBox,
     QListView,
     QMenu,
     QMessageBox,
@@ -46,7 +47,10 @@ from commons.roles import (
     ROLE_SIMILARITY,
     ROLE_STICKER_IMAGE,
 )
-from services.sticker_library_viewer_service import build_sticker_model
+from services.sticker_library_viewer_service import (
+    build_sticker_model,
+    load_library_page,
+)
 from services.thumbnail_provider import ThumbnailProvider
 from ui.page_finite_sticker_collection import FiniteStickerCollectionPage
 from ui.page_infinite_sticker_collection import InfiniteStickerCollectionPage
@@ -358,7 +362,7 @@ class StickerListViewTests(unittest.TestCase):
                 def __init__(self, rows):
                     self.rows = rows
 
-                def list_stickers(self, offset=0, count=100):
+                def list_stickers(self, offset=0, count=100, **kwargs):
                     return self.rows[offset:offset + count]
 
             page_size = InfiniteStickerCollectionPage.PAGE_SIZE
@@ -422,6 +426,106 @@ class StickerListViewTests(unittest.TestCase):
         self.assertEqual(1, len(spy))
         page.close()
 
+    def test_load_library_page_defaults_to_newest_import_date(self):
+        class FakeDB:
+            def __init__(self):
+                self.calls = []
+
+            def list_stickers(self, **kwargs):
+                self.calls.append(kwargs)
+                return []
+
+        fake_db = FakeDB()
+        with patch("services.global_instances.current_library_db", fake_db):
+            load_library_page(12, 34)
+
+        self.assertEqual(
+            [
+                {
+                    "offset": 12,
+                    "count": 34,
+                    "order_by": "imported_at",
+                    "descending": True,
+                }
+            ],
+            fake_db.calls,
+        )
+
+    def test_infinite_page_sort_combo_defaults_to_newest_import_date(self):
+        page = InfiniteStickerCollectionPage(auto_refresh=False)
+        combo = page.sort_combo
+
+        self.assertIsInstance(combo, QComboBox)
+        self.assertEqual(0, combo.currentIndex())
+        self.assertEqual("导入日期（新到旧）", combo.currentText())
+        self.assertEqual(("imported_at", True), combo.currentData())
+        self.assertEqual(
+            [
+                ("imported_at", True),
+                ("imported_at", False),
+                ("file_size", False),
+                ("file_size", True),
+            ],
+            [combo.itemData(i) for i in range(combo.count())],
+        )
+        self.assertEqual("图片排序方式", combo.toolTip())
+        page.close()
+
+    def test_infinite_page_reloads_first_page_when_sort_changes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "stored-hash.png"
+            image = QImage(2, 2, QImage.Format.Format_ARGB32)
+            image.fill(0xFFFFFFFF)
+            self.assertTrue(image.save(str(image_path)))
+
+            class FakePagedDB:
+                def __init__(self, rows):
+                    self.rows = rows
+                    self.calls = []
+
+                def list_stickers(
+                    self,
+                    offset=0,
+                    count=100,
+                    order_by="imported_at",
+                    descending=True,
+                ):
+                    self.calls.append((offset, order_by, descending))
+                    return self.rows[offset:offset + count]
+
+            page_size = InfiniteStickerCollectionPage.PAGE_SIZE
+            stickers = [make_sticker() for _ in range(page_size + 5)]
+            fake_db = FakePagedDB(stickers)
+            with patch(
+                "services.global_instances.current_library_db",
+                fake_db,
+            ), patch(
+                "services.global_instances.current_blob_storage",
+                FakeBlobStorage(image_path),
+            ):
+                page = InfiniteStickerCollectionPage(auto_refresh=False)
+                page.resize(400, 300)
+                page.show()
+                QApplication.processEvents()
+                self.assertEqual(
+                    [(0, "imported_at", True)],
+                    fake_db.calls,
+                )
+
+                page.sort_combo.setCurrentIndex(2)
+                QApplication.processEvents()
+
+                self.assertEqual(
+                    (0, "file_size", False),
+                    fake_db.calls[-1],
+                )
+                self.assertEqual(
+                    page_size,
+                    page.listViewStickerList.model().rowCount(),
+                )
+                self.assertEqual(page_size, page._offset)
+                page.close()
+
     def test_display_size_slider_adjusts_view_grid(self):
         page = FiniteStickerCollectionPage(auto_refresh=False)
         slider = page.display_size_slider
@@ -450,7 +554,7 @@ class StickerListViewTests(unittest.TestCase):
                 def __init__(self, rows):
                     self.rows = rows
 
-                def list_stickers(self, offset=0, count=100):
+                def list_stickers(self, offset=0, count=100, **kwargs):
                     return self.rows[offset:offset + count]
 
             stickers = [make_sticker() for _ in range(150)]

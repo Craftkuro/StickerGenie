@@ -148,9 +148,10 @@ class StickerDBV1:
             # 获取排序列
             order_column = self.ORDER_BY_MAP.get(order_by, DBStickerImage.modification_date)
             
-            # 构建查询
+            # 构建查询；附加 id 作为次级排序，保证分页顺序稳定。
             stmt = select(DBStickerImage).order_by(
-                order_column.desc() if descending else order_column.asc()
+                order_column.desc() if descending else order_column.asc(),
+                DBStickerImage.id.desc() if descending else DBStickerImage.id.asc(),
             )
             
             # 应用偏移和限制

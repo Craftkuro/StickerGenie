@@ -104,12 +104,23 @@ def build_sticker_model(
     return model
 
 
-def load_library_page(offset: int, count: int) -> list[StickerImage]:
+def load_library_page(
+    offset: int,
+    count: int,
+    *,
+    order_by: str = "imported_at",
+    descending: bool = True,
+) -> list[StickerImage]:
     """分页读取全库图片，供无限集合标签页滚动加载使用。"""
     db = services.global_instances.current_library_db
     if db is None:
         return []
-    return db.list_stickers(offset=offset, count=count)
+    return db.list_stickers(
+        offset=offset,
+        count=count,
+        order_by=order_by,
+        descending=descending,
+    )
 
 
 def find_similar_stickers(

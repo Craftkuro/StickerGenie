@@ -22,14 +22,16 @@ def make_sticker(
     hash_value: str = "test-hash",
     text_in_image: str | None = None,
     modification_date: datetime.datetime | None = None,
+    file_size: int = 1,
+    imported_at: datetime.datetime | None = None,
 ) -> StickerImage:
     sticker = StickerImage()
     sticker.original_file_name = file_name
     sticker.relative_path = file_name
-    sticker.file_size = 1
+    sticker.file_size = file_size
     sticker.hash = hash_value
     sticker.extension = ".png"
-    sticker.imported_at = datetime.datetime(2026, 1, 1)
+    sticker.imported_at = imported_at or datetime.datetime(2026, 1, 1)
     sticker.modification_date = modification_date or datetime.datetime(2026, 1, 1)
     sticker.size_width = 1
     sticker.size_height = 1
@@ -195,6 +197,45 @@ class StickerDBTagTests(unittest.TestCase):
         self.assertEqual(
             ["matching.png"],
             [sticker.original_file_name for sticker in results],
+        )
+
+    def test_list_stickers_sorts_by_imported_at_and_file_size(self):
+        older = make_sticker(
+            file_name="older.png",
+            hash_value="older-hash",
+            imported_at=datetime.datetime(2026, 1, 1),
+            file_size=10,
+        )
+        newer = make_sticker(
+            file_name="newer.png",
+            hash_value="newer-hash",
+            imported_at=datetime.datetime(2026, 1, 2),
+            file_size=30,
+        )
+        tiny = make_sticker(
+            file_name="tiny.png",
+            hash_value="tiny-hash",
+            imported_at=datetime.datetime(2026, 1, 1),
+            file_size=5,
+        )
+        self.db.add_stickers([older, newer, tiny])
+
+        by_import_date = self.db.list_stickers(
+            order_by="imported_at",
+            descending=True,
+        )
+        self.assertEqual(
+            ["newer.png", "tiny.png", "older.png"],
+            [sticker.original_file_name for sticker in by_import_date],
+        )
+
+        by_file_size = self.db.list_stickers(
+            order_by="file_size",
+            descending=False,
+        )
+        self.assertEqual(
+            ["tiny.png", "older.png", "newer.png"],
+            [sticker.original_file_name for sticker in by_file_size],
         )
 
     def test_add_stickers_silently_ignores_duplicate_hashes(self):

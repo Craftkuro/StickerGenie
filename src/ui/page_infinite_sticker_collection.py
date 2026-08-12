@@ -3,6 +3,7 @@ import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QIcon, QStandardItemModel
+from PyQt6.QtWidgets import QComboBox
 
 import services.sticker_library_viewer_service
 from utils.resource_path import resolve_resource_path
@@ -17,12 +18,20 @@ class InfiniteStickerCollectionPage(StickerListPage):
 
     PAGE_SIZE = 100
     UI_FILE_NAME = "page_infinite_sticker_collection.ui"
+    SORT_OPTIONS = (
+        ("imported_at", True, "导入日期（新到旧）"),
+        ("imported_at", False, "导入日期（旧到新）"),
+        ("file_size", False, "文件大小（小到大）"),
+        ("file_size", True, "文件大小（大到小）"),
+    )
 
     def __init__(self, *, auto_refresh: bool = True):
         super().__init__(
             ui_file_name=self.UI_FILE_NAME,
             auto_refresh=auto_refresh,
         )
+        self._sort_order_by = "imported_at"
+        self._sort_descending = True
         self._page_size = self.PAGE_SIZE
         self._offset = 0
         self._has_more = True
@@ -38,6 +47,7 @@ class InfiniteStickerCollectionPage(StickerListPage):
         self.refresh_action.triggered.connect(self._on_refresh_clicked)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.toolbar.addAction(self.refresh_action)
+        self._setup_sort_combo()
 
         if auto_refresh:
             self.signal_refresh_content.connect(
@@ -50,6 +60,27 @@ class InfiniteStickerCollectionPage(StickerListPage):
         else:
             self._reset_and_load_first_page()
         self._setup_display_size_slider()
+
+    def _setup_sort_combo(self) -> None:
+        self.sort_combo = QComboBox(self)
+        self.sort_combo.setObjectName("sortComboBox")
+        self.sort_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
+        self.sort_combo.setToolTip("图片排序方式")
+        self.sort_combo.setAccessibleName("图片排序方式")
+        for order_by, descending, label in self.SORT_OPTIONS:
+            self.sort_combo.addItem(label, (order_by, descending))
+        self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+        self.add_toolbar_widget(self.sort_combo)
+
+    def _on_sort_changed(self, index: int) -> None:
+        if index < 0:
+            return
+        order_by, descending = self.sort_combo.itemData(index)
+        self._sort_order_by = order_by
+        self._sort_descending = descending
+        self._reset_and_load_first_page()
 
     def _on_refresh_clicked(self) -> None:
         self.signal_refresh_content.emit()
@@ -79,6 +110,8 @@ class InfiniteStickerCollectionPage(StickerListPage):
             images = services.sticker_library_viewer_service.load_library_page(
                 offset=self._offset,
                 count=self._page_size,
+                order_by=self._sort_order_by,
+                descending=self._sort_descending,
             )
             if not images:
                 self._has_more = False
