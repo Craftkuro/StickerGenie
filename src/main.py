@@ -14,6 +14,7 @@ def main() -> int:
 
     import apppath
 
+
     logging.basicConfig()
     logging.root.setLevel(level=logging.DEBUG)
 
@@ -26,9 +27,14 @@ def main() -> int:
         base_data_path = os.path.dirname(application_path)
     apppath.setup_data_path(application_path, base_data_path)
 
+    # 设置appid, 用于在任务栏上拥有专门的图标
+    import utils.win32
+    utils.win32._set_windows_app_user_model_id()
+
     import services.startup
     import ui.main_window
     from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtGui import QIcon
 
     services.startup.run_startup_tasks()
 
@@ -38,6 +44,9 @@ def main() -> int:
     application = QApplication(sys.argv)
     application.setQuitOnLastWindowClosed(True)
     application.setStyle("Fusion")
+    application.setWindowIcon(
+        QIcon(str(apppath.app_path / "resources" / "app_icon.ico"))
+    )
 
     main_window = ui.main_window.MainWindow()
     main_window.show()

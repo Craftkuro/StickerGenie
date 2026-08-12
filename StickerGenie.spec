@@ -26,6 +26,7 @@ datas = [
     ("src/ui/dialog_image_import.ui", "ui"),
     ("src/ui/dialog_image_import_progress.ui", "ui"),
     ("src/ui/dialog_database_maintenance.ui", "ui"),
+    ("src/resources/app_icon.ico", "resources"),
     ("src/resources/thumbnail_placeholder.png", "resources"),
     ("src/resources/menu.svg", "resources"),
     ("src/resources/plus.svg", "resources"),
@@ -107,6 +108,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(SPEC_DIR / "src" / "resources" / "app_icon.ico"),
 )
 
 coll = COLLECT(
