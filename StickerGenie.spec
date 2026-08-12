@@ -28,6 +28,8 @@ datas = [
     ("src/ui/dialog_database_maintenance.ui", "ui"),
     ("src/resources/thumbnail_placeholder.png", "resources"),
     ("src/resources/menu.svg", "resources"),
+    ("src/resources/plus.svg", "resources"),
+    ("src/resources/search.svg", "resources"),
     (str(feature_model_path), "."),
     (str(feature_model_hash_path), "."),
 ]
