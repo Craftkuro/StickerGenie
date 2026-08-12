@@ -139,6 +139,7 @@ class MainWindow(QMainWindow):
 
     def setup_base_slots(self):
         self.pushButtonAddSticker.clicked.connect(self.basic_import_files)
+        self.pushButtonTagManager.clicked.connect(self.open_tag_manager)
         self.customSearchBox.searched.connect(self.on_search_triggered)
         self.actionImportImages.triggered.connect(self.basic_import_files)
         self.actionExportLibrary.triggered.connect(self.export_library)

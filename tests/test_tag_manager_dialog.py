@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 import apppath
 import services.global_instances
 from commons.dto import Tag
+from services.settings import create_settings_manager
 from stickerdb.v1.sticker_db import StickerDBV1
 from ui.dialog_tag_manager import TAG_DATA_ROLE, TagManagerDialog
 from ui.main_window import MainWindow
@@ -192,6 +193,10 @@ class TagManagerDialogTests(unittest.TestCase):
 
 
 class MainWindowTagManagerTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
     def test_main_window_ui_declares_tag_manager_action_in_repository_menu(self):
         apppath.app_path = Path(__file__).resolve().parents[1] / "src"
         root = ElementTree.parse(apppath.app_path / "ui" / "main_window.ui").getroot()
@@ -226,6 +231,36 @@ class MainWindowTagManagerTests(unittest.TestCase):
         dialog_class.assert_called_once_with(window, database=database)
         dialog_class.return_value.exec.assert_called_once_with()
         refresh_suggestions.assert_called_once_with()
+
+    def test_tag_manager_button_opens_tag_manager(self):
+        apppath.app_path = Path(__file__).resolve().parents[1] / "src"
+        previous_main_window = services.global_instances.main_window
+        database = object()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_manager = create_settings_manager(
+                Path(temp_dir) / "settings.toml"
+            )
+            with patch(
+                "ui.main_window.services.import_images.ImageImportService"
+            ), patch(
+                "ui.main_window.services.export_library.LibraryExportService"
+            ), patch(
+                "ui.main_window.services.database_maintenance.DatabaseMaintenanceService"
+            ), patch.object(MainWindow, "debug_start_test_view"):
+                window = MainWindow(settings_manager=settings_manager)
+            try:
+                with patch.object(
+                    services.global_instances,
+                    "current_library_db",
+                    database,
+                ), patch("ui.main_window.TagManagerDialog") as dialog_class:
+                    window.pushButtonTagManager.click()
+
+                dialog_class.assert_called_once_with(window, database=database)
+                dialog_class.return_value.exec.assert_called_once_with()
+            finally:
+                window.close()
+                services.global_instances.main_window = previous_main_window
 
 
 if __name__ == "__main__":
