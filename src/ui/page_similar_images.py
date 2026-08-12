@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
+import apppath
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QMenu, QToolButton, QWidgetAction
 
 import services.global_instances
@@ -17,6 +20,12 @@ from .page_finite_sticker_collection import FiniteStickerCollectionPage
 from .widgets.filter_popup_widget import SimilarityFilterPopupWidget
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_resource_path(filename: str) -> Path:
+    if apppath.app_path is not None:
+        return apppath.app_path / "resources" / filename
+    return Path(__file__).resolve().parents[1] / "resources" / filename
 
 
 class SimilarImagesPage(FiniteStickerCollectionPage):
@@ -104,13 +113,17 @@ class SimilarImagesPage(FiniteStickerCollectionPage):
 
         self._filter_button = QToolButton(self)
         self._filter_button.setObjectName("filterButton")
-        self._filter_button.setText("过滤")
+        self._filter_button.setToolTip("过滤")
+        self._filter_button.setAccessibleName("过滤")
+        self._filter_button.setIcon(
+            QIcon(str(_resolve_resource_path("funnel.svg")))
+        )
         self._filter_button.setMenu(self._filter_menu)
         self._filter_button.setPopupMode(
             QToolButton.ToolButtonPopupMode.InstantPopup
         )
         self._filter_button.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextOnly
+            Qt.ToolButtonStyle.ToolButtonIconOnly
         )
 
         spacer_action = self.toolbar.actions()[0]

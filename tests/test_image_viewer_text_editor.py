@@ -74,6 +74,19 @@ class ImageViewerTextEditorTests(unittest.TestCase):
         )
         self.assertEqual("文本", tabs.tabText(tabs.indexOf(self.dialog.tabText)))
 
+    def test_tags_tab_is_selected_by_default(self):
+        tabs = self.dialog.tabWidgetBottom
+        self.assertEqual(self.dialog.tabTags, tabs.currentWidget())
+
+        tabs.setCurrentIndex(tabs.indexOf(self.dialog.tabFileInfo))
+        reopened = ImageViewerDialog(database=self.db)
+        self.addCleanup(reopened.close)
+        reopened.load_image(self.image_path, "viewer.png", self.sticker)
+        self.assertEqual(
+            reopened.tabTags,
+            reopened.tabWidgetBottom.currentWidget(),
+        )
+
     def test_loads_text_in_image_from_database(self):
         self.db.set_sticker_texts({self.sticker.id: "database text"})
         self.sticker = self.db.list_stickers()[0]

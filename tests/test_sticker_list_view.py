@@ -367,7 +367,8 @@ class StickerListViewTests(unittest.TestCase):
 
         self.assertTrue(actions)
         self.assertIs(page.refresh_action, actions[0])
-        self.assertEqual("刷新", page.refresh_action.text())
+        self.assertFalse(page.refresh_action.icon().isNull())
+        self.assertEqual("刷新图库", page.refresh_action.toolTip())
         self.assertIs(
             page.display_size_slider,
             page.toolbarStickerList.widgetForAction(actions[-1]),

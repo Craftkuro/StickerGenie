@@ -1,13 +1,22 @@
 #coding=utf-8
 import logging
+from pathlib import Path
 
-from PyQt6.QtGui import QAction, QStandardItemModel
+import apppath
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QIcon, QStandardItemModel
 
 import services.sticker_library_viewer_service
 
 from .widgets.sticker_list_page import StickerListPage
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_resource_path(filename: str) -> Path:
+    if apppath.app_path is not None:
+        return apppath.app_path / "resources" / filename
+    return Path(__file__).resolve().parents[1] / "resources" / filename
 
 
 class InfiniteStickerCollectionPage(StickerListPage):
@@ -27,10 +36,14 @@ class InfiniteStickerCollectionPage(StickerListPage):
         self._loading_more = False
         self.listViewStickerList.load_more_requested.connect(self._load_more)
 
-        self.refresh_action = QAction("刷新", self)
+        self.refresh_action = QAction(self)
         self.refresh_action.setObjectName("refreshAction")
+        self.refresh_action.setIcon(
+            QIcon(str(_resolve_resource_path("refresh-cw.svg")))
+        )
         self.refresh_action.setToolTip("刷新图库")
         self.refresh_action.triggered.connect(self._on_refresh_clicked)
+        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.toolbar.addAction(self.refresh_action)
 
         if auto_refresh:

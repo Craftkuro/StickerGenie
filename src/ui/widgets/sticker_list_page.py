@@ -6,6 +6,7 @@ from PyQt6.QtCore import (
     QItemSelectionModel,
     QModelIndex,
     QPoint,
+    QSize,
     Qt,
     pyqtSignal,
 )
@@ -42,6 +43,7 @@ class StickerListPage(QWidget):
         self.toolbar.setMovable(False)
         self.toolbar.setFloatable(False)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.toolbar.setIconSize(QSize(16, 16))
 
         # 双击图片时打开图片查看器
         self.listViewStickerList.doubleClicked.connect(self._on_sticker_double_clicked)
