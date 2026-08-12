@@ -158,7 +158,7 @@ def open_search_results(search_type: SearchType | str, query: str) -> int:
         images = database.search_stickers_by_text(query)
         title = f"文本搜索[{query}]"
 
-    services.sticker_library_viewer_service.open_sticker_results_tab(
+    services.sticker_library_viewer_service.open_search_results_tab(
         images,
         title,
     )

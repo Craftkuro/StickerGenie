@@ -36,6 +36,8 @@ from services.sticker_library_viewer_service import build_sticker_model
 from services.thumbnail_provider import ThumbnailProvider
 from ui.page_finite_sticker_collection import FiniteStickerCollectionPage
 from ui.page_infinite_sticker_collection import InfiniteStickerCollectionPage
+from ui.page_search_result import SearchResultPage
+from ui.page_similar_images import SimilarImagesPage
 from ui.widgets.sticker_list_view_widget import (
     StickerItemDelegate,
     StickerListView,
@@ -158,6 +160,28 @@ class StickerListViewTests(unittest.TestCase):
         page.listViewStickerList.load_more_requested.emit()
 
         self.assertEqual(3, page.listViewStickerList.model().rowCount())
+        page.close()
+
+    def test_search_result_page_inherits_finite_page(self):
+        page = SearchResultPage(auto_refresh=False)
+
+        self.assertIsInstance(page, FiniteStickerCollectionPage)
+        self.assertEqual(
+            "page_finite_sticker_collection.ui",
+            page.UI_FILE_NAME,
+        )
+        self.assertIsInstance(page.display_size_slider, QSlider)
+        page.close()
+
+    def test_similar_images_page_inherits_finite_page(self):
+        page = SimilarImagesPage(auto_refresh=False)
+
+        self.assertIsInstance(page, FiniteStickerCollectionPage)
+        self.assertEqual(
+            "page_finite_sticker_collection.ui",
+            page.UI_FILE_NAME,
+        )
+        self.assertIsInstance(page.display_size_slider, QSlider)
         page.close()
 
     def test_infinite_page_loads_more_on_request(self):

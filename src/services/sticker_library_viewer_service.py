@@ -20,7 +20,8 @@ from commons.roles import (
 )
 from commons.signal_objects import MainWindowNewTabRequest
 
-from ui.page_finite_sticker_collection import FiniteStickerCollectionPage
+from ui.page_search_result import SearchResultPage
+from ui.page_similar_images import SimilarImagesPage
 from ui.page_infinite_sticker_collection import InfiniteStickerCollectionPage
 
 logger = logging.getLogger(__name__)
@@ -158,6 +159,16 @@ def find_similar_stickers(
     ]
 
 
+def open_search_results_tab(
+    images: Iterable[StickerImage],
+    title: str,
+) -> None:
+    """在独立标签页中展示标签/文本搜索结果。"""
+    page = SearchResultPage(auto_refresh=False)
+    page.refresh_content(build_sticker_model(images))
+    _open_result_tab(page, title)
+
+
 def open_similar_stickers_tab(
     sticker: StickerImage,
     *,
@@ -171,23 +182,18 @@ def open_similar_stickers_tab(
         similar_sticker.id: similarity
         for similar_sticker, similarity in matches
     }
-    open_sticker_results_tab(
-        (similar_sticker for similar_sticker, _ in matches),
-        f"相似图片[{sticker.original_file_name}]",
-        similarities=similarities,
+    page = SimilarImagesPage(auto_refresh=False)
+    page.refresh_content(
+        build_sticker_model(
+            (similar_sticker for similar_sticker, _ in matches),
+            similarities,
+        )
     )
+    _open_result_tab(page, f"相似图片[{sticker.original_file_name}]")
 
 
-def open_sticker_results_tab(
-    images: Iterable[StickerImage],
-    title: str,
-    *,
-    similarities: dict[int, float] | None = None,
-) -> None:
-    """在独立标签页中展示给定的图片结果。"""
-    page = FiniteStickerCollectionPage(auto_refresh=False)
-    page.refresh_content(build_sticker_model(images, similarities))
-
+def _open_result_tab(page, title: str) -> None:
+    """把有限结果页作为可关闭标签页加入主窗口。"""
     main_window = services.global_instances.main_window
     if main_window is None:
         raise RuntimeError("主窗口尚未初始化。")

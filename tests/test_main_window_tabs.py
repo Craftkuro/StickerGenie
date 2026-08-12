@@ -127,14 +127,45 @@ class TabRequestPolicyTests(unittest.TestCase):
             main_window,
         ), patch.object(
             library_viewer_service,
-            "FiniteStickerCollectionPage",
+            "SearchResultPage",
             return_value=page,
         ), patch.object(
             library_viewer_service,
             "build_sticker_model",
             return_value=object(),
         ):
-            library_viewer_service.open_sticker_results_tab([], "搜索结果")
+            library_viewer_service.open_search_results_tab([], "搜索结果")
+
+        request = emit.call_args.args[0]
+        self.assertTrue(request.closable)
+        self.assertIs(page, request.widget)
+
+    def test_similar_images_tabs_are_closable(self):
+        emit = Mock()
+        page = Mock()
+        main_window = SimpleNamespace(
+            signal_add_new_tab=SimpleNamespace(emit=emit),
+        )
+        source = SimpleNamespace(original_file_name="source.png")
+
+        with patch.object(
+            services.global_instances,
+            "main_window",
+            main_window,
+        ), patch.object(
+            library_viewer_service,
+            "find_similar_stickers",
+            return_value=[],
+        ), patch.object(
+            library_viewer_service,
+            "SimilarImagesPage",
+            return_value=page,
+        ), patch.object(
+            library_viewer_service,
+            "build_sticker_model",
+            return_value=object(),
+        ):
+            library_viewer_service.open_similar_stickers_tab(source)
 
         request = emit.call_args.args[0]
         self.assertTrue(request.closable)

@@ -125,7 +125,7 @@ class SearchServiceTests(unittest.TestCase):
         try:
             with patch(
                 "services.search.services.sticker_library_viewer_service."
-                "open_sticker_results_tab"
+                "open_search_results_tab"
             ) as open_tab:
                 count = search_service.open_search_results("tag", "Happy")
         finally:
