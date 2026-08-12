@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="backPhotoBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#143d50"/>
+      <stop offset="0.55" stop-color="#0e2c3d"/>
+      <stop offset="1" stop-color="#081a26"/>
+    </linearGradient>
+    <linearGradient id="frontPhotoBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe9c7"/>
+      <stop offset="0.52" stop-color="#f6c795"/>
+      <stop offset="1" stop-color="#e49c68"/>
+    </linearGradient>
+    <clipPath id="backClip">
+      <rect x="95" y="95" width="322" height="312" rx="14"/>
+    </clipPath>
+    <clipPath id="frontClip">
+      <rect x="86" y="86" width="340" height="330" rx="14"/>
+    </clipPath>
+  </defs>
+
+  <g transform="translate(-30 -34) rotate(-8 256 256)">
+    <rect x="84" y="84" width="350" height="350" rx="20" fill="#211022" opacity="0.18"/>
+    <rect x="88" y="88" width="350" height="350" rx="20" fill="#241127" opacity="0.1"/>
+    <rect x="81" y="81" width="350" height="350" rx="20" fill="#fffdf7"/>
+    <g clip-path="url(#backClip)">
+      <rect x="95" y="95" width="322" height="312" fill="url(#backPhotoBg)"/>
+      <path d="M 95 330 C 170 300, 280 290, 417 318 L 417 407 L 95 407 Z" fill="#0a2430" opacity="0.32"/>
+      <rect x="95" y="95" width="322" height="312" rx="14" fill="none" stroke="#ffffff" stroke-opacity="0.16"/>
+    </g>
+    <rect x="81" y="81" width="350" height="350" rx="20" fill="none" stroke="#cbb28d" stroke-opacity="0.45"/>
+  </g>
+
+  <g transform="translate(18 20) rotate(4 256 256)">
+    <rect x="76" y="78" width="372" height="372" rx="20" fill="#2a1129" opacity="0.24"/>
+    <rect x="80" y="82" width="372" height="372" rx="20" fill="#32142e" opacity="0.12"/>
+    <rect x="70" y="70" width="372" height="372" rx="20" fill="#fffdf8"/>
+    <g clip-path="url(#frontClip)">
+      <rect x="86" y="86" width="340" height="330" fill="url(#frontPhotoBg)"/>
+      <path d="M 86 348 C 180 310, 320 302, 426 340 L 426 416 L 86 416 Z" fill="#c97845" opacity="0.34"/>
+      <rect x="86" y="86" width="340" height="330" rx="14" fill="none" stroke="#ffffff" stroke-opacity="0.35"/>
+    </g>
+    <rect x="70" y="70" width="372" height="372" rx="20" fill="none" stroke="#d9bf97" stroke-opacity="0.55"/>
+  </g>
+</svg>
