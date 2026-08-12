@@ -111,17 +111,20 @@ class StickerListPage(QWidget):
         menu.addSeparator()
         find_similar_action = menu.addAction("查找相似图片")
         menu.addSeparator()
-        delete_action = menu.addAction("删除图片")
-        selected_action = menu.exec(
+        more_menu = menu.addMenu("更多")
+        delete_action = more_menu.addAction("删除图片")
+        copy_action.triggered.connect(
+            lambda _checked=False: self._copy_sticker_for_index(index)
+        )
+        find_similar_action.triggered.connect(
+            lambda _checked=False: self._find_similar_for_index(index)
+        )
+        delete_action.triggered.connect(
+            lambda _checked=False: self._delete_sticker_for_index(index)
+        )
+        menu.exec(
             self.listViewStickerList.viewport().mapToGlobal(position)
         )
-
-        if selected_action is copy_action:
-            self._copy_sticker_for_index(index)
-        elif selected_action is find_similar_action:
-            self._find_similar_for_index(index)
-        elif selected_action is delete_action:
-            self._delete_sticker_for_index(index)
 
     def _copy_sticker_for_index(self, index: QModelIndex):
         file_path = index.data(ROLE_FILE_PATH)

@@ -9,7 +9,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6 import sip
-from PyQt6.QtCore import QCoreApplication, QEvent, QRect, QSize, Qt
+from PyQt6.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSize, Qt
 from PyQt6.QtGui import (
     QIcon,
     QImage,
@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QListView,
+    QMenu,
     QSlider,
     QStyle,
     QStyleOptionViewItem,
@@ -171,6 +172,41 @@ class StickerListViewTests(unittest.TestCase):
             page.UI_FILE_NAME,
         )
         self.assertIsInstance(page.display_size_slider, QSlider)
+        page.close()
+
+    def test_context_menu_delete_lives_in_more_submenu(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        model.appendRow(QStandardItem(""))
+        page.refresh_content(model)
+        index = page.listViewStickerList.model().index(0, 0)
+
+        def fake_exec(menu, position):
+            more_actions = [
+                action for action in menu.actions()
+                if action.text() == "更多"
+            ]
+            self.assertEqual(1, len(more_actions))
+            more_menu = more_actions[0].menu()
+            self.assertIsNotNone(more_menu)
+            delete_action = more_menu.actions()[0]
+            self.assertEqual("删除图片", delete_action.text())
+            delete_action.trigger()
+            return None
+
+        with patch.object(
+            page.listViewStickerList,
+            "indexAt",
+            return_value=index,
+        ):
+            with patch.object(QMenu, "exec", fake_exec):
+                with patch.object(
+                    page,
+                    "_delete_sticker_for_index",
+                ) as delete_mock:
+                    page._show_sticker_context_menu(QPoint(0, 0))
+
+        delete_mock.assert_called_once_with(index)
         page.close()
 
     def test_similar_images_page_inherits_finite_page(self):
