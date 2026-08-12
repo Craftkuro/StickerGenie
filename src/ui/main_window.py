@@ -4,7 +4,7 @@ import time
 from traceback import format_tb
 from typing import Optional
 
-from PyQt6.QtCore import pyqtSignal, pyqtSlot, QPoint, QEvent, Qt, QSize
+from PyQt6.QtCore import pyqtSignal, pyqtSlot, QPoint, QEvent, Qt
 from PyQt6.QtWidgets import QMainWindow, QPushButton, QMessageBox, QWidget, QLabel, QVBoxLayout, \
     QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QLineEdit, QLayout, QCompleter, \
     QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle, QFileDialog, QComboBox, QSizePolicy, \

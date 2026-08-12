@@ -27,6 +27,7 @@ datas = [
     ("src/ui/dialog_image_import_progress.ui", "ui"),
     ("src/ui/dialog_database_maintenance.ui", "ui"),
     ("src/resources/thumbnail_placeholder.png", "resources"),
+    ("src/resources/menu.svg", "resources"),
     (str(feature_model_path), "."),
     (str(feature_model_hash_path), "."),
 ]
@@ -45,6 +46,7 @@ hiddenimports = chromadb_hiddenimports + rust_hiddenimports + rapidocr_hiddenimp
     # 加载表情包标签页会报 ModuleNotFoundError。
     "ui.widgets.sticker_list_view_widget",
     "ui.widgets.image_text_edit_widget",
+    "PyQt6.QtSvg",
 ]
 
 # NVIDIA CUDA/cuDNN 运行库：打包后统一放到 onnxruntime/capi 目录，

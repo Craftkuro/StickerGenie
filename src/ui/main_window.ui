@@ -99,8 +99,20 @@
        </item>
        <item>
         <widget class="QPushButton" name="pushButtonMainMenu">
-         <property name="text">
-          <string>Menu</string>
+         <property name="icon">
+          <iconset>../resources/menu.svg</iconset>
+         </property>
+         <property name="iconSize">
+          <size>
+           <width>16</width>
+           <height>16</height>
+          </size>
+         </property>
+         <property name="toolTip">
+          <string>菜单</string>
+         </property>
+         <property name="accessibleName">
+          <string>菜单</string>
          </property>
         </widget>
        </item>
