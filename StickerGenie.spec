@@ -31,6 +31,11 @@ datas = [
     ("src/resources/menu.svg", "resources"),
     ("src/resources/plus.svg", "resources"),
     ("src/resources/search.svg", "resources"),
+    ("src/resources/binoculars.svg", "resources"),
+    ("src/resources/funnel.svg", "resources"),
+    ("src/resources/refresh-cw.svg", "resources"),
+    ("src/resources/tags.svg", "resources"),
+    ("src/resources/trash.svg", "resources"),
     (str(feature_model_path), "."),
     (str(feature_model_hash_path), "."),
 ]
@@ -46,8 +51,9 @@ binaries = chromadb_binaries + rust_binaries + rapidocr_binaries
 hiddenimports = chromadb_hiddenimports + rust_hiddenimports + rapidocr_hiddenimports + [
     # .ui 通过 uic 在运行时按字符串 header 动态导入该控件模块，
     # PyInstaller 静态分析发现不了，必须显式声明，否则打包后
-    # 加载表情包标签页会报 ModuleNotFoundError。
+    # 加载对应界面会报 ModuleNotFoundError。
     "ui.widgets.sticker_list_view_widget",
+    "ui.widgets.pan_zoom_image_view",
     "ui.widgets.image_text_edit_widget",
     "PyQt6.QtSvg",
 ]
