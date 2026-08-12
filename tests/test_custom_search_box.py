@@ -6,7 +6,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import QModelIndex, QObject, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont, QStandardItem
 from PyQt6.QtTest import QSignalSpy, QTest
-from PyQt6.QtWidgets import QApplication, QSizePolicy, QStyleOptionViewItem
+from PyQt6.QtWidgets import (
+    QApplication,
+    QPushButton,
+    QSizePolicy,
+    QStyleOptionViewItem,
+)
 
 from ui.widgets.custom_search_box import (
     SEARCH_TEXT_ROLE,
@@ -115,10 +120,17 @@ class CustomSearchBoxTests(unittest.TestCase):
 
         self.assertGreater(self.search_box.line_edit.width(), initial_input_width)
         self.assertEqual(initial_button_width, self.search_box.search_button.width())
-        self.assertGreaterEqual(
-            self.search_box.search_button.width(),
-            self.search_box.search_button.height(),
-        )
+
+    def test_search_controls_match_sibling_push_button_height(self):
+        self._show_and_focus()
+        reference = QPushButton()
+        reference.setIcon(self.search_box.search_button.icon())
+        reference.setIconSize(self.search_box.search_button.iconSize())
+        reference.setStyleSheet("QPushButton { padding: 3px; }")
+        expected_height = reference.sizeHint().height()
+
+        self.assertEqual(expected_height, self.search_box.line_edit.height())
+        self.assertEqual(expected_height, self.search_box.search_button.height())
 
     def test_default_debounce_interval_is_300_ms(self):
         search_box = CustomSearchBox(suggestions_provider=self.provider)

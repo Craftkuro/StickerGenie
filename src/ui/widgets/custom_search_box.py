@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
     QCompleter,
     QHBoxLayout,
     QLineEdit,
+    QPushButton,
     QSizePolicy,
     QStyle,
     QStyledItemDelegate,
@@ -398,6 +399,16 @@ class CustomSearchBox(QWidget):
             self.search_button.setText("🔍")
         else:
             self.search_button.setIcon(search_icon)
+
+        # QLineEdit/QToolButton are naturally shorter than sibling QPushButtons,
+        # so use a same-style push button as the height reference for the bar.
+        reference_button = QPushButton()
+        reference_button.setIcon(search_icon)
+        reference_button.setIconSize(self.search_button.iconSize())
+        #reference_button.setStyleSheet("QPushButton { padding: 3px; }")
+        sibling_button_height = reference_button.sizeHint().height()
+        self.line_edit.setMinimumHeight(sibling_button_height)
+        self.search_button.setMinimumHeight(sibling_button_height)
 
         layout.addWidget(self.line_edit, 1)
         layout.addWidget(self.search_button, 0)
