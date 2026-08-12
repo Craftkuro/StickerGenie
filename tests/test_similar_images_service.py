@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import services.global_instances
 import services.sticker_library_viewer_service as viewer_service
 import services.similarity_result_filter as similarity_filter
-from blob_storage import BlobStorage
+from blob_storage import BlobFileEntity, BlobStorage
 import commons.constants
 from commons.dto import StickerImage
 
@@ -231,6 +231,36 @@ class SimilarImagesServiceTests(unittest.TestCase):
         self.assertIn("actual-vector", self.vector_store.deleted)
         self.assertNotIn(7, self.vector_store.by_sqlite_id)
         self.assertFalse(blob_storage.exists(entity))
+
+    def test_delete_stickers_cleans_all_rows_vectors_and_blobs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            blob_storage = BlobStorage(temp_dir)
+            entities = []
+            for sticker in (self.second, self.third):
+                source_file = Path(temp_dir) / sticker.original_file_name
+                source_file.write_bytes(b"image")
+                entity = blob_storage.store_file(
+                    str(source_file),
+                    sticker.hash,
+                )
+                entities.append(entity)
+            self.vector_store.add_existing("second-vector", 2)
+            self.vector_store.add_existing("third-vector", 3)
+            services.global_instances.current_blob_storage = blob_storage
+
+            errors = viewer_service.delete_stickers(
+                [self.second, self.third]
+            )
+
+            self.assertEqual((), errors)
+            self.assertFalse(blob_storage.exists(entities[0]))
+            self.assertFalse(blob_storage.exists(entities[1]))
+
+        self.assertEqual([self.second, self.third], self.db.deleted)
+        self.assertEqual(
+            ["second-vector", "third-vector"],
+            self.vector_store.deleted,
+        )
 
 
 if __name__ == "__main__":

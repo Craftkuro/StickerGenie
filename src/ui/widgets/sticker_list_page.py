@@ -2,7 +2,13 @@
 import logging
 
 from PyQt6 import uic
-from PyQt6.QtCore import pyqtSignal, QModelIndex, QPoint, Qt
+from PyQt6.QtCore import (
+    QItemSelectionModel,
+    QModelIndex,
+    QPoint,
+    Qt,
+    pyqtSignal,
+)
 from PyQt6.QtGui import QAction, QStandardItemModel
 from PyQt6.QtWidgets import QMenu, QMessageBox, QSizePolicy, QSlider, QWidget
 
@@ -101,30 +107,74 @@ class StickerListPage(QWidget):
         dialog.exec()
 
     def _show_sticker_context_menu(self, position: QPoint):
-        index = self.listViewStickerList.indexAt(position)
+        view = self.listViewStickerList
+        index = view.indexAt(position)
         if not index.isValid():
             return
 
-        self.listViewStickerList.setCurrentIndex(index)
+        selection_model = view.selectionModel()
+        if selection_model is None:
+            return
+        if selection_model.isSelected(index):
+            selection_model.setCurrentIndex(
+                index,
+                QItemSelectionModel.SelectionFlag.NoUpdate,
+            )
+        else:
+            selection_model.setCurrentIndex(
+                index,
+                QItemSelectionModel.SelectionFlag.ClearAndSelect,
+            )
+
+        selected_indexes = self._selected_indexes()
         menu = QMenu(self)
-        copy_action = menu.addAction("复制到剪贴板")
-        menu.addSeparator()
-        find_similar_action = menu.addAction("查找相似图片")
-        menu.addSeparator()
+        if len(selected_indexes) == 1:
+            selected_index = selected_indexes[0]
+            copy_action = menu.addAction("复制到剪贴板")
+            menu.addSeparator()
+            find_similar_action = menu.addAction("查找相似图片")
+            menu.addSeparator()
+            copy_action.triggered.connect(
+                lambda _checked=False: self._copy_sticker_for_index(
+                    selected_index
+                )
+            )
+            find_similar_action.triggered.connect(
+                lambda _checked=False: self._find_similar_for_index(
+                    selected_index
+                )
+            )
         more_menu = menu.addMenu("更多")
         delete_action = more_menu.addAction("删除图片")
-        copy_action.triggered.connect(
-            lambda _checked=False: self._copy_sticker_for_index(index)
+        if len(selected_indexes) == 1:
+            delete_action.triggered.connect(
+                lambda _checked=False: self._delete_sticker_for_index(
+                    selected_indexes[0]
+                )
+            )
+        else:
+            delete_action.triggered.connect(
+                lambda _checked=False: self._delete_stickers_for_indexes(
+                    selected_indexes
+                )
+            )
+        menu.exec(view.viewport().mapToGlobal(position))
+
+    def _selected_indexes(self) -> list[QModelIndex]:
+        """返回当前选中的行索引（按行号排序并去重）。"""
+        view = self.listViewStickerList
+        selection_model = view.selectionModel()
+        model = view.model()
+        if selection_model is None or model is None:
+            return []
+        rows = sorted(
+            {
+                index.row()
+                for index in selection_model.selectedIndexes()
+                if index.isValid()
+            }
         )
-        find_similar_action.triggered.connect(
-            lambda _checked=False: self._find_similar_for_index(index)
-        )
-        delete_action.triggered.connect(
-            lambda _checked=False: self._delete_sticker_for_index(index)
-        )
-        menu.exec(
-            self.listViewStickerList.viewport().mapToGlobal(position)
-        )
+        return [model.index(row, 0) for row in rows]
 
     def _copy_sticker_for_index(self, index: QModelIndex):
         file_path = index.data(ROLE_FILE_PATH)
@@ -155,14 +205,27 @@ class StickerListPage(QWidget):
             QMessageBox.warning(self, "无法查找相似图片", str(exc))
 
     def _delete_sticker_for_index(self, index: QModelIndex):
-        sticker = index.data(ROLE_STICKER_IMAGE)
-        if sticker is None:
+        self._delete_stickers_for_indexes([index])
+
+    def _delete_stickers_for_indexes(self, indexes: list[QModelIndex]):
+        stickers = []
+        for index in indexes:
+            if not index.isValid():
+                continue
+            sticker = index.data(ROLE_STICKER_IMAGE)
+            if sticker is not None:
+                stickers.append(sticker)
+        if not stickers:
             return
 
+        if len(stickers) == 1:
+            message = f'确定删除“{stickers[0].original_file_name}”吗？'
+        else:
+            message = f"确定删除选中的 {len(stickers)} 张图片吗？"
         answer = QMessageBox.question(
             self,
             "删除图片",
-            f'确定删除“{sticker.original_file_name}”吗？',
+            message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -170,8 +233,10 @@ class StickerListPage(QWidget):
             return
 
         try:
-            cleanup_errors = services.sticker_library_viewer_service.delete_sticker(
-                sticker
+            cleanup_errors = (
+                services.sticker_library_viewer_service.delete_stickers(
+                    stickers
+                )
             )
         except Exception as exc:
             logger.exception("删除图片失败")
@@ -180,7 +245,16 @@ class StickerListPage(QWidget):
 
         model = self.listViewStickerList.model()
         if model is not None:
-            model.removeRow(index.row())
+            rows = sorted(
+                {
+                    index.row()
+                    for index in indexes
+                    if index.isValid()
+                },
+                reverse=True,
+            )
+            for row in rows:
+                model.removeRow(row)
         services.sticker_library_viewer_service.wiring.slot_refresh_content()
 
         if cleanup_errors:

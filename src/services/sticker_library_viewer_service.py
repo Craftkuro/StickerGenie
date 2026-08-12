@@ -229,39 +229,46 @@ def _open_result_tab(page, title: str) -> None:
     main_window.signal_add_new_tab.emit(request)
 
 
-def delete_sticker(sticker: StickerImage) -> tuple[str, ...]:
-    """以 SQLite 为主记录删除图片，再清理可重建的向量和 Blob。"""
+def delete_stickers(stickers: Sequence[StickerImage]) -> tuple[str, ...]:
+    """以 SQLite 为主记录批量删除图片，再清理可重建的向量和 Blob。"""
     db = services.global_instances.current_library_db
     blob_storage = services.global_instances.current_blob_storage
     vector_store = services.global_instances.current_vector_store
     if db is None or blob_storage is None:
         raise RuntimeError("图库未初始化。")
 
-    db.delete_stickers([sticker])
+    sticker_list = list(stickers)
+    db.delete_stickers(sticker_list)
     cleanup_errors = []
 
-    if vector_store is not None:
-        try:
-            with services.global_instances.vector_store_lock:
-                if sticker.vectordb_id:
-                    deleted = vector_store.delete(str(sticker.vectordb_id))
-                    if not deleted:
+    for sticker in sticker_list:
+        if vector_store is not None:
+            try:
+                with services.global_instances.vector_store_lock:
+                    if sticker.vectordb_id:
+                        deleted = vector_store.delete(str(sticker.vectordb_id))
+                        if not deleted:
+                            vector_store.delete_by_sqlite_id(sticker.id)
+                    else:
                         vector_store.delete_by_sqlite_id(sticker.id)
-                else:
-                    vector_store.delete_by_sqlite_id(sticker.id)
-        except Exception as exc:
-            logger.exception("删除图片向量失败，id=%s", sticker.id)
-            cleanup_errors.append(f"向量清理失败：{exc}")
+            except Exception as exc:
+                logger.exception("删除图片向量失败，id=%s", sticker.id)
+                cleanup_errors.append(f"向量清理失败：{exc}")
 
-    blob_entity = BlobFileEntity(sticker.hash, sticker.extension)
-    try:
-        if blob_storage.exists(blob_entity):
-            blob_storage.delete_file(blob_entity)
-    except Exception as exc:
-        logger.exception("删除 Blob 文件失败，id=%s", sticker.id)
-        cleanup_errors.append(f"文件清理失败：{exc}")
+        blob_entity = BlobFileEntity(sticker.hash, sticker.extension)
+        try:
+            if blob_storage.exists(blob_entity):
+                blob_storage.delete_file(blob_entity)
+        except Exception as exc:
+            logger.exception("删除 Blob 文件失败，id=%s", sticker.id)
+            cleanup_errors.append(f"文件清理失败：{exc}")
 
     return tuple(cleanup_errors)
+
+
+def delete_sticker(sticker: StickerImage) -> tuple[str, ...]:
+    """删除单张图片，复用批量删除的清理逻辑。"""
+    return delete_stickers([sticker])
 
 def open_sticker_library_view_tab():
 

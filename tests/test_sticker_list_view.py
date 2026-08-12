@@ -9,7 +9,15 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6 import sip
-from PyQt6.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSize, Qt
+from PyQt6.QtCore import (
+    QCoreApplication,
+    QEvent,
+    QItemSelectionModel,
+    QPoint,
+    QRect,
+    QSize,
+    Qt,
+)
 from PyQt6.QtGui import (
     QIcon,
     QImage,
@@ -24,6 +32,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QListView,
     QMenu,
+    QMessageBox,
     QSlider,
     QStyle,
     QStyleOptionViewItem,
@@ -32,7 +41,11 @@ from PyQt6.QtWidgets import (
 import apppath
 from blob_storage import BlobFileEntity
 from commons.dto import StickerImage
-from commons.roles import ROLE_BLOB_ENTITY, ROLE_SIMILARITY
+from commons.roles import (
+    ROLE_BLOB_ENTITY,
+    ROLE_SIMILARITY,
+    ROLE_STICKER_IMAGE,
+)
 from services.sticker_library_viewer_service import build_sticker_model
 from services.thumbnail_provider import ThumbnailProvider
 from ui.page_finite_sticker_collection import FiniteStickerCollectionPage
@@ -106,6 +119,10 @@ class StickerListViewTests(unittest.TestCase):
         self.assertEqual(
             QAbstractItemView.DragDropMode.NoDragDrop,
             view.dragDropMode(),
+        )
+        self.assertEqual(
+            QAbstractItemView.SelectionMode.ExtendedSelection,
+            view.selectionMode(),
         )
         self.assertEqual(QSize(200, 200), view.iconSize())
         self.assertEqual(QSize(160, 160), view.gridSize())
@@ -207,6 +224,73 @@ class StickerListViewTests(unittest.TestCase):
                     page._show_sticker_context_menu(QPoint(0, 0))
 
         delete_mock.assert_called_once_with(index)
+        page.close()
+
+    def test_context_menu_multi_selection_only_offers_delete(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        model.appendRow(QStandardItem(""))
+        model.appendRow(QStandardItem(""))
+        page.refresh_content(model)
+        view = page.listViewStickerList
+        selection_model = view.selectionModel()
+        selection_model.select(
+            model.index(0, 0),
+            QItemSelectionModel.SelectionFlag.ClearAndSelect,
+        )
+        selection_model.select(
+            model.index(1, 0),
+            QItemSelectionModel.SelectionFlag.Select,
+        )
+
+        def fake_exec(menu, position):
+            self.assertEqual(["更多"], [action.text() for action in menu.actions()])
+            more_menu = menu.actions()[0].menu()
+            delete_action = more_menu.actions()[0]
+            self.assertEqual("删除图片", delete_action.text())
+            delete_action.trigger()
+            return None
+
+        with patch.object(
+            view,
+            "indexAt",
+            return_value=model.index(1, 0),
+        ):
+            with patch.object(QMenu, "exec", fake_exec):
+                with patch.object(
+                    page,
+                    "_delete_stickers_for_indexes",
+                ) as delete_mock:
+                    page._show_sticker_context_menu(QPoint(0, 0))
+
+        self.assertEqual(
+            [0, 1],
+            [index.row() for index in delete_mock.call_args.args[0]],
+        )
+        page.close()
+
+    def test_delete_stickers_removes_all_selected_rows(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        for _ in range(3):
+            item = QStandardItem("")
+            item.setData(make_sticker(), ROLE_STICKER_IMAGE)
+            model.appendRow(item)
+        page.refresh_content(model)
+
+        with patch(
+            "services.sticker_library_viewer_service.delete_stickers",
+            return_value=(),
+        ) as delete_mock, patch(
+            "ui.widgets.sticker_list_page.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ):
+            page._delete_stickers_for_indexes(
+                [model.index(0, 0), model.index(2, 0)]
+            )
+
+        delete_mock.assert_called_once()
+        self.assertEqual(1, model.rowCount())
         page.close()
 
     def test_similar_images_page_inherits_finite_page(self):

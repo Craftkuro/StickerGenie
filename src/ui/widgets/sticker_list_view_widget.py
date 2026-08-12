@@ -274,6 +274,9 @@ class StickerListView(QListView):
         self.setDragEnabled(False)
         self.setAcceptDrops(False)
         self.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
+        self.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
         self.setIconSize(QSize(self.THUMBNAIL_SIZE, self.THUMBNAIL_SIZE))
         self.setGridSize(QSize(self._item_size, self._item_size))
         self.setSpacing(8)
