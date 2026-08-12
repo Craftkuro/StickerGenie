@@ -49,6 +49,9 @@ class ImageViewerDialog(QDialog):
         ui_file_path = apppath.app_path / 'ui' / 'dialog_image_viewer.ui'
         uic.loadUi(ui_file_path, self)
 
+        # 强制激活第1个标签，以免编辑ui文件的时候存入其他激活的标签影响程序运行时行为
+        self.tabWidgetBottom.setCurrentIndex(0)
+
         self.setWindowFlags(
             self.windowFlags() | Qt.WindowType.WindowMaximizeButtonHint
         )
