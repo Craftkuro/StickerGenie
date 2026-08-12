@@ -115,6 +115,7 @@ class StickerListPage(QWidget):
         selection_model = view.selectionModel()
         if selection_model is None:
             return
+        # 右键已选中的项时保留整个多选；右键未选中的项则收缩为单选。
         if selection_model.isSelected(index):
             selection_model.setCurrentIndex(
                 index,
@@ -128,6 +129,7 @@ class StickerListPage(QWidget):
 
         selected_indexes = self._selected_indexes()
         menu = QMenu(self)
+        # 复制和查找相似图片只适用于单选；多选时只保留删除入口。
         if len(selected_indexes) == 1:
             selected_index = selected_indexes[0]
             copy_action = menu.addAction("复制到剪贴板")
@@ -221,6 +223,7 @@ class StickerListPage(QWidget):
         if len(stickers) == 1:
             message = f'确定删除“{stickers[0].original_file_name}”吗？'
         else:
+            # 多选时用数量确认，避免弹出一长串文件名。
             message = f"确定删除选中的 {len(stickers)} 张图片吗？"
         answer = QMessageBox.question(
             self,
@@ -245,6 +248,7 @@ class StickerListPage(QWidget):
 
         model = self.listViewStickerList.model()
         if model is not None:
+            # 从大到小删除行，避免前面行移除后导致后续行号失效。
             rows = sorted(
                 {
                     index.row()
