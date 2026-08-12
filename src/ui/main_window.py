@@ -31,9 +31,6 @@ from .dialog_tag_manager import TagManagerDialog
 
 logger = logging.getLogger(__name__)
 
-# 配置常用关键词按钮个数
-QUICK_LAUNCH_BUTTON_COUNT = 6
-
 
 class MainWindow(QMainWindow):
     signal_send_user_error_alert = pyqtSignal(str)

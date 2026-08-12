@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>808</width>
+    <width>879</width>
     <height>622</height>
    </rect>
   </property>
@@ -80,28 +80,25 @@
         </widget>
        </item>
        <item>
-        <widget class="QWidget" name="widgetQuickLaunchButtons" native="true">
-         <layout class="QHBoxLayout" name="horizontalLayout_2">
-          <property name="leftMargin">
-           <number>0</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>0</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="QPushButton" name="pushButtonQuickSearchPlaceHolder">
-            <property name="text">
-             <string>Placeholder</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
+        <widget class="QPushButton" name="pushButtonStartExamine">
+         <property name="styleSheet">
+          <string notr="true">QPushButton { padding: 3px; }</string>
+         </property>
+         <property name="icon">
+          <iconset>
+           <normaloff>../resources/binoculars.svg</normaloff>../resources/binoculars.svg</iconset>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButtonTagManager">
+         <property name="styleSheet">
+          <string notr="true">QPushButton { padding: 3px; }</string>
+         </property>
+         <property name="icon">
+          <iconset>
+           <normaloff>../resources/tags.svg</normaloff>../resources/tags.svg</iconset>
+         </property>
         </widget>
        </item>
        <item>
@@ -148,7 +145,7 @@ QPushButton::menu-indicator { image: none; width: 0px; height: 0px; }</string>
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>808</width>
+     <width>879</width>
      <height>22</height>
     </rect>
    </property>
