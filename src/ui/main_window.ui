@@ -99,20 +99,25 @@
        </item>
        <item>
         <widget class="QPushButton" name="pushButtonMainMenu">
+         <property name="toolTip">
+          <string>菜单</string>
+         </property>
+         <property name="accessibleName">
+          <string>菜单</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">QPushButton { padding: 3px; }
+QPushButton::menu-indicator { image: none; width: 0px; height: 0px; }</string>
+         </property>
          <property name="icon">
-          <iconset>../resources/menu.svg</iconset>
+          <iconset>
+           <normaloff>../resources/menu.svg</normaloff>../resources/menu.svg</iconset>
          </property>
          <property name="iconSize">
           <size>
            <width>16</width>
            <height>16</height>
           </size>
-         </property>
-         <property name="toolTip">
-          <string>菜单</string>
-         </property>
-         <property name="accessibleName">
-          <string>菜单</string>
          </property>
         </widget>
        </item>
