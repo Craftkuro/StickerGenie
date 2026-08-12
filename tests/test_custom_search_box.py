@@ -115,7 +115,7 @@ class CustomSearchBoxTests(unittest.TestCase):
 
         self.assertGreater(self.search_box.line_edit.width(), initial_input_width)
         self.assertEqual(initial_button_width, self.search_box.search_button.width())
-        self.assertEqual(
+        self.assertGreaterEqual(
             self.search_box.search_button.width(),
             self.search_box.search_button.height(),
         )

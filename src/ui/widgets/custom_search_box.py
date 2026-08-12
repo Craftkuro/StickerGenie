@@ -188,15 +188,15 @@ class RichCompleter(QCompleter):
 
 
 class SearchToolButton(QToolButton):
-    """Icon button whose width remains fixed to its style-derived height."""
+    """Icon button that keeps its style-derived height and horizontal padding."""
 
     def sizeHint(self) -> QSize:
         size = super().sizeHint()
-        return QSize(size.height(), size.height())
+        return QSize(max(size.width(), size.height()), size.height())
 
     def minimumSizeHint(self) -> QSize:
         size = super().minimumSizeHint()
-        return QSize(size.height(), size.height())
+        return QSize(max(size.width(), size.height()), size.height())
 
 
 class RichSearchCompleterItemDelegate(QStyledItemDelegate):
