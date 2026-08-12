@@ -105,6 +105,43 @@ class SimilarImagesServiceTests(unittest.TestCase):
         services.global_instances.current_blob_storage = self._old_blob
         services.global_instances.current_vector_store = self._old_vectors
 
+    def test_fetch_similar_candidates_returns_unfiltered_results(self):
+        results, sticker_map = viewer_service.fetch_similar_candidates(
+            self.source
+        )
+        self.assertEqual(
+            [3, 2, 999], [r.sqlite_id for r in results]
+        )
+        self.assertEqual([0.95, 0.90, 0.80], [r.similarity for r in results])
+        self.assertEqual({2, 3}, set(sticker_map.keys()))
+
+    def test_build_similar_matches_no_filter_returns_all(self):
+        results, sticker_map = viewer_service.fetch_similar_candidates(
+            self.source
+        )
+        matches = viewer_service.build_similar_matches(
+            results, sticker_map, result_filter=None
+        )
+        self.assertEqual([3, 2], [s.id for s, _ in matches])
+        self.assertEqual([0.95, 0.90], [sim for _, sim in matches])
+
+    def test_build_similar_matches_with_filter_applies_filter(self):
+        results, sticker_map = viewer_service.fetch_similar_candidates(
+            self.source
+        )
+        custom_filter = similarity_filter.SimilarityResultFilter(
+            similarity_filter.SimilarityFilterConfig(
+                target_drop_ratio=0.5,
+                min_keep=1,
+                min_similarity=0.40,
+                max_results=100,
+            )
+        )
+        matches = viewer_service.build_similar_matches(
+            results, sticker_map, result_filter=custom_filter
+        )
+        self.assertEqual([3, 2], [s.id for s, _ in matches])
+
     def test_similarity_results_keep_vector_ranking_and_skip_stale_rows(self):
         matches = viewer_service.find_similar_stickers(self.source)
 
