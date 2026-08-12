@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Sequence
-
-import apppath
 
 from PyQt6.QtCore import (
     QEvent,
@@ -43,13 +40,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from utils.resource_path import resolve_resource_path
+
 logger = logging.getLogger(__name__)
-
-
-def _resolve_resource_path(filename: str) -> Path:
-    if apppath.app_path is not None:
-        return apppath.app_path / "resources" / filename
-    return Path(__file__).resolve().parents[2] / "resources" / filename
 
 
 TITLE_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -394,7 +387,7 @@ class CustomSearchBox(QWidget):
             QSizePolicy.Policy.Fixed,
             QSizePolicy.Policy.Fixed,
         )
-        search_icon = QIcon(str(_resolve_resource_path("search.svg")))
+        search_icon = QIcon(str(resolve_resource_path("search.svg")))
         if search_icon.isNull():
             self.search_button.setText("🔍")
         else:

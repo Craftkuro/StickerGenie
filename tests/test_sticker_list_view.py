@@ -269,6 +269,49 @@ class StickerListViewTests(unittest.TestCase):
         )
         page.close()
 
+    def test_context_menu_image_properties_opens_viewer_for_single_selection(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        model.appendRow(QStandardItem(""))
+        page.refresh_content(model)
+        index = page.listViewStickerList.model().index(0, 0)
+
+        def fake_exec(menu, position):
+            action_texts = [action.text() for action in menu.actions()]
+            self.assertEqual(
+                [
+                    "复制到剪贴板",
+                    "",
+                    "查找相似图片",
+                    "图片属性",
+                    "",
+                    "更多",
+                ],
+                action_texts,
+            )
+            image_properties_action = next(
+                action
+                for action in menu.actions()
+                if action.text() == "图片属性"
+            )
+            image_properties_action.trigger()
+            return None
+
+        with patch.object(
+            page.listViewStickerList,
+            "indexAt",
+            return_value=index,
+        ):
+            with patch.object(QMenu, "exec", fake_exec):
+                with patch.object(
+                    page,
+                    "_open_image_viewer_for_index",
+                ) as open_mock:
+                    page._show_sticker_context_menu(QPoint(0, 0))
+
+        open_mock.assert_called_once_with(index)
+        page.close()
+
     def test_delete_stickers_removes_all_selected_rows(self):
         page = SearchResultPage(auto_refresh=False)
         model = QStandardItemModel()

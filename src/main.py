@@ -35,6 +35,7 @@ def main() -> int:
     import ui.main_window
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtGui import QIcon
+    from utils.resource_path import resolve_resource_path
 
     services.startup.run_startup_tasks()
 
@@ -45,7 +46,7 @@ def main() -> int:
     application.setQuitOnLastWindowClosed(True)
     application.setStyle("Fusion")
     application.setWindowIcon(
-        QIcon(str(apppath.app_path / "resources" / "app_icon.ico"))
+        QIcon(str(resolve_resource_path("app_icon.ico")))
     )
 
     main_window = ui.main_window.MainWindow()

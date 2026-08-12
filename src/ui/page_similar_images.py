@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
-import apppath
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QMenu, QToolButton, QWidgetAction
@@ -15,17 +13,12 @@ from services.similarity_result_filter import (
     SimilarityFilterConfig,
     SimilarityResultFilter,
 )
+from utils.resource_path import resolve_resource_path
 
 from .page_finite_sticker_collection import FiniteStickerCollectionPage
 from .widgets.filter_popup_widget import SimilarityFilterPopupWidget
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_resource_path(filename: str) -> Path:
-    if apppath.app_path is not None:
-        return apppath.app_path / "resources" / filename
-    return Path(__file__).resolve().parents[1] / "resources" / filename
 
 
 class SimilarImagesPage(FiniteStickerCollectionPage):
@@ -116,7 +109,7 @@ class SimilarImagesPage(FiniteStickerCollectionPage):
         self._filter_button.setToolTip("过滤")
         self._filter_button.setAccessibleName("过滤")
         self._filter_button.setIcon(
-            QIcon(str(_resolve_resource_path("funnel.svg")))
+            QIcon(str(resolve_resource_path("funnel.svg")))
         )
         self._filter_button.setMenu(self._filter_menu)
         self._filter_button.setPopupMode(

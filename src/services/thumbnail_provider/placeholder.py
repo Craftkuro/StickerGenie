@@ -3,9 +3,10 @@
 
 import logging
 
-import apppath
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPainter, QPixmap
+
+from utils.resource_path import resolve_resource_path
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +42,9 @@ def build_placeholder(size: int) -> QPixmap:
 def load_placeholder_icon() -> QPixmap:
     """从应用资源加载 Windows 图片文件图标；失败时返回空 QPixmap。"""
     try:
-        if apppath.app_path is not None:
-            icon_path = apppath.app_path / "resources" / "thumbnail_placeholder.png"
-            pixmap = QPixmap(str(icon_path))
-            if not pixmap.isNull():
-                return pixmap
+        pixmap = QPixmap(str(resolve_resource_path("thumbnail_placeholder.png")))
+        if not pixmap.isNull():
+            return pixmap
     except Exception:
         logger.exception("加载占位图资源失败")
     return QPixmap()

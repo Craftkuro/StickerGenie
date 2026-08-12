@@ -96,6 +96,9 @@ class StickerListPage(QWidget):
             previous_model.deleteLater()
 
     def _on_sticker_double_clicked(self, index: QModelIndex):
+        self._open_image_viewer_for_index(index)
+
+    def _open_image_viewer_for_index(self, index: QModelIndex):
         if not index.isValid():
             return
 
@@ -131,12 +134,13 @@ class StickerListPage(QWidget):
 
         selected_indexes = self._selected_indexes()
         menu = QMenu(self)
-        # 复制和查找相似图片只适用于单选；多选时只保留删除入口。
+        # 复制、查找相似图片和图片属性只适用于单选；多选时只保留删除入口。
         if len(selected_indexes) == 1:
             selected_index = selected_indexes[0]
             copy_action = menu.addAction("复制到剪贴板")
             menu.addSeparator()
             find_similar_action = menu.addAction("查找相似图片")
+            image_properties_action = menu.addAction("图片属性")
             menu.addSeparator()
             copy_action.triggered.connect(
                 lambda _checked=False: self._copy_sticker_for_index(
@@ -145,6 +149,11 @@ class StickerListPage(QWidget):
             )
             find_similar_action.triggered.connect(
                 lambda _checked=False: self._find_similar_for_index(
+                    selected_index
+                )
+            )
+            image_properties_action.triggered.connect(
+                lambda _checked=False: self._open_image_viewer_for_index(
                     selected_index
                 )
             )
