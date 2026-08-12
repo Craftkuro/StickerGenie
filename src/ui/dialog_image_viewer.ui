@@ -38,13 +38,25 @@
        </sizepolicy>
       </property>
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="tabTags">
        <attribute name="title">
         <string>标签</string>
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout_4">
+        <property name="leftMargin">
+         <number>2</number>
+        </property>
+        <property name="topMargin">
+         <number>2</number>
+        </property>
+        <property name="rightMargin">
+         <number>2</number>
+        </property>
+        <property name="bottomMargin">
+         <number>2</number>
+        </property>
         <item>
          <widget class="QWidget" name="widgetTagEditor" native="true">
           <layout class="QVBoxLayout" name="verticalLayout_3">
@@ -70,8 +82,20 @@
         <string>文本</string>
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayoutText">
+        <property name="leftMargin">
+         <number>2</number>
+        </property>
+        <property name="topMargin">
+         <number>2</number>
+        </property>
+        <property name="rightMargin">
+         <number>2</number>
+        </property>
+        <property name="bottomMargin">
+         <number>2</number>
+        </property>
         <item>
-         <widget class="ImageTextEditWidget" name="imageTextEditWidget">
+         <widget class="ImageTextEditWidget" name="imageTextEditWidget" native="true">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
             <horstretch>0</horstretch>
@@ -87,6 +111,18 @@
         <string>文件信息</string>
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout_5">
+        <property name="leftMargin">
+         <number>2</number>
+        </property>
+        <property name="topMargin">
+         <number>2</number>
+        </property>
+        <property name="rightMargin">
+         <number>2</number>
+        </property>
+        <property name="bottomMargin">
+         <number>2</number>
+        </property>
         <item>
          <widget class="QTableWidget" name="tableWidgetFileInfo"/>
         </item>
@@ -107,6 +143,18 @@
    </item>
   </layout>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>PanZoomImageView</class>
+   <extends>QGraphicsView</extends>
+   <header>ui.widgets.pan_zoom_image_view</header>
+  </customwidget>
+  <customwidget>
+   <class>ImageTextEditWidget</class>
+   <extends>QWidget</extends>
+   <header>ui.widgets.image_text_edit_widget</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections>
   <connection>
@@ -126,16 +174,4 @@
    </hints>
   </connection>
  </connections>
- <customwidgets>
-  <customwidget>
-   <class>PanZoomImageView</class>
-   <extends>QGraphicsView</extends>
-   <header>ui.widgets.pan_zoom_image_view</header>
-  </customwidget>
-  <customwidget>
-   <class>ImageTextEditWidget</class>
-   <extends>QWidget</extends>
-   <header>ui.widgets.image_text_edit_widget</header>
-  </customwidget>
- </customwidgets>
 </ui>

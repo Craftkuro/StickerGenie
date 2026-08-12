@@ -185,7 +185,7 @@ class ImageViewerDialog(QDialog):
 
         file_hash = getattr(self._sticker, "hash", None)
         if file_hash:
-            rows.append(("文件哈希", str(file_hash)))
+            rows.append(("SHA1", str(file_hash)))
 
         self.tableWidgetFileInfo.setRowCount(len(rows))
         for row, (label, value) in enumerate(rows):
@@ -195,7 +195,9 @@ class ImageViewerDialog(QDialog):
             self.tableWidgetFileInfo.setItem(row, 0, label_item)
             self.tableWidgetFileInfo.setItem(row, 1, value_item)
 
-        self.tableWidgetFileInfo.resizeRowsToContents()
+            if label == "文件路径":
+                line_height = self.tableWidgetFileInfo.fontMetrics().lineSpacing()
+                self.tableWidgetFileInfo.setRowHeight(row, 3 * line_height)
 
     @staticmethod
     def _format_file_size(size: Optional[int]) -> str:

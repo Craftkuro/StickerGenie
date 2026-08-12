@@ -178,7 +178,7 @@ class CustomTagWidget(QWidget):
     
     容器组件：顶部为小型工具栏（添加/删除按钮），下方为 QListView，
     标签从左到右排列并自动换行显示。
-    列表区域高度超过 MAX_HEIGHT 时，不再增加高度，显示垂直滚动条。
+    列表区域至少保留 MIN_HEIGHT 高度，并随内容自适应。
     
     Example:
         >>> model = QStandardItemModel()
@@ -189,7 +189,7 @@ class CustomTagWidget(QWidget):
         >>> tag_widget = CustomTagWidget(model=model)
     """
     
-    MAX_HEIGHT = 60
+    MIN_HEIGHT = 40
     
     def __init__(self, model: Optional[QStandardItemModel] = None, parent=None):
         """
@@ -263,11 +263,11 @@ class CustomTagWidget(QWidget):
         # 设置边框样式
         self._list_view.setFrameShape(QListView.Shape.NoFrame)
         
-        # 设置列表区域的最大高度
-        self._list_view.setMaximumHeight(self.MAX_HEIGHT)
+        # 设置列表区域的最小高度，避免内容较少时被压缩
+        self._list_view.setMinimumHeight(self.MIN_HEIGHT)
         
         # 设置尺寸策略
-        # 水平方向可以拉伸，垂直方向遵循最大高度限制
+        # 水平方向可以拉伸，垂直方向按内容所需高度自适应
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Maximum
@@ -349,13 +349,13 @@ class CustomTagWidget(QWidget):
         if viewport is not None:
             viewport.update()
     
-    def set_max_height(self, height: int):
+    def set_min_height(self, height: int):
         """
-        设置最大高度
+        设置最小高度
         
         Args:
-            height: 最大高度值（像素）
+            height: 最小高度值（像素）
         """
-        self.MAX_HEIGHT = height
-        self._list_view.setMaximumHeight(height)
+        self.MIN_HEIGHT = height
+        self._list_view.setMinimumHeight(height)
         self.updateGeometry()

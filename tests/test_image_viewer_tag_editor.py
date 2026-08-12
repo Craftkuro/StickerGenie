@@ -117,7 +117,24 @@ class ImageViewerTagEditorTests(unittest.TestCase):
             values["修改时间"], r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
         )
         self.assertEqual("2026-01-01 00:00:00", values["导入时间"])
-        self.assertEqual("viewer-test-hash", values["文件哈希"])
+        self.assertEqual("viewer-test-hash", values["SHA1"])
+
+    def test_file_path_row_uses_three_line_height(self):
+        table = self.dialog.tableWidgetFileInfo
+        path_row = next(
+            row
+            for row in range(table.rowCount())
+            if table.item(row, 0).text() == "文件路径"
+        )
+        line_height = table.fontMetrics().lineSpacing()
+
+        self.assertEqual(3 * line_height, table.rowHeight(path_row))
+        for row in range(table.rowCount()):
+            if row != path_row:
+                self.assertEqual(
+                    table.verticalHeader().defaultSectionSize(),
+                    table.rowHeight(row),
+                )
 
     def test_loads_animated_gif_with_movie(self):
         gif_path = Path(self._temp_dir.name) / "animated.gif"

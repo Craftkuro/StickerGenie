@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 import apppath
 import services.global_instances
 from commons.dto import Tag
+from utils.resource_path import resolve_resource_path
 
 logger = logging.getLogger(__name__)
 
@@ -57,15 +58,14 @@ class TagManagerDialog(QDialog):
         self.splitterTags.setStretchFactor(1, 1)
         self.splitterTags.setSizes([260, 560])
 
-        style = self.style()
         self.toolButtonAddTag.setIcon(
-            style.standardIcon(QStyle.StandardPixmap.SP_FileDialogNewFolder)
+            QIcon(str(resolve_resource_path("plus.svg")))
         )
         self.toolButtonDeleteTag.setIcon(
-            style.standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+            QIcon(str(resolve_resource_path("trash.svg")))
         )
         self.pushButtonSaveTag.setIcon(
-            style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
         )
 
     def _connect_signals(self) -> None:
