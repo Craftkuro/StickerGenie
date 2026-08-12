@@ -8,7 +8,7 @@ from PyQt6.QtCore import pyqtSignal, pyqtSlot, QPoint, QEvent, Qt, QSize
 from PyQt6.QtWidgets import QMainWindow, QPushButton, QMessageBox, QWidget, QLabel, QVBoxLayout, \
     QHBoxLayout, QListWidget, QListWidgetItem, QFrame, QLineEdit, QLayout, QCompleter, \
     QStyledItemDelegate, QStyleOptionViewItem, QListView, QStyle, QFileDialog, QComboBox, QSizePolicy, \
-    QTabBar
+    QTabBar, QMenu
 from PyQt6 import uic
 from PyQt6.QtGui import QAction, QCloseEvent, QFont, QPainter, QStandardItemModel, QStandardItem
 
@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
         ui_file_path = apppath.app_path / 'ui' / 'main_window.ui'
         uic.loadUi(ui_file_path, self)
         self._setup_developer_tools()
+        self._setup_main_menu_button()
 
         self._settings_manager = settings_manager or create_settings_manager()
         self._search_history = services.search.SearchHistory(
@@ -127,6 +128,17 @@ class MainWindow(QMainWindow):
         self.actionCustomDebug.setObjectName("actionCustomDebug")
         self.actionCustomDebug.setMenuRole(QAction.MenuRole.NoRole)
         self.menu_6.addAction(self.actionCustomDebug)
+
+    def _setup_main_menu_button(self):
+        """隐藏菜单栏，并把同一组菜单挂到 Menu 按钮上。"""
+        self.menuBar().hide()
+        main_menu = QMenu(self)
+        main_menu.setObjectName("mainMenuPopup")
+        for menu_action in self.menuBar().actions():
+            submenu = menu_action.menu()
+            if submenu is not None:
+                main_menu.addMenu(submenu)
+        self.pushButtonMainMenu.setMenu(main_menu)
 
     def setup_base_slots(self):
         self.pushButtonAddSticker.clicked.connect(self.basic_import_files)
