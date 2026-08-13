@@ -5,8 +5,8 @@ import threading
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
-from sqlalchemy import create_engine, select, func
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import create_engine, select, func, text
+from sqlalchemy.orm import sessionmaker, Session, selectinload
 
 from commons.dto import StickerImage, Tag
 from .db_classes import DBStickerImage, DBTag, association_table, Base
@@ -71,6 +71,8 @@ class StickerDBV1:
         self.engine = create_engine(f'sqlite:///{db_path}', echo=False, future=True)
         # 创建所有表
         Base.metadata.create_all(self.engine)
+        # 为已存在的数据库补齐索引（新库已随 create_all 创建）
+        self._ensure_indexes()
         # 创建 session factory
         self.SessionLocal = sessionmaker(bind=self.engine, autoflush=False, autocommit=False, expire_on_commit=False)
         self._write_lock = threading.RLock()
@@ -149,9 +151,13 @@ class StickerDBV1:
             order_column = self.ORDER_BY_MAP.get(order_by, DBStickerImage.modification_date)
             
             # 构建查询；附加 id 作为次级排序，保证分页顺序稳定。
-            stmt = select(DBStickerImage).order_by(
-                order_column.desc() if descending else order_column.asc(),
-                DBStickerImage.id.desc() if descending else DBStickerImage.id.asc(),
+            stmt = (
+                select(DBStickerImage)
+                .options(selectinload(DBStickerImage.tags))
+                .order_by(
+                    order_column.desc() if descending else order_column.asc(),
+                    DBStickerImage.id.desc() if descending else DBStickerImage.id.asc(),
+                )
             )
             
             # 应用偏移和限制
@@ -184,8 +190,11 @@ class StickerDBV1:
                 return []
             
             # 查找与该标签关联的所有表情包
-            stmt = select(DBStickerImage).join(association_table).where(
-                association_table.c.tag_id == db_tag.id
+            stmt = (
+                select(DBStickerImage)
+                .options(selectinload(DBStickerImage.tags))
+                .join(association_table)
+                .where(association_table.c.tag_id == db_tag.id)
             )
             
             db_stickers = session.execute(stmt).scalars().all()
@@ -203,8 +212,10 @@ class StickerDBV1:
         """
         with self._get_session() as session:
             # 使用 LIKE 进行模糊匹配
-            stmt = select(DBStickerImage).where(
-                DBStickerImage.original_file_name.like(f'%{name}%')
+            stmt = (
+                select(DBStickerImage)
+                .options(selectinload(DBStickerImage.tags))
+                .where(DBStickerImage.original_file_name.like(f'%{name}%'))
             )
             
             db_stickers = session.execute(stmt).scalars().all()
@@ -220,7 +231,9 @@ class StickerDBV1:
 
         with self._get_session() as session:
             db_stickers = session.execute(
-                select(DBStickerImage).where(DBStickerImage.id.in_(unique_ids))
+                select(DBStickerImage)
+                .options(selectinload(DBStickerImage.tags))
+                .where(DBStickerImage.id.in_(unique_ids))
             ).scalars().all()
             stickers_by_id = {
                 sticker.id: self._export_sticker(sticker)
@@ -299,6 +312,7 @@ class StickerDBV1:
         with self._get_session() as session:
             stmt = (
                 select(DBStickerImage)
+                .options(selectinload(DBStickerImage.tags))
                 .join(
                     association_table,
                     association_table.c.sticker_id == DBStickerImage.id,
@@ -326,6 +340,7 @@ class StickerDBV1:
         with self._get_session() as session:
             stmt = (
                 select(DBStickerImage)
+                .options(selectinload(DBStickerImage.tags))
                 .where(
                     DBStickerImage.text_in_image.contains(
                         query,
@@ -349,6 +364,7 @@ class StickerDBV1:
         with self._get_session() as session:
             stmt = (
                 select(DBStickerImage)
+                .options(selectinload(DBStickerImage.tags))
                 .where(
                     DBStickerImage.original_file_name.contains(
                         query,
@@ -594,3 +610,16 @@ class StickerDBV1:
             db_sticker.tags = db_tags
             session.commit()
             return self._export_sticker(db_sticker)
+
+    def _ensure_indexes(self) -> None:
+        """为已存在的数据库补齐 ORM 中声明的索引，重复执行无副作用。"""
+        with self.engine.begin() as connection:
+            for table in Base.metadata.tables.values():
+                for index in table.indexes:
+                    columns = ", ".join(column.name for column in index.columns)
+                    connection.execute(
+                        text(
+                            f"CREATE INDEX IF NOT EXISTS {index.name} "
+                            f"ON {table.name} ({columns})"
+                        )
+                    )

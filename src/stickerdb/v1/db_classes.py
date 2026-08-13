@@ -3,7 +3,17 @@ import datetime
 from typing import List, Optional
 
 from sqlalchemy.orm import Mapped, relationship, mapped_column, Session
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Table, Text
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Boolean,
+    ForeignKey,
+    DateTime,
+    Table,
+    Text,
+    Index,
+)
 from sqlalchemy.orm import declarative_base
 
 from commons.dto import StickerImage, Tag
@@ -15,12 +25,21 @@ Base = declarative_base()
 association_table = Table('tag_assoc',
                           Base.metadata,
                           Column('sticker_id', ForeignKey('sticker_images.id')),
-                          Column('tag_id', ForeignKey('tags.id')))
+                          Column('tag_id', ForeignKey('tags.id')),
+                          Index('ix_tag_assoc_sticker_id', 'sticker_id'),
+                          Index('ix_tag_assoc_tag_id', 'tag_id'))
 
 
 class DBStickerImage(Base):
     """表情包图片的 ORM 映射类"""
     __tablename__ = 'sticker_images'
+    # 复合索引与 list_stickers 的 (排序列, id) 排序一致，避免分页时全表排序。
+    __table_args__ = (
+        Index('ix_sticker_images_imported_at_id', 'imported_at', 'id'),
+        Index('ix_sticker_images_modification_date_id', 'modification_date', 'id'),
+        Index('ix_sticker_images_original_file_name_id', 'original_file_name', 'id'),
+        Index('ix_sticker_images_file_size_id', 'file_size', 'id'),
+    )
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     
