@@ -100,6 +100,47 @@ def fake_worker_entry(connection, model_path, providers):
         connection.close()
 
 
+def prefetch_probe_worker_entry(connection, model_path, providers):
+    """Worker that records when it receives each PROCESS_BATCH to a file."""
+
+    del providers
+    record_path = Path(model_path)
+    connection.send(
+        (
+            INIT_OK,
+            WorkerStartupInfo(
+                providers=("CPUExecutionProvider",), input_name="images"
+            ),
+        )
+    )
+    connection.send((REQUEST_BATCH, None))
+    try:
+        while True:
+            kind, payload = connection.recv()
+            if kind == PROCESS_BATCH:
+                with open(record_path, "a", encoding="utf-8") as f:
+                    f.write(f"worker_batch:{time.monotonic()}\n")
+                results = tuple(
+                    ImageFeatureResult.succeeded(
+                        image_path,
+                        np.zeros(FEATURE_VECTOR_SIZE, dtype=np.float32),
+                    )
+                    for image_path in payload
+                )
+                connection.send((BATCH_RESULT, results))
+                connection.send((REQUEST_BATCH, None))
+            elif kind == END_INPUT:
+                connection.send((DONE, False))
+                return
+            elif kind == CANCEL:
+                connection.send((DONE, True))
+                return
+            else:
+                raise RuntimeError(f"unexpected test message: {kind}")
+    finally:
+        connection.close()
+
+
 class FakeSession:
     def __init__(self):
         self.inputs = []
@@ -375,6 +416,37 @@ class ExtractionControllerTests(unittest.TestCase):
             )
         self.assertEqual(3, len(results))
         self.assertEqual([None, None], [update.total for update in updates])
+
+    def test_prefetch_dispatches_next_batch_while_consumer_is_busy(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            record_path = Path(temp_dir) / "prefetch_probe.onnx"
+            consumer_finished = []
+
+            with patch(
+                "image_features_extractor.extractor.worker_process_entry",
+                prefetch_probe_worker_entry,
+            ):
+                for batch in iter_features(
+                    ["one.png", "two.png", "three.png", "four.png"],
+                    model_path=str(record_path),
+                    batch_size=2,
+                    timeout=10,
+                ):
+                    if batch.progress.completed < batch.progress.total:
+                        # 模拟消费方写库耗时（ChromaDB + SQLite 回填）。
+                        time.sleep(0.5)
+                        consumer_finished.append(time.monotonic())
+
+            records = [
+                float(line.split(":", 1)[1])
+                for line in record_path.read_text(encoding="utf-8").splitlines()
+                if line.startswith("worker_batch:")
+            ]
+
+        self.assertEqual(2, len(records))
+        # 第二批应在消费方处理第一批期间就已下发（预取），
+        # 否则会晚于消费方完成时刻。
+        self.assertLess(records[1], consumer_finished[0])
 
     def test_cancellation_timeout_and_crash_reap_worker(self):
         cancel_event = threading.Event()

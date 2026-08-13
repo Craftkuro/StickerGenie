@@ -283,8 +283,9 @@ class _ExtractionJob:
         if kind == REQUEST_BATCH:
             if self._startup_info is None:
                 self._fail_protocol("worker requested input before INIT_OK")
-            if self._inflight_paths is not None:
-                self._fail_protocol("worker requested input before returning its batch")
+            if self._inflight_paths is not None or self._input_exhausted:
+                # 预取已满足该请求，或输入已耗尽；无需再次下发。
+                return None
             self._send_next_batch()
             return None
 
@@ -366,9 +367,20 @@ class _ExtractionJob:
         )
         if self._cancel_requested:
             return None
+        self._prefetch_next_batch()
         return _JobEvent(
             "batch", FeatureResultBatch(results=results, progress=progress)
         )
+
+    def _prefetch_next_batch(self) -> None:
+        """在下游消费当前批次前，先把下一批下发给 Worker，隐藏写库开销。"""
+        if self._input_exhausted:
+            return
+        try:
+            self._send_next_batch()
+        except (BrokenPipeError, EOFError, OSError):
+            # Worker 可能已退出；由后续 poll 检测并转换为 WorkerCrashedError。
+            pass
 
     def _handle_done(self, worker_cancelled: bool) -> _JobEvent:
         cancelled = self._cancel_requested or worker_cancelled
