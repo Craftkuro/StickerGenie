@@ -54,8 +54,8 @@ class MainWindowMainMenuButtonTests(unittest.TestCase):
 
         self.assertTrue(self.window.menuBar().isHidden())
 
-        self.assertEqual("Menu", self.window.pushButtonMainMenu.text())
-        self.assertTrue(self.window.pushButtonMainMenu.icon().isNull())
+        self.assertEqual("", self.window.pushButtonMainMenu.text())
+        self.assertFalse(self.window.pushButtonMainMenu.icon().isNull())
 
         popup = self.window.pushButtonMainMenu.menu()
         self.assertIsNotNone(popup)

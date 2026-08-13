@@ -154,16 +154,12 @@ class TabRequestPolicyTests(unittest.TestCase):
             main_window,
         ), patch.object(
             library_viewer_service,
-            "find_similar_stickers",
-            return_value=[],
+            "fetch_similar_candidates",
+            return_value=([], {}),
         ), patch.object(
             library_viewer_service,
             "SimilarImagesPage",
             return_value=page,
-        ), patch.object(
-            library_viewer_service,
-            "build_sticker_model",
-            return_value=object(),
         ):
             library_viewer_service.open_similar_stickers_tab(source)
 
