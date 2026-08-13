@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class SearchType(str, Enum):
     TAG = "tag"
     TEXT = "text"
+    FILENAME = "filename"
 
 
 class SearchHistory:
@@ -154,6 +155,9 @@ def open_search_results(search_type: SearchType | str, query: str) -> int:
     if search_type is SearchType.TAG:
         images = database.search_stickers_by_tag(query)
         title = f"标签搜索[{query}]"
+    elif search_type is SearchType.FILENAME:
+        images = database.search_stickers_by_file_name(query)
+        title = f"文件名搜索[{query}]"
     else:
         images = database.search_stickers_by_text(query)
         title = f"文本搜索[{query}]"

@@ -204,7 +204,7 @@ def open_search_results_tab(
     images: Iterable[StickerImage],
     title: str,
 ) -> None:
-    """在独立标签页中展示标签/文本搜索结果。"""
+    """在独立标签页中展示标签/文本/文件名搜索结果。"""
     page = SearchResultPage(auto_refresh=False)
     page.refresh_content(build_sticker_model(images))
     _open_result_tab(page, title)

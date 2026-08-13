@@ -159,6 +159,7 @@ class MainWindow(QMainWindow):
         self.searchTypeComboBox.setAccessibleName("搜索类型")
         self.searchTypeComboBox.addItem("标签", services.search.SearchType.TAG.value)
         self.searchTypeComboBox.addItem("文本", services.search.SearchType.TEXT.value)
+        self.searchTypeComboBox.addItem("原名", services.search.SearchType.FILENAME.value)
         self.searchTypeComboBox.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents
         )
@@ -194,14 +195,17 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(int)
     def _on_search_type_changed(self, _index: int):
+        current_search_type = self._current_search_type()
         is_tag_search = (
-            self._current_search_type() is services.search.SearchType.TAG
+            current_search_type is services.search.SearchType.TAG
         )
         self.customSearchBox.set_submit_first_suggestion_when_unselected(
             is_tag_search
         )
-        if is_tag_search:
+        if current_search_type is services.search.SearchType.TAG:
             placeholder = "搜索标签..."
+        elif current_search_type is services.search.SearchType.FILENAME:
+            placeholder = "搜索图片文件名..."
         else:
             placeholder = "搜索图片文本..."
         self.customSearchBox.line_edit.setPlaceholderText(placeholder)

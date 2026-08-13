@@ -339,6 +339,29 @@ class StickerDBV1:
             )
             db_stickers = session.execute(stmt).scalars().all()
             return [self._export_sticker(sticker) for sticker in db_stickers]
+
+    def search_stickers_by_file_name(self, query: str) -> List[StickerImage]:
+        """查询原始文件名中包含指定文本的图片。"""
+        query = query.strip()
+        if not query:
+            return []
+
+        with self._get_session() as session:
+            stmt = (
+                select(DBStickerImage)
+                .where(
+                    DBStickerImage.original_file_name.contains(
+                        query,
+                        autoescape=True,
+                    )
+                )
+                .order_by(
+                    DBStickerImage.modification_date.desc(),
+                    DBStickerImage.id.desc(),
+                )
+            )
+            db_stickers = session.execute(stmt).scalars().all()
+            return [self._export_sticker(sticker) for sticker in db_stickers]
     
     # ==================== 增删改接口 ====================
     

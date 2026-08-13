@@ -199,6 +199,46 @@ class StickerDBTagTests(unittest.TestCase):
             [sticker.original_file_name for sticker in results],
         )
 
+    def test_search_stickers_by_file_name_uses_literal_substring(self):
+        matching = make_sticker(
+            file_name="vacation_100%.png",
+            hash_value="file-name-matching-hash",
+            modification_date=datetime.datetime(2026, 1, 2),
+        )
+        non_matching = make_sticker(
+            file_name="vacation_1000.png",
+            hash_value="file-name-other-hash",
+            modification_date=datetime.datetime(2026, 1, 1),
+        )
+        self.db.add_stickers([non_matching, matching])
+
+        results = self.db.search_stickers_by_file_name("100%")
+
+        self.assertEqual(
+            ["vacation_100%.png"],
+            [sticker.original_file_name for sticker in results],
+        )
+
+    def test_search_stickers_by_file_name_sorts_newest_first(self):
+        older = make_sticker(
+            file_name="older.png",
+            hash_value="file-name-older-hash",
+            modification_date=datetime.datetime(2026, 1, 1),
+        )
+        newer = make_sticker(
+            file_name="newer.png",
+            hash_value="file-name-newer-hash",
+            modification_date=datetime.datetime(2026, 1, 2),
+        )
+        self.db.add_stickers([older, newer])
+
+        results = self.db.search_stickers_by_file_name(".png")
+
+        self.assertEqual(
+            ["newer.png", "older.png"],
+            [sticker.original_file_name for sticker in results],
+        )
+
     def test_list_stickers_sorts_by_imported_at_and_file_size(self):
         older = make_sticker(
             file_name="older.png",

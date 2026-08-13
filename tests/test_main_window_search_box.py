@@ -50,12 +50,19 @@ class MainWindowSearchBoxTests(unittest.TestCase):
             search_box,
             self.window.widgetUnifiedBar.layout().itemAt(3).widget(),
         )
-        self.assertEqual(6, self.window.widgetUnifiedBar.layout().count())
+        self.assertEqual(7, self.window.widgetUnifiedBar.layout().count())
         self.assertIs(
             self.window.searchTypeComboBox,
             self.window.widgetUnifiedBar.layout().itemAt(2).widget(),
         )
         self.assertEqual("tag", self.window.searchTypeComboBox.currentData())
+        self.assertEqual(
+            ["tag", "text", "filename"],
+            [
+                self.window.searchTypeComboBox.itemData(index)
+                for index in range(self.window.searchTypeComboBox.count())
+            ],
+        )
         self.assertTrue(
             self.window.customSearchBox
             ._submit_first_suggestion_when_unselected
@@ -92,6 +99,30 @@ class MainWindowSearchBoxTests(unittest.TestCase):
             self.window.customSearchBox.searched.emit("图片文字")
 
         self.assertEqual("text", open_results.call_args.args[0].value)
+
+    def test_file_name_search_routes_with_file_name_type(self):
+        self.window.searchTypeComboBox.setCurrentIndex(2)
+
+        self.assertEqual(
+            "filename",
+            self.window.searchTypeComboBox.currentData(),
+        )
+        self.assertFalse(
+            self.window.customSearchBox
+            ._submit_first_suggestion_when_unselected
+        )
+        self.assertEqual(
+            "搜索图片文件名...",
+            self.window.customSearchBox.line_edit.placeholderText(),
+        )
+
+        with patch(
+            "ui.main_window.services.search.open_search_results",
+            return_value=0,
+        ) as open_results:
+            self.window.customSearchBox.searched.emit("cat.png")
+
+        self.assertEqual("filename", open_results.call_args.args[0].value)
 
     def test_close_persists_recent_searches_latest_first(self):
         with patch(

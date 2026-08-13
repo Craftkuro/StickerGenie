@@ -119,6 +119,7 @@ class SearchServiceTests(unittest.TestCase):
         database = SimpleNamespace(
             search_stickers_by_tag=lambda query: [query],
             search_stickers_by_text=lambda query: [],
+            search_stickers_by_file_name=lambda query: [],
         )
         previous_database = services.global_instances.current_library_db
         services.global_instances.current_library_db = database
@@ -133,6 +134,26 @@ class SearchServiceTests(unittest.TestCase):
 
         self.assertEqual(1, count)
         open_tab.assert_called_once_with(["Happy"], "标签搜索[Happy]")
+
+    def test_open_search_results_routes_file_name_search(self):
+        database = SimpleNamespace(
+            search_stickers_by_tag=lambda query: [],
+            search_stickers_by_text=lambda query: [],
+            search_stickers_by_file_name=lambda query: [query],
+        )
+        previous_database = services.global_instances.current_library_db
+        services.global_instances.current_library_db = database
+        try:
+            with patch(
+                "services.search.services.sticker_library_viewer_service."
+                "open_search_results_tab"
+            ) as open_tab:
+                count = search_service.open_search_results("filename", "Meme")
+        finally:
+            services.global_instances.current_library_db = previous_database
+
+        self.assertEqual(1, count)
+        open_tab.assert_called_once_with(["Meme"], "文件名搜索[Meme]")
 
 
 if __name__ == "__main__":
