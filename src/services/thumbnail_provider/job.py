@@ -39,6 +39,13 @@ class _ThumbnailGenerationJob(QRunnable):
 
     def run(self) -> None:
         file_hash = self._blob_entity.hash
+
+        # 优先使用磁盘缓存：命中就不需要读取原图 Blob（原图可能很大）。
+        disk_image = self._read_disk_thumbnail(file_hash)
+        if disk_image is not None:
+            self._provider._thumbnail_generated.emit(file_hash, disk_image)
+            return
+
         try:
             file_path = self._blob_storage.read_file(self._blob_entity)
         except Exception:
@@ -68,6 +75,30 @@ class _ThumbnailGenerationJob(QRunnable):
                 image = fallback_image
 
         self._provider._thumbnail_generated.emit(file_hash, image)
+
+    def _read_disk_thumbnail(self, file_hash: str) -> QImage | None:
+        """从磁盘缓存读取缩略图；缺失或损坏时返回 None。
+
+        损坏文件会被删除，由后续生成路径重新覆盖。
+        """
+        if self._disk_storage is None:
+            return None
+        try:
+            file_path = self._disk_storage.read_file(file_hash)
+        except FileNotFoundError:
+            return None
+        reader = QImageReader(file_path)
+        reader.setDecideFormatFromContent(True)
+        image = reader.read()
+        if image.isNull():
+            # 先释放 reader（可能仍持有文件句柄），否则 Windows 上删除会被占用。
+            del reader
+            try:
+                self._disk_storage.delete_file(file_hash)
+            except Exception:
+                logger.exception("删除损坏的磁盘缩略图失败：%s", file_hash)
+            return None
+        return image
 
     def _read_image(
         self,

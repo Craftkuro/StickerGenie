@@ -8,3 +8,6 @@ __pycache__
 /StickerGenie Settings/
 /src/*.onnx
 /experiments/similarity_large_library_siglip_*/
+
+# 性能剖析输出
+/experiments/*.prof

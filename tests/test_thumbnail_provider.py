@@ -2,6 +2,7 @@ import base64
 import os
 import struct
 import tempfile
+import threading
 import time
 import unittest
 from collections import defaultdict
@@ -242,13 +243,28 @@ class ThumbnailProviderTests(unittest.TestCase):
             )
             provider.clear_memory_cache()
             blob_storage.files.clear()
+            reads_before = blob_storage.read_calls["request-disk-hash"]
+
+            placeholder = provider.request_thumbnail(
+                BlobFileEntity("request-disk-hash", ".png")
+            )
+            self.assertFalse(placeholder.isNull())
+
+            self.assertTrue(
+                self._wait_until(
+                    lambda: "request-disk-hash" in provider._memory_cache
+                )
+            )
 
             thumbnail = provider.request_thumbnail(
                 BlobFileEntity("request-disk-hash", ".png")
             )
-
-        self.assertFalse(thumbnail.isNull())
-        self.assertEqual((200, 50), (thumbnail.width(), thumbnail.height()))
+            self.assertFalse(thumbnail.isNull())
+            self.assertEqual((200, 50), (thumbnail.width(), thumbnail.height()))
+            # Blob 已不存在：缩略图完全来自磁盘缓存，任务内没有读取原图。
+            self.assertEqual(
+                reads_before, blob_storage.read_calls["request-disk-hash"]
+            )
 
     def test_corrupt_disk_cache_is_rebuilt_from_blob(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -402,6 +418,77 @@ class ThumbnailProviderTests(unittest.TestCase):
                 (provider.THUMBNAIL_SIZE, provider.THUMBNAIL_SIZE),
                 (placeholder.width(), placeholder.height()),
             )
+
+    def test_request_thumbnail_reads_disk_only_in_worker(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            file_path = self._save_image(root, "worker.jpg", 400, 100)
+            blob_storage = FakeBlobStorage({"worker-hash": file_path})
+            disk_storage = ThumbnailDiskStorage(root / "thumbnails")
+            provider = ThumbnailProvider(
+                blob_storage=blob_storage,
+                disk_storage=disk_storage,
+            )
+            read_threads: list[str] = []
+            original_read_file = disk_storage.read_file
+
+            def recording_read_file(file_hash):
+                read_threads.append(threading.current_thread().name)
+                return original_read_file(file_hash)
+
+            disk_storage.read_file = recording_read_file
+
+            provider.get_thumbnail(BlobFileEntity("worker-hash", ".png"))
+            provider.clear_memory_cache()
+            read_threads.clear()
+
+            placeholder = provider.request_thumbnail(
+                BlobFileEntity("worker-hash", ".png")
+            )
+            self.assertFalse(placeholder.isNull())
+
+            self.assertTrue(
+                self._wait_until(
+                    lambda: "worker-hash" in provider._memory_cache
+                )
+            )
+
+            self.assertTrue(read_threads, "worker 应读取过磁盘缓存")
+            self.assertTrue(
+                all(name != "MainThread" for name in read_threads),
+                f"磁盘读取不应发生在主线程：{read_threads}",
+            )
+
+    def test_request_thumbnail_rebuilds_corrupt_disk_cache_async(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            file_path = self._save_image(root, "source.png", 400, 100)
+            blob_storage = FakeBlobStorage({"corrupt-async-hash": file_path})
+            disk_storage = ThumbnailDiskStorage(root / "thumbnails")
+            disk_file = root / "thumbnails" / "co" / "corrupt-async-hash.png"
+            disk_file.parent.mkdir(parents=True)
+            disk_file.write_bytes(b"not a png")
+            provider = ThumbnailProvider(
+                blob_storage=blob_storage,
+                disk_storage=disk_storage,
+            )
+            entity = BlobFileEntity("corrupt-async-hash", ".png")
+
+            placeholder = provider.request_thumbnail(entity)
+            self.assertFalse(placeholder.isNull())
+
+            self.assertTrue(
+                self._wait_until(
+                    lambda: "corrupt-async-hash" in provider._memory_cache
+                )
+            )
+            self.assertNotIn("corrupt-async-hash", provider._failed_hashes)
+
+            thumbnail = provider.request_thumbnail(entity)
+            self.assertFalse(thumbnail.isNull())
+            self.assertEqual((200, 50), (thumbnail.width(), thumbnail.height()))
+            self.assertTrue(disk_storage.exists("corrupt-async-hash"))
+            self.assertEqual(1, blob_storage.read_calls["corrupt-async-hash"])
 
     def test_corrupt_disk_cache_locked_delete_is_tolerated(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -39,8 +39,10 @@ class ThumbnailProvider(QObject):
     磁盘缓存只保存真正生成的缩略图）。磁盘缓存被删除后会自动按需重新生成。
 
     同步接口 get_thumbnail() 保持原有行为，始终同步生成；
-    异步接口 request_thumbnail() 对内存/磁盘均未命中的图片（无论大小）先返回
-    占位图并后台排队，完成后通过 thumbnail_ready 信号通知，调用方重绘即可。
+    异步接口 request_thumbnail() 在内存未命中时（无论大小、无论磁盘缓存是否
+    存在）先返回占位图并后台排队；磁盘缓存读取、原图解码与生成全部在后台
+    任务中完成，paint 路径不再做任何同步 stat/解码。完成后通过
+    thumbnail_ready 信号通知，调用方重绘即可。
     小图（长宽均不超过 THUMBNAIL_SKIP_THRESHOLD）在后台任务中直接复用原图，
     不写磁盘缓存。
     """
@@ -109,11 +111,11 @@ class ThumbnailProvider(QObject):
         return self._generate_sync(blob_entity, file_path, disk_storage)
 
     def request_thumbnail(self, blob_entity: BlobFileEntity) -> QPixmap:
-        """返回当前可用的缩略图；未缓存时先返回占位图并后台生成（小图同样异步）。
+        """返回当前可用的缩略图；内存未命中时先返回占位图并后台排队。
 
-        生成完成后 thumbnail_ready 信号会携带 blob hash 发出，调用方据此重绘。
+        磁盘缓存读取与缩略图生成都在后台任务中完成；生成完成后
+        thumbnail_ready 信号会携带 blob hash 发出，调用方据此重绘。
         """
-        disk_storage = self._get_disk_storage()
         file_hash = blob_entity.hash
 
         # 内存命中：更新 LRU 位置后直接返回，避免重复解码。
@@ -122,25 +124,18 @@ class ThumbnailProvider(QObject):
             self._memory_cache.move_to_end(file_hash)
             return cached
 
-        # 任务进行中或已失败时不再读磁盘：worker 可能正在写缓存文件，
-        # 此时读盘会撞上半截文件甚至触发删除占用文件的 PermissionError。
+        # 任务进行中或已失败时不再重复排队。
         if file_hash in self._in_flight or file_hash in self._failed_hashes:
             return self._get_placeholder()
-
-        # 内存未命中才读磁盘缓存；命中后回填内存，下一次请求直接走内存。
-        disk_pixmap = load_disk_thumbnail(disk_storage, file_hash)
-        if disk_pixmap is not None:
-            return self._store_in_memory(file_hash, disk_pixmap)
 
         blob_storage = self._get_blob_storage()
         if blob_storage is None:
             return QPixmap()
 
-        # 小图也统一交给后台线程池：paint 内不再做任何同步解码。
-        # 小图（长宽均不超过 THUMBNAIL_SKIP_THRESHOLD）在任务内直接复用原图，
-        # 不写磁盘缓存；大图缩放后写磁盘缓存。
-        # 同步生成路径 _generate_sync 仍由 get_thumbnail() 使用，这里只走异步分支。
-        self._start_job(blob_entity, blob_storage, disk_storage)
+        # 内存未命中一律后台排队（含磁盘缓存读取）：paint 路径不再做任何
+        # 同步 stat / 解码。任务内先查磁盘缓存，命中直接回传；未命中或损坏
+        # 再从 Blob 读取并生成。
+        self._start_job(blob_entity, blob_storage, self._get_disk_storage())
         return self._get_placeholder()
 
     def clear_memory_cache(self) -> None:
