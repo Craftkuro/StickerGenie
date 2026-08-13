@@ -267,6 +267,8 @@ class StickerListView(QListView):
         self.reverse_sort = False
         self._thumbnail_provider: ThumbnailProvider | None = None
         self._item_size = self.ITEM_SIZE
+        # hash -> row 索引：缩略图就绪时按 hash 直接定位行，避免逐行扫描视口。
+        self._hash_to_rows: dict[str, int] = {}
 
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setResizeMode(QListView.ResizeMode.Adjust)
@@ -303,20 +305,74 @@ class StickerListView(QListView):
         """安装模型并跟踪行数变化，以便在首屏不足一屏时也能触发加载更多。"""
         previous_model = self.model()
         if previous_model is not None:
+            self._disconnect_model_signals(previous_model)
+
+        super().setModel(model)
+        self._hash_to_rows.clear()
+        if model is not None:
+            self._connect_model_signals(model)
+            self._rebuild_hash_index()
+            self._load_more_timer.start()
+
+    def _connect_model_signals(self, model) -> None:
+        model.rowsInserted.connect(self._on_model_rows_inserted)
+        model.rowsRemoved.connect(self._on_model_rows_removed)
+        model.modelReset.connect(self._on_model_reset)
+        model.dataChanged.connect(self._on_model_data_changed)
+
+    def _disconnect_model_signals(self, model) -> None:
+        for signal_name, slot in (
+            ("rowsInserted", self._on_model_rows_inserted),
+            ("rowsRemoved", self._on_model_rows_removed),
+            ("modelReset", self._on_model_reset),
+            ("dataChanged", self._on_model_data_changed),
+        ):
+            signal = getattr(model, signal_name)
             try:
-                previous_model.rowsInserted.disconnect(
-                    self._on_model_rows_inserted
-                )
+                signal.disconnect(slot)
             except TypeError:
                 pass
 
-        super().setModel(model)
-        if model is not None:
-            model.rowsInserted.connect(self._on_model_rows_inserted)
-            self._load_more_timer.start()
-
-    def _on_model_rows_inserted(self, _parent, _start, _end) -> None:
+    def _on_model_rows_inserted(self, _parent, first, last) -> None:
+        self._update_hash_index_for_inserted_rows(first, last)
         self._load_more_timer.start()
+
+    def _on_model_rows_removed(self, _parent, _first, _last) -> None:
+        # 删除会导致后续行号变化，全量重建比逐行修正更不易出错；删除是低频操作。
+        self._rebuild_hash_index()
+
+    def _on_model_reset(self) -> None:
+        self._rebuild_hash_index()
+
+    def _on_model_data_changed(self, _top_left, _bottom_right, roles) -> None:
+        # 只有 blob 身份变化会影响 hash 索引；当前业务不会改，这里兜底处理。
+        if not roles or ROLE_BLOB_ENTITY in roles:
+            self._rebuild_hash_index()
+
+    def _rebuild_hash_index(self) -> None:
+        """全量重建 hash -> row 映射。"""
+        self._hash_to_rows.clear()
+        model = self.model()
+        if model is None:
+            return
+        for row in range(model.rowCount()):
+            blob_entity = model.index(row, 0).data(ROLE_BLOB_ENTITY)
+            if blob_entity is not None:
+                self._hash_to_rows[blob_entity.hash] = row
+
+    def _update_hash_index_for_inserted_rows(self, first: int, last: int) -> None:
+        """rowsInserted 后增量更新；非追加场景直接全量重建。"""
+        model = self.model()
+        if model is None:
+            return
+        if last != model.rowCount() - 1:
+            # 中间插入会让后续行号整体 +1，重建比逐行修正更不易出错。
+            self._rebuild_hash_index()
+            return
+        for row in range(first, last + 1):
+            blob_entity = model.index(row, 0).data(ROLE_BLOB_ENTITY)
+            if blob_entity is not None:
+                self._hash_to_rows[blob_entity.hash] = row
 
     def _on_vertical_scrollbar_changed(self, _value: int) -> None:
         self.check_load_more()
@@ -364,17 +420,22 @@ class StickerListView(QListView):
         if thumbnail_provider is not None:
             thumbnail_provider.thumbnail_ready.connect(self._on_thumbnail_ready)
 
-    def _on_thumbnail_ready(self, _file_hash, _image) -> None:
-        """缩略图就绪后只重绘匹配的可见 item，避免 4K 大视口整屏重绘。"""
+    def _on_thumbnail_ready(self, file_hash, _image) -> None:
+        """缩略图就绪后通过 hash 索引定位并重绘匹配的可见 item。"""
+        row = self._hash_to_rows.get(file_hash)
+        if row is None:
+            return
+
+        start_row, end_row = self._visible_row_range()
+        if start_row <= row <= end_row:
+            self._update_item(self.model().index(row, 0))
+
+    def _visible_row_range(self) -> tuple[int, int]:
+        """返回当前视口覆盖的行区间 [start, end]；视口未布局时返回全表区间。"""
         model = self.model()
-        if model is None:
-            return
-
+        if model is None or model.rowCount() <= 0:
+            return 0, -1
         row_count = model.rowCount()
-        if row_count <= 0:
-            return
-
-        # 只扫描可见行区间；滚出视口的 item 等回到可见区时自然会重绘。
         start_row = 0
         end_row = row_count - 1
         first_index = self.indexAt(self.viewport().rect().topLeft())
@@ -383,13 +444,7 @@ class StickerListView(QListView):
             start_row = first_index.row()
         if last_index.isValid():
             end_row = min(end_row, last_index.row())
-
-        for row in range(start_row, end_row + 1):
-            index = model.index(row, 0)
-            blob_entity = index.data(ROLE_BLOB_ENTITY)
-            if blob_entity is not None and blob_entity.hash == _file_hash:
-                self._update_item(index)
-                return
+        return start_row, end_row
 
     def _update_item(self, index: QModelIndex) -> None:
         """只重绘指定 item 占据的区域（QAbstractItemView::update(index)）。"""

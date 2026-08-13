@@ -980,6 +980,89 @@ class StickerListViewTests(unittest.TestCase):
         update_item.assert_not_called()
         view.close()
 
+    def test_thumbnail_ready_updates_row_appended_after_set_model(self):
+        provider = ThumbnailProvider()
+        view = StickerListView(thumbnail_provider=provider)
+        model = QStandardItemModel()
+        first = QStandardItem("")
+        first.setData(BlobFileEntity("first-hash", ".png"), ROLE_BLOB_ENTITY)
+        model.appendRow(first)
+        view.setModel(model)
+
+        second = QStandardItem("")
+        second.setData(BlobFileEntity("second-hash", ".png"), ROLE_BLOB_ENTITY)
+        model.appendRow(second)
+
+        with patch.object(view, "_update_item") as update_item:
+            provider.thumbnail_ready.emit(
+                "second-hash",
+                QImage(1, 1, QImage.Format.Format_RGB32),
+            )
+
+        update_item.assert_called_once()
+        updated_index = update_item.call_args.args[0]
+        self.assertEqual(
+            "second-hash",
+            updated_index.data(ROLE_BLOB_ENTITY).hash,
+        )
+        view.close()
+
+    def test_thumbnail_ready_ignores_row_outside_viewport(self):
+        provider = ThumbnailProvider()
+        view = StickerListView(thumbnail_provider=provider)
+        model = QStandardItemModel()
+        for row in range(20):
+            item = QStandardItem("")
+            item.setData(
+                BlobFileEntity(f"hash-{row}", ".png"),
+                ROLE_BLOB_ENTITY,
+            )
+            model.appendRow(item)
+        view.setModel(model)
+        view.resize(100, 80)
+        view.show()
+        QApplication.processEvents()
+
+        with patch.object(view, "_update_item") as update_item:
+            provider.thumbnail_ready.emit(
+                "hash-15",
+                QImage(1, 1, QImage.Format.Format_RGB32),
+            )
+
+        update_item.assert_not_called()
+        view.close()
+
+    def test_thumbnail_ready_uses_shifted_row_after_removal(self):
+        provider = ThumbnailProvider()
+        view = StickerListView(thumbnail_provider=provider)
+        model = QStandardItemModel()
+        for file_hash in ("hash-a", "hash-b", "hash-c"):
+            item = QStandardItem("")
+            item.setData(
+                BlobFileEntity(file_hash, ".png"),
+                ROLE_BLOB_ENTITY,
+            )
+            model.appendRow(item)
+        view.setModel(model)
+
+        model.removeRow(1)
+
+        with patch.object(view, "_update_item") as update_item:
+            provider.thumbnail_ready.emit(
+                "hash-b",
+                QImage(1, 1, QImage.Format.Format_RGB32),
+            )
+            provider.thumbnail_ready.emit(
+                "hash-c",
+                QImage(1, 1, QImage.Format.Format_RGB32),
+            )
+
+        update_item.assert_called_once()
+        updated_index = update_item.call_args.args[0]
+        self.assertEqual("hash-c", updated_index.data(ROLE_BLOB_ENTITY).hash)
+        self.assertEqual(1, updated_index.row())
+        view.close()
+
     def test_copy_uses_current_item_file_and_original_name(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "stored-hash.png"
