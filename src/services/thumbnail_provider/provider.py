@@ -12,6 +12,11 @@ from PyQt6.QtGui import QImage, QImageReader, QPixmap
 import commons.constants
 import services.global_instances
 from thumbnail_disk_storage import ThumbnailDiskStorage
+from utils.safe_image_reader import (
+    SafeImageReadError,
+    generate_thumbnail_safe,
+    pil_to_qimage,
+)
 
 from services.thumbnail_provider.cache import (
     MemoryThumbnailCache,
@@ -135,9 +140,13 @@ class ThumbnailProvider(QObject):
 
         # 小图直接同步生成，避免异步调度开销；只有真正需要缩略图的大图才排队。
         reader = QImageReader(file_path)
+        # 从文件内容识别真实格式，而不是依赖扩展名
+        reader.setDecideFormatFromContent(True)
         source_size = reader.size()
         if not source_size.isValid():
-            return QPixmap()
+            # Qt 无法解析尺寸时交给后台任务，任务内部会用 safe_image_reader 兜底。
+            self._start_job(blob_entity, blob_storage, disk_storage)
+            return self._get_placeholder()
         if (
             source_size.width() <= self.THUMBNAIL_SKIP_THRESHOLD
             and source_size.height() <= self.THUMBNAIL_SKIP_THRESHOLD
@@ -219,7 +228,10 @@ class ThumbnailProvider(QObject):
         file_hash = blob_entity.hash
         source = QPixmap(file_path)
         if source.isNull():
-            return QPixmap()
+            # 正常路径失败时用 safe_image_reader 兜底读取。
+            source = self._load_via_safe_reader(file_hash, file_path)
+            if source.isNull():
+                return QPixmap()
 
         # 小图直接复用原图，不写磁盘；大图缩放后才写磁盘缓存。
         if (
@@ -235,13 +247,55 @@ class ThumbnailProvider(QObject):
                 Qt.TransformationMode.SmoothTransformation,
             )
             if disk_storage is not None:
-                try:
-                    disk_storage.save_pixmap(result, file_hash)
-                except Exception:
-                    # 磁盘写失败不阻断本次返回；下次请求会按需重新生成。
-                    logger.exception("保存缩略图到磁盘失败：%s", file_hash)
+                if not self._try_save_disk(result, disk_storage, file_hash):
+                    # 正常路径保存失败（例如 Qt 把损坏的 ICC profile 带进 PNG 输出）：
+                    # 改用 safe_image_reader 兜底读取（sRGB、无色彩空间数据）再保存。
+                    fallback = self._load_via_safe_reader(file_hash, file_path)
+                    if (
+                        not fallback.isNull()
+                        and self._try_save_disk(fallback, disk_storage, file_hash)
+                    ):
+                        result = fallback
 
         return self._store_in_memory(file_hash, result)
+
+    def _load_via_safe_reader(self, file_hash: str, file_path: str) -> QPixmap:
+        """用 utils.safe_image_reader 兜底读取并生成缩略图。"""
+        try:
+            result = generate_thumbnail_safe(file_path, self.THUMBNAIL_SIZE)
+        except SafeImageReadError as exc:
+            logger.warning("安全读取图片失败：%s（%s）", file_hash, exc)
+            return QPixmap()
+        pixmap = QPixmap.fromImage(pil_to_qimage(result.image))
+        if result.used_fallback:
+            logger.info(
+                "图片已通过兜底参数读取：%s（%s）",
+                file_hash,
+                "；".join(result.warnings),
+            )
+        return pixmap
+
+    def _try_save_disk(
+        self,
+        pixmap: QPixmap,
+        disk_storage: ThumbnailDiskStorage | None,
+        file_hash: str,
+    ) -> bool:
+        """把缩略图保存为 PNG（原样保存，不做色彩空间转换）；失败时清理半成品。"""
+        if disk_storage is None:
+            return True
+        try:
+            disk_storage.save_image(pixmap.toImage(), file_hash)
+            return True
+        except Exception:
+            logger.exception("保存缩略图到磁盘失败：%s", file_hash)
+            try:
+                disk_storage.delete_file(file_hash)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                logger.exception("删除缩略图半成品失败：%s", file_hash)
+            return False
 
     def _start_job(
         self,
