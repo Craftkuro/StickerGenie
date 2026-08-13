@@ -31,10 +31,11 @@ def main() -> int:
     import utils.win32
     utils.win32._set_windows_app_user_model_id()
 
+    import commons.constants
     import services.startup
     import ui.main_window
     from PyQt6.QtWidgets import QApplication
-    from PyQt6.QtGui import QIcon
+    from PyQt6.QtGui import QIcon, QPixmapCache
     from utils.resource_path import resolve_resource_path
 
     services.startup.run_startup_tasks()
@@ -43,6 +44,9 @@ def main() -> int:
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     application = QApplication(sys.argv)
+    # Qt 全局 QPixmapCache 默认容量太小，容纳不下 1000 张缩略图；与应用
+    # 缩略图内存缓存规模对齐，避免 QIcon/Qt 内部绘制缓存过早淘汰。
+    QPixmapCache.setCacheLimit(commons.constants.QPIXMAP_CACHE_LIMIT_KB)
     application.setQuitOnLastWindowClosed(True)
     application.setStyle("Fusion")
     application.setWindowIcon(

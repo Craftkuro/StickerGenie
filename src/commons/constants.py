@@ -13,6 +13,15 @@ THUMBNAIL_SIZE = 200
 THUMBNAIL_SKIP_THRESHOLD = 300
 # 缩略图内存缓存的最大条目数（LRU）
 THUMBNAIL_CACHE_MAX_COUNT = 2000
+# Qt 全局 QPixmapCache 容量（KB）：默认约 10MB，容纳不下 1000 张 200x200
+# ARGB32 缩略图（约 160KB/张）。按应用缩略图缓存规模放大，至少保证 1000 张。
+QPIXMAP_CACHE_LIMIT_KB = (
+    max(1000, THUMBNAIL_CACHE_MAX_COUNT)
+    * THUMBNAIL_SIZE
+    * THUMBNAIL_SIZE
+    * 4
+    // 1024
+)
 
 # 相似图片查找：一次从向量库取回的候选数量上限
 SIMILAR_IMAGE_CANDIDATE_COUNT = 200

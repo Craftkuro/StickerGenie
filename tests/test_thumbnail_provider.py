@@ -330,7 +330,7 @@ class ThumbnailProviderTests(unittest.TestCase):
             thumbnail = provider.request_thumbnail(entity)
             self.assertEqual((200, 50), (thumbnail.width(), thumbnail.height()))
 
-    def test_request_thumbnail_small_image_returns_sync(self):
+    def test_request_thumbnail_small_image_returns_placeholder_then_ready(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             file_path = self._save_image(root, "small.png", 20, 20)
@@ -340,13 +340,22 @@ class ThumbnailProviderTests(unittest.TestCase):
                 blob_storage=blob_storage,
                 disk_storage=disk_storage,
             )
+            entity = BlobFileEntity("small-async-hash", ".png")
 
-            thumbnail = provider.request_thumbnail(
-                BlobFileEntity("small-async-hash", ".png")
+            placeholder = provider.request_thumbnail(entity)
+            self.assertFalse(placeholder.isNull())
+
+            self.assertTrue(
+                self._wait_until(
+                    lambda: "small-async-hash" in provider._memory_cache
+                )
             )
-
-            self.assertEqual((20, 20), (thumbnail.width(), thumbnail.height()))
+            # 小图异步生成后只进内存缓存，不写磁盘。
             self.assertFalse(disk_storage.exists("small-async-hash"))
+
+            thumbnail = provider.request_thumbnail(entity)
+            self.assertEqual((20, 20), (thumbnail.width(), thumbnail.height()))
+            # 主线程不再读取 blob，只有后台任务读取一次。
             self.assertEqual(1, blob_storage.read_calls["small-async-hash"])
 
     def test_request_thumbnail_deduplicates_in_flight(self):
@@ -421,7 +430,7 @@ class ThumbnailProviderTests(unittest.TestCase):
             self.assertEqual((200, 50), (thumbnail.width(), thumbnail.height()))
             self.assertTrue(disk_file.exists())
 
-    def test_request_thumbnail_missing_blob_returns_null(self):
+    def test_request_thumbnail_missing_blob_returns_placeholder_and_marks_failed(self):
         provider = ThumbnailProvider(
             blob_storage=FakeBlobStorage({}),
             disk_storage=NoopDiskStorage(),
@@ -431,7 +440,12 @@ class ThumbnailProviderTests(unittest.TestCase):
             BlobFileEntity("missing-hash", ".png")
         )
 
-        self.assertTrue(thumbnail.isNull())
+        self.assertFalse(thumbnail.isNull())
+        self.assertTrue(
+            self._wait_until(
+                lambda: "missing-hash" in provider._failed_hashes
+            )
+        )
 
     def test_clear_memory_cache_resets_async_state(self):
         with tempfile.TemporaryDirectory() as temp_dir:

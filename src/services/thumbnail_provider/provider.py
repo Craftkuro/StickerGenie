@@ -6,8 +6,8 @@ import os
 from collections import OrderedDict
 
 from blob_storage import BlobFileEntity, BlobStorage
-from PyQt6.QtCore import QObject, QSize, Qt, QThreadPool, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QImage, QImageReader, QPixmap
+from PyQt6.QtCore import QObject, Qt, QThreadPool, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QImage, QPixmap
 
 import commons.constants
 import services.global_instances
@@ -39,8 +39,10 @@ class ThumbnailProvider(QObject):
     磁盘缓存只保存真正生成的缩略图）。磁盘缓存被删除后会自动按需重新生成。
 
     同步接口 get_thumbnail() 保持原有行为，始终同步生成；
-    异步接口 request_thumbnail() 对需要生成磁盘缩略图的大图先返回占位图并后台
-    排队，完成后通过 thumbnail_ready 信号通知，调用方重绘即可。
+    异步接口 request_thumbnail() 对内存/磁盘均未命中的图片（无论大小）先返回
+    占位图并后台排队，完成后通过 thumbnail_ready 信号通知，调用方重绘即可。
+    小图（长宽均不超过 THUMBNAIL_SKIP_THRESHOLD）在后台任务中直接复用原图，
+    不写磁盘缓存。
     """
 
     THUMBNAIL_SIZE = commons.constants.THUMBNAIL_SIZE
@@ -107,7 +109,7 @@ class ThumbnailProvider(QObject):
         return self._generate_sync(blob_entity, file_path, disk_storage)
 
     def request_thumbnail(self, blob_entity: BlobFileEntity) -> QPixmap:
-        """返回当前可用的缩略图；大图未缓存时先返回占位图并后台生成。
+        """返回当前可用的缩略图；未缓存时先返回占位图并后台生成（小图同样异步）。
 
         生成完成后 thumbnail_ready 信号会携带 blob hash 发出，调用方据此重绘。
         """
@@ -133,28 +135,11 @@ class ThumbnailProvider(QObject):
         blob_storage = self._get_blob_storage()
         if blob_storage is None:
             return QPixmap()
-        try:
-            file_path = blob_storage.read_file(blob_entity)
-        except FileNotFoundError:
-            return QPixmap()
 
-        # 小图直接同步生成，避免异步调度开销；只有真正需要缩略图的大图才排队。
-        reader = QImageReader(file_path)
-        # 从文件内容识别真实格式，而不是依赖扩展名
-        reader.setDecideFormatFromContent(True)
-        source_size = reader.size()
-        if not source_size.isValid():
-            # Qt 无法解析尺寸时交给后台任务，任务内部会用 safe_image_reader 兜底。
-            self._start_job(blob_entity, blob_storage, disk_storage)
-            return self._get_placeholder()
-        if (
-            source_size.width() <= self.THUMBNAIL_SKIP_THRESHOLD
-            and source_size.height() <= self.THUMBNAIL_SKIP_THRESHOLD
-        ):
-            return self._generate_sync(blob_entity, file_path, disk_storage)
-
-        # 大图已交给后台线程池：本次先返回共享占位图，
-        # 生成完成后 thumbnail_ready 信号会通知调用方重绘。
+        # 小图也统一交给后台线程池：paint 内不再做任何同步解码。
+        # 小图（长宽均不超过 THUMBNAIL_SKIP_THRESHOLD）在任务内直接复用原图，
+        # 不写磁盘缓存；大图缩放后写磁盘缓存。
+        # 同步生成路径 _generate_sync 仍由 get_thumbnail() 使用，这里只走异步分支。
         self._start_job(blob_entity, blob_storage, disk_storage)
         return self._get_placeholder()
 

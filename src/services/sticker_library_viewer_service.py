@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Iterable, Sequence
 
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject
-from PyQt6.QtGui import QStandardItemModel, QIcon, QStandardItem
+from PyQt6.QtGui import QStandardItemModel, QStandardItem
 
 import services.global_instances
 import commons.constants
@@ -80,8 +80,9 @@ def build_sticker_items(
             logger.warning("跳过 Blob 文件不存在的图片，id=%s", image.id)
             continue
 
-        icon = QIcon(pathlib.Path(file_path).as_posix())
-        item = QStandardItem(icon, "")
+        # 不再为每张图创建 QIcon：delegate 绘制时通过 ROLE_BLOB_ENTITY 走缩略图提供器，
+        # 该 QIcon 从不用于绘制（见性能报告），纯属浪费。
+        item = QStandardItem("")
         item.setAccessibleText(image.original_file_name)
         item.setData(file_path, ROLE_FILE_PATH)
         item.setData(blob_entity, ROLE_BLOB_ENTITY)
