@@ -11,3 +11,8 @@ __pycache__
 
 # 性能剖析输出
 /experiments/*.prof
+
+# 解决codex的bug
+/apply_patch.bat
+/apply_patch.md
+/apply_patch.ps1

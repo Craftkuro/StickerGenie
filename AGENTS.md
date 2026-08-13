@@ -9,6 +9,27 @@
 - apply_patch 的上下文行或新增行中如果包含中文，必须从 UTF-8 读取结果中原样复制；不要使用乱码文本。也可以用纯 ASCII 代码行作为锚点来避免匹配中文行。
 - 不要向仓库写入 GBK/GB2312 编码或带 BOM 的文本文件；新增或编辑的文本文件保持 UTF-8 无 BOM。
 
+## apply_patch 用法（Windows）
+
+应用补丁统一使用项目根目录的 `apply_patch.ps1`，不要用 `apply_patch.bat`（经 cmd.exe 传参，多行补丁会在首个换行处被截断）。
+
+- 直接传多行补丁：`& .\apply_patch.ps1 $patch`，例如：
+
+```powershell
+$patch = @'
+*** Begin Patch
+*** Add File: test.txt
++hello
+*** End Patch
+'@
+& .\apply_patch.ps1 $patch
+```
+
+- 从 UTF-8 文件读补丁：`& .\apply_patch.ps1 -PatchFile .\patch.txt`
+- 管道输入：`Get-Content .\patch.txt -Raw | & .\apply_patch.ps1`
+- 退出码 0 表示成功；codex.exe 的输出会原样显示。
+- codex.exe 路径解析顺序：`-ExePath` 参数 > `CODEX_APPLY_PATCH_EXE` 环境变量 > 脚本内默认 npm 路径（换机器或重装后需更新）。
+
 ## 项目数据完整性需求
 
 本仓库对数据完整性要求不高，并非所有操作都必须原子化。
