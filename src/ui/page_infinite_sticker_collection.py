@@ -2,8 +2,8 @@
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QIcon, QStandardItemModel
-from PyQt6.QtWidgets import QComboBox
+from PyQt6.QtGui import QAction, QActionGroup, QIcon, QStandardItemModel
+from PyQt6.QtWidgets import QMenu, QToolButton
 
 import services.sticker_library_viewer_service
 from utils.resource_path import resolve_resource_path
@@ -47,7 +47,7 @@ class InfiniteStickerCollectionPage(StickerListPage):
         self.refresh_action.triggered.connect(self._on_refresh_clicked)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.toolbar.addAction(self.refresh_action)
-        self._setup_sort_combo()
+        self._setup_sort_button()
 
         if auto_refresh:
             self.signal_refresh_content.connect(
@@ -61,23 +61,47 @@ class InfiniteStickerCollectionPage(StickerListPage):
             self._reset_and_load_first_page()
         self._setup_display_size_slider()
 
-    def _setup_sort_combo(self) -> None:
-        self.sort_combo = QComboBox(self)
-        self.sort_combo.setObjectName("sortComboBox")
-        self.sort_combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToContents
-        )
-        self.sort_combo.setToolTip("图片排序方式")
-        self.sort_combo.setAccessibleName("图片排序方式")
+    def _setup_sort_button(self) -> None:
+        self._sort_menu = QMenu(self)
+        self._sort_menu.setObjectName("sortMenu")
+        self._sort_action_group = QActionGroup(self)
+        self._sort_action_group.setExclusive(True)
         for order_by, descending, label in self.SORT_OPTIONS:
-            self.sort_combo.addItem(label, (order_by, descending))
-        self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
-        self.add_toolbar_widget(self.sort_combo)
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setData((order_by, descending))
+            action.triggered.connect(self._on_sort_action_triggered)
+            self._sort_action_group.addAction(action)
+            self._sort_menu.addAction(action)
 
-    def _on_sort_changed(self, index: int) -> None:
-        if index < 0:
+        self.sort_button = QToolButton(self)
+        self.sort_button.setObjectName("sortButton")
+        self.sort_button.setToolTip("图片排序方式")
+        self.sort_button.setAccessibleName("图片排序方式")
+        self.sort_button.setIcon(
+            QIcon(str(resolve_resource_path("arrow-down-narrow-wide.svg")))
+        )
+        self.sort_button.setMenu(self._sort_menu)
+        self.sort_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup
+        )
+        self.sort_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonIconOnly
+        )
+        self.add_toolbar_widget(self.sort_button)
+
+        self._sort_menu.actions()[0].setChecked(True)
+
+    def _on_sort_action_triggered(self, _checked: bool = False) -> None:
+        action = self.sender()
+        if action is None:
             return
-        order_by, descending = self.sort_combo.itemData(index)
+        order_by, descending = action.data()
+        if (
+            order_by == self._sort_order_by
+            and descending == self._sort_descending
+        ):
+            return
         self._sort_order_by = order_by
         self._sort_descending = descending
         self._reset_and_load_first_page()

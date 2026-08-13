@@ -30,13 +30,13 @@ from PyQt6.QtTest import QSignalSpy
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
-    QComboBox,
     QListView,
     QMenu,
     QMessageBox,
     QSlider,
     QStyle,
     QStyleOptionViewItem,
+    QToolButton,
 )
 
 import apppath
@@ -451,14 +451,13 @@ class StickerListViewTests(unittest.TestCase):
             fake_db.calls,
         )
 
-    def test_infinite_page_sort_combo_defaults_to_newest_import_date(self):
+    def test_infinite_page_sort_button_defaults_to_newest_import_date(self):
         page = InfiniteStickerCollectionPage(auto_refresh=False)
-        combo = page.sort_combo
+        button = page.sort_button
+        menu = button.menu()
 
-        self.assertIsInstance(combo, QComboBox)
-        self.assertEqual(0, combo.currentIndex())
-        self.assertEqual("导入日期（新到旧）", combo.currentText())
-        self.assertEqual(("imported_at", True), combo.currentData())
+        self.assertIsInstance(button, QToolButton)
+        self.assertIsNotNone(menu)
         self.assertEqual(
             [
                 ("imported_at", True),
@@ -466,9 +465,13 @@ class StickerListViewTests(unittest.TestCase):
                 ("file_size", False),
                 ("file_size", True),
             ],
-            [combo.itemData(i) for i in range(combo.count())],
+            [action.data() for action in menu.actions()],
         )
-        self.assertEqual("图片排序方式", combo.toolTip())
+        checked = [action for action in menu.actions() if action.isChecked()]
+        self.assertEqual(1, len(checked))
+        self.assertEqual("导入日期（新到旧）", checked[0].text())
+        self.assertEqual(("imported_at", True), checked[0].data())
+        self.assertEqual("图片排序方式", button.toolTip())
         page.close()
 
     def test_infinite_page_reloads_first_page_when_sort_changes(self):
@@ -512,7 +515,7 @@ class StickerListViewTests(unittest.TestCase):
                     fake_db.calls,
                 )
 
-                page.sort_combo.setCurrentIndex(2)
+                page.sort_button.menu().actions()[2].trigger()
                 QApplication.processEvents()
 
                 self.assertEqual(
