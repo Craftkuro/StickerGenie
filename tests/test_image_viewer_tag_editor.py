@@ -11,7 +11,7 @@ from PIL import Image
 from PyQt6.QtCore import QItemSelectionModel, Qt
 from PyQt6.QtGui import QImage, QMovie
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QDialog
+from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
 import apppath
 from commons.dto import StickerImage, Tag
@@ -260,11 +260,53 @@ class ImageViewerTagEditorTests(unittest.TestCase):
             QItemSelectionModel.SelectionFlag.Select,
         )
 
-        self.dialog._delete_selected_tags()
+        with patch(
+            "ui.dialog_image_viewer.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ):
+            self.dialog._delete_selected_tags()
 
         self.assertEqual([], self.sticker.tags)
         self.assertEqual([], self.db.list_stickers()[0].tags)
         self.assertEqual(["First", "Second"], [tag.name for tag in self.db.list_tags()])
+
+    def test_delete_confirmation_shows_tag_name(self):
+        index = self.dialog._tag_model.index(0, 0)
+        self.dialog._tag_widget._list_view.selectionModel().select(
+            index,
+            QItemSelectionModel.SelectionFlag.Select,
+        )
+
+        with patch("ui.dialog_image_viewer.QMessageBox.question") as question:
+            self.dialog._delete_selected_tags()
+
+        question.assert_called_once_with(
+            self.dialog,
+            "删除标签",
+            '确实要取消关联标签"First"吗？',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+    def test_delete_cancel_keeps_tags_unchanged(self):
+        index = self.dialog._tag_model.index(0, 0)
+        self.dialog._tag_widget._list_view.selectionModel().select(
+            index,
+            QItemSelectionModel.SelectionFlag.Select,
+        )
+
+        with patch(
+            "ui.dialog_image_viewer.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.No,
+        ):
+            self.dialog._delete_selected_tags()
+
+        self.assertEqual({"First"}, {tag.name for tag in self.sticker.tags})
+        self.assertEqual(1, self.dialog._tag_model.rowCount())
+        self.assertEqual(
+            {"First"},
+            {tag.name for tag in self.db.list_stickers()[0].tags},
+        )
 
     def test_add_tag_deduplicates_tags_already_assigned(self):
         factory = self.patch_selector_dialog(

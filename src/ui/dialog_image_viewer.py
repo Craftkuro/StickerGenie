@@ -261,13 +261,29 @@ class ImageViewerDialog(QDialog):
         if self._sticker is None:
             return
 
-        selected_ids = {
-            index.data(TAG_DATA_ROLE).id
+        selected_indexes = [
+            index
             for index in self._tag_widget.selectedIndexes()
             if index.data(TAG_DATA_ROLE) is not None
-        }
-        if not selected_ids:
+        ]
+        if not selected_indexes:
             QMessageBox.information(self, "删除标签", "请先选择要从当前图片移除的标签。")
+            return
+
+        selected_ids = {
+            index.data(TAG_DATA_ROLE).id for index in selected_indexes
+        }
+        tag_names = "、".join(
+            index.data(TAG_DATA_ROLE).name for index in selected_indexes
+        )
+        answer = QMessageBox.question(
+            self,
+            "删除标签",
+            f'确实要取消关联标签"{tag_names}"吗？',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
             return
 
         remaining_tags = [tag for tag in self._sticker.tags if tag.id not in selected_ids]

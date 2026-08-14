@@ -32,6 +32,17 @@ class CustomTagWidgetLayoutTests(unittest.TestCase):
         finally:
             widget.close()
 
+    def test_toolbar_uses_svg_icons_at_16x16(self):
+        widget = CustomTagWidget()
+        try:
+            icon_size = widget.toolbar.iconSize()
+            self.assertEqual(16, icon_size.width())
+            self.assertEqual(16, icon_size.height())
+            self.assertFalse(widget.add_action.icon().isNull())
+            self.assertFalse(widget.delete_action.icon().isNull())
+        finally:
+            widget.close()
+
 
 if __name__ == "__main__":
     unittest.main()

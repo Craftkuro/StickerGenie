@@ -18,7 +18,9 @@ from PyQt6.QtWidgets import (
     QStyle,
     QSizePolicy,
 )
-from PyQt6.QtGui import QAction, QPainter, QStandardItemModel, QPen, QBrush, QColor
+from PyQt6.QtGui import QAction, QIcon, QPainter, QStandardItemModel, QPen, QBrush, QColor
+
+from utils.resource_path import resolve_resource_path
 
 
 TAG_ACCENT_COLOR_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -227,17 +229,20 @@ class CustomTagWidget(QWidget):
         self.toolbar.setObjectName("tagToolBar")
         self.toolbar.setMovable(False)
         self.toolbar.setFloatable(False)
-        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.toolbar.setIconSize(QSize(16, 16))
         
         # 添加按钮
-        self.add_action = QAction("➕", self)
+        self.add_action = QAction(self)
         self.add_action.setObjectName("addTagAction")
+        self.add_action.setIcon(QIcon(str(resolve_resource_path("plus.svg"))))
         self.add_action.setToolTip("添加标签")
         self.toolbar.addAction(self.add_action)
         
         # 删除按钮
-        self.delete_action = QAction("🗑️", self)
+        self.delete_action = QAction(self)
         self.delete_action.setObjectName("deleteTagAction")
+        self.delete_action.setIcon(QIcon(str(resolve_resource_path("trash.svg"))))
         self.delete_action.setToolTip("删除标签")
         self.toolbar.addAction(self.delete_action)
         
