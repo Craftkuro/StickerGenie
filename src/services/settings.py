@@ -13,7 +13,7 @@ import apppath
 from config_manager import ConfigField, ConfigManager, ConfigType
 
 
-SETTINGS_VERSION = "1.2.0"
+SETTINGS_VERSION = "1.3.0"
 
 SETTINGS_SCHEMA = [
     ConfigField(
@@ -57,6 +57,12 @@ SETTINGS_SCHEMA = [
         ConfigType.INT,
         100,
         "相似图片：最多返回结果数",
+    ),
+    ConfigField(
+        "color_presets",
+        ConfigType.LIST_TABLE,
+        [],
+        "颜色预设（名称 + RGB），存储于 [[config.color_presets]]",
     ),
 ]
 

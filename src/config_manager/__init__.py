@@ -9,6 +9,7 @@
 - BOOL: 布尔值
 - LIST_STR: 字符串列表
 - LIST_INT: 整数列表
+- LIST_TABLE: 表数组列表（TOML 中写为 [[key]] 表数组）
 
 示例:
     >>> from config_manager import ConfigManager, ConfigField, ConfigType

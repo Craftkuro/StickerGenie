@@ -72,6 +72,7 @@ class SettingsDialogTests(unittest.TestCase):
                 "similar_image_min_keep",
                 "similar_image_min_similarity",
                 "similar_image_max_results",
+                "color_presets",
             ],
             self.manager.schema.keys,
         )

@@ -7,6 +7,7 @@
 - BOOL: 布尔值 (bool)
 - LIST_STR: 字符串列表 (List[str])
 - LIST_INT: 整数列表 (List[int])
+- LIST_TABLE: 表数组列表 (List[Dict[str, Any]])，TOML 中写为 [[key]] 表数组
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ class ConfigType(Enum):
     BOOL = "bool"
     LIST_STR = "list[str]"
     LIST_INT = "list[int]"
+    LIST_TABLE = "list[table]"
 
 
 @dataclass(frozen=True)
@@ -38,7 +40,7 @@ class ConfigField:
     """
     key: str
     type: ConfigType
-    default: Union[str, int, bool, List[str], List[int]]
+    default: Union[str, int, bool, List[str], List[int], List[Dict[str, Any]]]
     comment: str = ""
     
     def __post_init__(self):
@@ -87,9 +89,13 @@ class ConfigField:
             if not isinstance(value, list):
                 return False
             return all(isinstance(item, int) and not isinstance(item, bool) for item in value)
+        elif self.type == ConfigType.LIST_TABLE:
+            if not isinstance(value, list):
+                return False
+            return all(isinstance(item, dict) for item in value)
         return False
     
-    def get_default(self) -> Union[str, int, bool, List[str], List[int]]:
+    def get_default(self) -> Union[str, int, bool, List[str], List[int], List[Dict[str, Any]]]:
         """获取默认值"""
         return deepcopy(self.default)
 
