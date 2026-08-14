@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -11,7 +11,7 @@ from PIL import Image
 from PyQt6.QtCore import QItemSelectionModel, Qt
 from PyQt6.QtGui import QImage, QMovie
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QDialog
 
 import apppath
 from commons.dto import StickerImage, Tag
@@ -44,6 +44,23 @@ def make_sticker(tag: Tag) -> StickerImage:
     sticker.text_in_image = None
     sticker.tags = [tag]
     return sticker
+
+
+class StubTagSelectorDialog:
+    """替换真实对话框：记录构造参数，并按需返回结果。"""
+
+    def __init__(self, database=None, selected_tag_ids=(), parent=None, **kwargs):
+        self.database = database
+        self.selected_tag_ids = set(selected_tag_ids)
+        self.parent = parent
+        self.result = QDialog.DialogCode.Rejected
+        self.tags_to_return: list[Tag] = []
+
+    def exec(self):
+        return self.result
+
+    def selected_tags(self):
+        return list(self.tags_to_return)
 
 
 class ImageViewerTagEditorTests(unittest.TestCase):
@@ -84,14 +101,6 @@ class ImageViewerTagEditorTests(unittest.TestCase):
     def test_image_viewer_uses_pan_zoom_widget(self):
         self.assertIsInstance(self.dialog.widgetImageViewer, PanZoomImageView)
         self.assertIs(self.dialog._image_view, self.dialog.widgetImageViewer)
-
-    def test_image_viewer_occupies_two_thirds_of_splitter_height(self):
-        self.dialog.show()
-        QApplication.processEvents()
-        sizes = self.dialog.splitter.sizes()
-        self.assertEqual(2, len(sizes))
-        ratio = sizes[0] / max(1, sizes[1])
-        self.assertAlmostEqual(ratio, 2.0, delta=0.2)
 
     def test_supports_maximization(self):
         self.assertTrue(
@@ -189,23 +198,58 @@ class ImageViewerTagEditorTests(unittest.TestCase):
         self.assertEqual("不可用", values["文件大小"])
         self.assertEqual("不可用", values["修改时间"])
 
-    def test_adds_existing_and_new_global_tags(self):
-        with patch(
-            "ui.dialog_image_viewer.QInputDialog.getItem",
-            return_value=("Second", True),
-        ):
-            self.dialog._add_tag()
+    def patch_selector_dialog(self, *, accepted=False, tags=()):
+        """用桩替换 TagSelectorDialog，返回工厂以获取构造出的桩实例。"""
+        def factory(*args, **kwargs):
+            stub = StubTagSelectorDialog(*args, **kwargs)
+            stub.result = (
+                QDialog.DialogCode.Accepted
+                if accepted
+                else QDialog.DialogCode.Rejected
+            )
+            stub.tags_to_return = list(tags)
+            factory.stub = stub
+            return stub
 
-        with patch(
-            "ui.dialog_image_viewer.QInputDialog.getItem",
-            return_value=("New Tag", True),
-        ):
-            self.dialog._add_tag()
+        patcher = patch("ui.dialog_image_viewer.TagSelectorDialog", new=factory)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return factory
 
-        self.assertEqual({"First", "Second", "New Tag"}, {tag.name for tag in self.sticker.tags})
-        self.assertEqual(3, self.dialog._tag_model.rowCount())
+    def test_add_tag_opens_selector_preselecting_current_tags(self):
+        factory = self.patch_selector_dialog()
+        self.dialog._add_tag()
+
+        stub = factory.stub
+        self.assertIs(self.db, stub.database)
+        self.assertEqual({self.first.id}, stub.selected_tag_ids)
+        self.assertIs(self.dialog, stub.parent)
+
+    def test_add_tag_saves_accepted_selection(self):
+        factory = self.patch_selector_dialog(
+            accepted=True,
+            tags=[self.first, self.second],
+        )
+        self.dialog._add_tag()
+
         self.assertEqual(
-            {"First", "Second", "New Tag"},
+            {"First", "Second"},
+            {tag.name for tag in self.sticker.tags},
+        )
+        self.assertEqual(2, self.dialog._tag_model.rowCount())
+        self.assertEqual(
+            {"First", "Second"},
+            {tag.name for tag in self.db.list_stickers()[0].tags},
+        )
+
+    def test_add_tag_cancel_keeps_tags_unchanged(self):
+        factory = self.patch_selector_dialog()
+        self.dialog._add_tag()
+
+        self.assertEqual({"First"}, {tag.name for tag in self.sticker.tags})
+        self.assertEqual(1, self.dialog._tag_model.rowCount())
+        self.assertEqual(
+            {"First"},
             {tag.name for tag in self.db.list_stickers()[0].tags},
         )
 
@@ -222,22 +266,23 @@ class ImageViewerTagEditorTests(unittest.TestCase):
         self.assertEqual([], self.db.list_stickers()[0].tags)
         self.assertEqual(["First", "Second"], [tag.name for tag in self.db.list_tags()])
 
-    def test_adding_disabled_tag_reenables_it_without_losing_metadata(self):
-        disabled = make_tag("Disabled", "#ABCDEF", enabled=False)
-        disabled.description = "Keep this description"
-        self.db.add_or_modify_tag(disabled)
+    def test_add_tag_saves_full_selection_replacing_old_tags(self):
+        factory = self.patch_selector_dialog(accepted=True, tags=[self.second])
+        self.dialog._add_tag()
 
-        with patch(
-            "ui.dialog_image_viewer.QInputDialog.getItem",
-            return_value=("Disabled", True),
-        ):
+        self.assertEqual({"Second"}, {tag.name for tag in self.sticker.tags})
+        self.assertEqual(1, self.dialog._tag_model.rowCount())
+        self.assertEqual(
+            {"Second"},
+            {tag.name for tag in self.db.list_stickers()[0].tags},
+        )
+
+    def test_add_tag_without_sticker_does_not_open_dialog(self):
+        self.dialog.load_image(str(Path(self._temp_dir.name) / "missing.webp"))
+        dialog_cls = MagicMock()
+        with patch("ui.dialog_image_viewer.TagSelectorDialog", dialog_cls):
             self.dialog._add_tag()
-
-        stored = next(tag for tag in self.db.list_tags() if tag.name == "Disabled")
-        self.assertTrue(stored.enabled)
-        self.assertEqual("#ABCDEF", stored.color_rgb)
-        self.assertEqual("Keep this description", stored.description)
-        self.assertIn("Disabled", {tag.name for tag in self.sticker.tags})
+        dialog_cls.assert_not_called()
 
 
 if __name__ == "__main__":

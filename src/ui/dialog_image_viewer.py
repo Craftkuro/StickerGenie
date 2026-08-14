@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QHeaderView,
-    QInputDialog,
     QMessageBox,
     QTableWidgetItem,
 )
@@ -20,6 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import apppath
 import services.global_instances
 from commons.dto import StickerImage, Tag
+from ui.dialog_tag_selector import TagSelectorDialog
 from ui.widgets.custom_tag_widget import CustomTagWidget, TAG_ACCENT_COLOR_ROLE
 
 logger = logging.getLogger(__name__)
@@ -236,54 +236,17 @@ class ImageViewerDialog(QDialog):
             self._tag_model.appendRow(item)
 
     def _add_tag(self):
+        """打开标签选择对话框；确认后保存当前图片的标签集合。"""
         if self._sticker is None:
             return
 
-        try:
-            all_tags = self._database.list_tags()
-        except (OSError, SQLAlchemyError) as exc:
-            logger.exception("加载全局标签失败")
-            QMessageBox.critical(self, "加载失败", str(exc))
-            return
-        current_ids = {tag.id for tag in self._sticker.tags}
-        enabled_tags = [tag for tag in all_tags if tag.enabled and tag.id not in current_ids]
-        tag_by_name = {tag.name: tag for tag in all_tags}
-
-        tag_name, accepted = QInputDialog.getItem(
-            self,
-            "添加标签",
-            "选择已有标签或输入新标签名称：",
-            [tag.name for tag in enabled_tags],
-            0,
-            True,
+        dialog = TagSelectorDialog(
+            database=self._database,
+            selected_tag_ids={tag.id for tag in self._sticker.tags},
+            parent=self,
         )
-        tag_name = tag_name.strip()
-        if not accepted or not tag_name:
-            return
-
-        if any(tag.name == tag_name for tag in self._sticker.tags):
-            return
-
-        tag = tag_by_name.get(tag_name)
-        if tag is None:
-            tag = Tag()
-            tag.name = tag_name
-            needs_save = True
-        elif not tag.enabled:
-            tag.enabled = True
-            needs_save = True
-        else:
-            needs_save = False
-
-        if needs_save:
-            try:
-                tag = self._database.add_or_modify_tag(tag)
-            except (OSError, SQLAlchemyError) as exc:
-                logger.exception("新增或启用标签失败")
-                QMessageBox.critical(self, "保存失败", str(exc))
-                return
-
-        self._save_tags([*self._sticker.tags, tag])
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._save_tags(dialog.selected_tags())
 
     def _delete_selected_tags(self):
         if self._sticker is None:
