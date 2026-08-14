@@ -14,7 +14,6 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QColorDialog,
     QDialog,
     QFormLayout,
     QHBoxLayout,
@@ -28,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 import services.global_instances
 from commons.dto import Tag
+from ui.widgets.dialog_color_preset import ColorPresetDialog
 
 logger = logging.getLogger(__name__)
 
@@ -116,9 +116,12 @@ class NewTagDialog(QDialog):
         self.pushButtonSave.clicked.connect(self._save_tag)
 
     def _choose_tag_color(self) -> None:
-        color = QColorDialog.getColor(self._tag_color, self, "选择标签颜色")
-        if color.isValid():
-            self._set_tag_color(color)
+        dialog = ColorPresetDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        rgb = dialog.selected_rgb()
+        if rgb:
+            self._set_tag_color(QColor(rgb))
 
     def _set_tag_color(self, color: QColor) -> None:
         if not color.isValid():

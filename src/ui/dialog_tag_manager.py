@@ -7,7 +7,6 @@ from PyQt6 import uic
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QIcon, QPalette, QPixmap
 from PyQt6.QtWidgets import (
-    QColorDialog,
     QDialog,
     QListWidgetItem,
     QMessageBox,
@@ -17,6 +16,7 @@ from PyQt6.QtWidgets import (
 import apppath
 import services.global_instances
 from commons.dto import Tag
+from ui.widgets.dialog_color_preset import ColorPresetDialog
 from utils.resource_path import resolve_resource_path
 
 logger = logging.getLogger(__name__)
@@ -256,13 +256,12 @@ class TagManagerDialog(QDialog):
         self.pushButtonSaveTag.setEnabled(is_editing and is_dirty)
 
     def _choose_tag_color(self) -> None:
-        color = QColorDialog.getColor(
-            self._tag_color,
-            self,
-            "选择标签颜色",
-        )
-        if color.isValid():
-            self._set_tag_color(color)
+        dialog = ColorPresetDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        rgb = dialog.selected_rgb()
+        if rgb:
+            self._set_tag_color(QColor(rgb))
             self._update_dirty_state()
 
     def _set_tag_color(self, color: QColor) -> None:

@@ -9,7 +9,12 @@ from unittest.mock import Mock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QMessageBox,
+)
 
 import apppath
 import services.global_instances
@@ -127,6 +132,34 @@ class TagManagerDialogTests(unittest.TestCase):
         self.assertEqual("#ABCDEF", stored.color_rgb)
         self.assertEqual(7, stored.order)
         self.assertEqual("Second", unchanged.name)
+        self.assertFalse(self.dialog.pushButtonSaveTag.isEnabled())
+
+    def test_choose_tag_color_uses_preset_dialog(self):
+        with patch(
+            "ui.dialog_tag_manager.ColorPresetDialog"
+        ) as dialog_class:
+            dialog_class.return_value.exec.return_value = (
+                QDialog.DialogCode.Accepted
+            )
+            dialog_class.return_value.selected_rgb.return_value = "#ABCDEF"
+            self.dialog.pushButtonTagColor.click()
+
+        dialog_class.assert_called_once_with(self.dialog)
+        self.assertEqual("#ABCDEF", self.dialog.pushButtonTagColor.text())
+        self.assertEqual("#ABCDEF", self.dialog._tag_color.name().upper())
+        self.assertTrue(self.dialog.pushButtonSaveTag.isEnabled())
+
+    def test_choose_tag_color_cancel_keeps_current_color(self):
+        with patch(
+            "ui.dialog_tag_manager.ColorPresetDialog"
+        ) as dialog_class:
+            dialog_class.return_value.exec.return_value = (
+                QDialog.DialogCode.Rejected
+            )
+            self.dialog.pushButtonTagColor.click()
+
+        dialog_class.assert_called_once_with(self.dialog)
+        self.assertEqual("#112233", self.dialog.pushButtonTagColor.text())
         self.assertFalse(self.dialog.pushButtonSaveTag.isEnabled())
 
     def test_unsaved_new_tag_is_discarded_on_selection_change(self):

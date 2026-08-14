@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox
 
 from config_manager import ConfigField, ConfigType
 from services.settings import SETTINGS_SCHEMA, SETTINGS_VERSION, create_settings_manager
-from ui.widgets.color_preset_widget import ColorPresetDialog
+from ui.widgets.dialog_color_preset import ColorPresetDialog
 
 
 class ColorPresetSchemaTests(unittest.TestCase):
@@ -120,7 +120,7 @@ class ColorPresetDialogTests(unittest.TestCase):
 
     def test_add_rejects_empty_name(self):
         with patch(
-            "ui.widgets.color_preset_widget.QMessageBox.warning"
+            "ui.widgets.dialog_color_preset.QMessageBox.warning"
         ) as warning:
             self.dialog.pushButtonAddPreset.click()
         warning.assert_called_once()
@@ -131,7 +131,7 @@ class ColorPresetDialogTests(unittest.TestCase):
         self.dialog.pushButtonAddPreset.click()
         self.dialog.lineEditPresetName.setText("作者")
         with patch(
-            "ui.widgets.color_preset_widget.QMessageBox.warning"
+            "ui.widgets.dialog_color_preset.QMessageBox.warning"
         ) as warning:
             self.dialog.pushButtonAddPreset.click()
         warning.assert_called_once()
@@ -182,7 +182,7 @@ class ColorPresetDialogTests(unittest.TestCase):
     def test_color_button_opens_picker(self):
         self.assertEqual("#2196F3", self.dialog.pushButtonPresetColor.text())
         with patch(
-            "ui.widgets.color_preset_widget.QColorDialog.getColor",
+            "ui.widgets.dialog_color_preset.QColorDialog.getColor",
             return_value=QColor("#112233"),
         ):
             self.dialog.pushButtonPresetColor.click()

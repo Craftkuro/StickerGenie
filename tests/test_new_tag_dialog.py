@@ -142,6 +142,32 @@ class NewTagDialogTests(unittest.TestCase):
         self.assertEqual("#ABCDEF", self.dialog.pushButtonTagColor.text())
         self.assertEqual("#ABCDEF", self.dialog._tag_color.name().upper())
 
+    def test_choose_tag_color_uses_preset_dialog(self):
+        with patch(
+            "ui.dialog_tag_selector.dialog_new_tag.ColorPresetDialog"
+        ) as dialog_class:
+            dialog_class.return_value.exec.return_value = (
+                QDialog.DialogCode.Accepted
+            )
+            dialog_class.return_value.selected_rgb.return_value = "#ABCDEF"
+            self.dialog.pushButtonTagColor.click()
+
+        dialog_class.assert_called_once_with(self.dialog)
+        self.assertEqual("#ABCDEF", self.dialog.pushButtonTagColor.text())
+        self.assertEqual("#ABCDEF", self.dialog._tag_color.name().upper())
+
+    def test_choose_tag_color_cancel_keeps_current_color(self):
+        with patch(
+            "ui.dialog_tag_selector.dialog_new_tag.ColorPresetDialog"
+        ) as dialog_class:
+            dialog_class.return_value.exec.return_value = (
+                QDialog.DialogCode.Rejected
+            )
+            self.dialog.pushButtonTagColor.click()
+
+        dialog_class.assert_called_once_with(self.dialog)
+        self.assertEqual("#2196F3", self.dialog.pushButtonTagColor.text())
+
     def test_missing_database_raises(self):
         with patch(
             "services.global_instances.current_library_db",
