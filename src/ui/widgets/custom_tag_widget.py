@@ -270,11 +270,11 @@ class CustomTagWidget(QWidget):
         # 水平方向可以拉伸，垂直方向按内容所需高度自适应
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Maximum
+            QSizePolicy.Policy.Expanding
         )
         self._list_view.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Maximum
+            QSizePolicy.Policy.Expanding
         )
     
     def setModel(self, model: QStandardItemModel):
