@@ -184,9 +184,9 @@ class TagSelectorWidget(QWidget):
         layout.addLayout(lists_row, 1)
 
         button_row = QHBoxLayout()
-        button_row.addStretch()
         self.new_tag_button = QPushButton("新建标签", self)
         button_row.addWidget(self.new_tag_button)
+        button_row.addStretch()
         self.ok_button = QPushButton("确定", self)
         self.ok_button.setDefault(True)
         button_row.addWidget(self.ok_button)
