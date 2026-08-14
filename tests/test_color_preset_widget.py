@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox
 
 from config_manager import ConfigField, ConfigType
 from services.settings import SETTINGS_SCHEMA, SETTINGS_VERSION, create_settings_manager
-from ui.widgets.dialog_color_preset import ColorPresetDialog
+from ui.dialog_color_preset import ColorPresetDialog
 
 
 class ColorPresetSchemaTests(unittest.TestCase):
@@ -120,7 +120,7 @@ class ColorPresetDialogTests(unittest.TestCase):
 
     def test_add_rejects_empty_name(self):
         with patch(
-            "ui.widgets.dialog_color_preset.QMessageBox.warning"
+            "ui.dialog_color_preset.QMessageBox.warning"
         ) as warning:
             self.dialog.pushButtonAddPreset.click()
         warning.assert_called_once()
@@ -131,7 +131,7 @@ class ColorPresetDialogTests(unittest.TestCase):
         self.dialog.pushButtonAddPreset.click()
         self.dialog.lineEditPresetName.setText("作者")
         with patch(
-            "ui.widgets.dialog_color_preset.QMessageBox.warning"
+            "ui.dialog_color_preset.QMessageBox.warning"
         ) as warning:
             self.dialog.pushButtonAddPreset.click()
         warning.assert_called_once()
@@ -182,11 +182,82 @@ class ColorPresetDialogTests(unittest.TestCase):
     def test_color_button_opens_picker(self):
         self.assertEqual("#2196F3", self.dialog.pushButtonPresetColor.text())
         with patch(
-            "ui.widgets.dialog_color_preset.QColorDialog.getColor",
+            "ui.dialog_color_preset.QColorDialog.getColor",
             return_value=QColor("#112233"),
         ):
             self.dialog.pushButtonPresetColor.click()
         self.assertEqual("#112233", self.dialog.pushButtonPresetColor.text())
+
+    def test_preset_mode_is_default(self):
+        self.assertTrue(self.dialog.radioButtonUsePreset.isChecked())
+        self.assertFalse(self.dialog.radioButtonCustomColor.isChecked())
+        ok_button = self.dialog.buttonBox.button(
+            QDialogButtonBox.StandardButton.Ok
+        )
+        self.assertFalse(ok_button.isEnabled())
+        self.assertTrue(self.dialog.listWidgetPresets.isEnabled())
+        self.assertFalse(self.dialog.pushButtonCustomColor.isEnabled())
+
+    def test_custom_color_mode_returns_custom_color(self):
+        self.dialog.radioButtonCustomColor.setChecked(True)
+        with patch(
+            "ui.dialog_color_preset.QColorDialog.getColor",
+            return_value=QColor("#112233"),
+        ):
+            self.dialog.pushButtonCustomColor.click()
+
+        self.assertEqual("#112233", self.dialog.selected_rgb())
+        self.assertIsNone(self.dialog.selected_preset())
+        ok_button = self.dialog.buttonBox.button(
+            QDialogButtonBox.StandardButton.Ok
+        )
+        self.assertTrue(ok_button.isEnabled())
+
+    def test_custom_color_swatch_updates(self):
+        self.dialog.radioButtonCustomColor.setChecked(True)
+        with patch(
+            "ui.dialog_color_preset.QColorDialog.getColor",
+            return_value=QColor("#112233"),
+        ):
+            self.dialog.pushButtonCustomColor.click()
+        self.assertIn("#112233", self.dialog.labelCustomColorSwatch.styleSheet())
+
+    def test_custom_mode_disables_preset_widgets(self):
+        self.dialog.radioButtonCustomColor.setChecked(True)
+        self.assertFalse(self.dialog.listWidgetPresets.isEnabled())
+        self.assertFalse(self.dialog.groupBoxNewPreset.isEnabled())
+        self.assertTrue(self.dialog.pushButtonCustomColor.isEnabled())
+
+        self.dialog.radioButtonUsePreset.setChecked(True)
+        self.assertTrue(self.dialog.listWidgetPresets.isEnabled())
+        self.assertTrue(self.dialog.groupBoxNewPreset.isEnabled())
+        self.assertFalse(self.dialog.pushButtonCustomColor.isEnabled())
+
+    def test_switching_back_to_preset_uses_preset_color(self):
+        self.config_manager.set(
+            "color_presets",
+            [{"name": "作者", "rgb": "#E91E63"}],
+        )
+        self.config_manager.save()
+        dialog = ColorPresetDialog(config_manager=self.config_manager)
+        try:
+            dialog.radioButtonCustomColor.setChecked(True)
+            with patch(
+                "ui.dialog_color_preset.QColorDialog.getColor",
+                return_value=QColor("#112233"),
+            ):
+                dialog.pushButtonCustomColor.click()
+            self.assertEqual("#112233", dialog.selected_rgb())
+            self.assertIsNone(dialog.selected_preset())
+
+            dialog.radioButtonUsePreset.setChecked(True)
+            self.assertEqual("#E91E63", dialog.selected_rgb())
+            self.assertEqual(
+                {"name": "作者", "rgb": "#E91E63"},
+                dialog.selected_preset(),
+            )
+        finally:
+            dialog.close()
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
 
 import services.global_instances
 from commons.dto import Tag
-from ui.widgets.dialog_color_preset import ColorPresetDialog
+from ui.dialog_color_preset import ColorPresetDialog
 
 logger = logging.getLogger(__name__)
 
