@@ -1,4 +1,5 @@
 # coding=utf-8
+import logging
 import apppath
 import blob_storage
 import thumbnail_disk_storage
@@ -9,12 +10,21 @@ from stickerdb.v1.sticker_db import StickerDBV1
 from stickerdb.vectordb import ChromaVectorStore
 
 
+logger = logging.getLogger(__name__)
+
+
 def run_startup_tasks():
+    set_logging_levels()
     open_db()
     init_blob_storage()
     init_thumbnail_cache()
     init_vector_store()
     init_settings_manager()
+
+
+def set_logging_levels():
+    logging.getLogger('PyQt6.uic.uiparser').setLevel(logging.INFO)
+    logging.getLogger('PyQt6.uic.properties').setLevel(logging.INFO)
 
 
 def init_settings_manager():
