@@ -216,19 +216,19 @@ class ImageViewerTagEditorTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         return factory
 
-    def test_add_tag_opens_selector_preselecting_current_tags(self):
+    def test_add_tag_opens_selector_without_preselection(self):
         factory = self.patch_selector_dialog()
         self.dialog._add_tag()
 
         stub = factory.stub
         self.assertIs(self.db, stub.database)
-        self.assertEqual({self.first.id}, stub.selected_tag_ids)
+        self.assertEqual(set(), stub.selected_tag_ids)
         self.assertIs(self.dialog, stub.parent)
 
     def test_add_tag_saves_accepted_selection(self):
         factory = self.patch_selector_dialog(
             accepted=True,
-            tags=[self.first, self.second],
+            tags=[self.second],
         )
         self.dialog._add_tag()
 
@@ -266,14 +266,30 @@ class ImageViewerTagEditorTests(unittest.TestCase):
         self.assertEqual([], self.db.list_stickers()[0].tags)
         self.assertEqual(["First", "Second"], [tag.name for tag in self.db.list_tags()])
 
-    def test_add_tag_saves_full_selection_replacing_old_tags(self):
+    def test_add_tag_deduplicates_tags_already_assigned(self):
+        factory = self.patch_selector_dialog(
+            accepted=True,
+            tags=[self.first, self.second],
+        )
+        self.dialog._add_tag()
+
+        self.assertEqual(
+            ["First", "Second"],
+            [tag.name for tag in self.sticker.tags],
+        )
+        self.assertEqual(2, self.dialog._tag_model.rowCount())
+
+    def test_add_tag_appends_selected_tags_to_current_tags(self):
         factory = self.patch_selector_dialog(accepted=True, tags=[self.second])
         self.dialog._add_tag()
 
-        self.assertEqual({"Second"}, {tag.name for tag in self.sticker.tags})
-        self.assertEqual(1, self.dialog._tag_model.rowCount())
         self.assertEqual(
-            {"Second"},
+            {"First", "Second"},
+            {tag.name for tag in self.sticker.tags},
+        )
+        self.assertEqual(2, self.dialog._tag_model.rowCount())
+        self.assertEqual(
+            {"First", "Second"},
             {tag.name for tag in self.db.list_stickers()[0].tags},
         )
 

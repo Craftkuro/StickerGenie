@@ -236,17 +236,26 @@ class ImageViewerDialog(QDialog):
             self._tag_model.appendRow(item)
 
     def _add_tag(self):
-        """打开标签选择对话框；确认后保存当前图片的标签集合。"""
+        """打开标签选择对话框；确认后把所选标签追加到当前图片。"""
         if self._sticker is None:
             return
 
         dialog = TagSelectorDialog(
             database=self._database,
-            selected_tag_ids={tag.id for tag in self._sticker.tags},
             parent=self,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._save_tags(dialog.selected_tags())
+            self._save_tags(self._merge_selected_tags(dialog.selected_tags()))
+
+    def _merge_selected_tags(self, selected_tags: list[Tag]) -> list[Tag]:
+        """把所选标签追加到当前标签集合，按 id 去重并保持顺序。"""
+        known_ids = {tag.id for tag in self._sticker.tags}
+        merged = list(self._sticker.tags)
+        for tag in selected_tags:
+            if tag.id not in known_ids:
+                known_ids.add(tag.id)
+                merged.append(tag)
+        return merged
 
     def _delete_selected_tags(self):
         if self._sticker is None:
