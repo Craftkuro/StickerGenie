@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 import apppath
 from config_manager import ConfigManager
 from services.settings import create_settings_manager
+from ui.settings_page_color_preset_manager import ColorPresetManagerWidget
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,10 @@ class SettingsDialog(QDialog):
         self._apply_button = self.buttonBox.button(
             QDialogButtonBox.StandardButton.Apply
         )
+        self.colorPresetManager = ColorPresetManagerWidget(
+            self.pageColorPresets, config_manager=self._config_manager
+        )
+        self.pageColorPresets.layout().addWidget(self.colorPresetManager)
 
         self._load_settings()
         self._connect_signals()
@@ -83,6 +88,7 @@ class SettingsDialog(QDialog):
             self._mark_dirty
         )
         self.spinBoxSimilarImageMaxResults.valueChanged.connect(self._mark_dirty)
+        self.colorPresetManager.changed.connect(self._mark_dirty)
 
     def _mark_dirty(self, _value=None) -> None:
         self._apply_button.setEnabled(True)
@@ -106,10 +112,12 @@ class SettingsDialog(QDialog):
         try:
             for key, value in self._values_from_controls().items():
                 self._config_manager.set(key, value)
+            self.colorPresetManager.save_settings()
             self._config_manager.save()
         except Exception as exc:
             logger.exception("保存设置失败")
             self._restore_manager(previous_values)
+            self.colorPresetManager.reload_presets()
             QMessageBox.critical(self, "保存设置失败", str(exc))
             return False
 

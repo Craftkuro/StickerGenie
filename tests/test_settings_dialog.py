@@ -42,8 +42,9 @@ class SettingsDialogTests(unittest.TestCase):
 
         dialog = SettingsDialog(config_manager=self.manager)
 
-        self.assertEqual(1, dialog.listWidget.count())
+        self.assertEqual(2, dialog.listWidget.count())
         self.assertEqual("搜索", dialog.listWidget.item(0).text())
+        self.assertEqual("颜色预设", dialog.listWidget.item(1).text())
         self.assertEqual(0, dialog.stackedWidget.currentIndex())
         self.assertEqual(8, dialog.spinBoxRecentSearchLimit.value())
         self.assertEqual(12, dialog.spinBoxTagSuggestionLimit.value())
