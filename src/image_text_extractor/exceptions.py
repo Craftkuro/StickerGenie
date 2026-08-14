@@ -1,21 +1,18 @@
-"""Job-level exceptions raised by the image text extractor."""
+"""Job-level exceptions raised by OCR batch jobs.
 
+These are aliases of the generic :mod:`batch_job_runner` exceptions so that
+callers can keep feature-specific names while the underlying implementation is
+shared.
+"""
 
-class ImageTextExtractorError(RuntimeError):
-    """Base class for failures that affect an entire OCR job."""
+from batch_job_runner.exceptions import (
+    JobCancelledError,
+    JobError,
+    JobTimeoutError,
+    WorkerCrashedError,
+    WorkerInitializationError,
+)
 
-
-class WorkerInitializationError(ImageTextExtractorError):
-    """The worker could not load or initialize RapidOCR."""
-
-
-class WorkerCrashedError(ImageTextExtractorError):
-    """The worker exited without sending a terminal protocol message."""
-
-
-class TextExtractionTimeoutError(ImageTextExtractorError):
-    """The OCR job exceeded its configured timeout."""
-
-
-class TextExtractionCancelledError(ImageTextExtractorError):
-    """The OCR job was cancelled before normal completion."""
+ImageTextExtractorError = JobError
+TextExtractionCancelledError = JobCancelledError
+TextExtractionTimeoutError = JobTimeoutError

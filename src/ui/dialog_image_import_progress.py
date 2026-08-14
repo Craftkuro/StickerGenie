@@ -1,7 +1,7 @@
 # coding=utf-8
 from PyQt6 import uic
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QKeyEvent, QResizeEvent
+from PyQt6.QtGui import QCloseEvent, QKeyEvent
 from PyQt6.QtWidgets import QDialog
 
 import apppath
@@ -17,7 +17,6 @@ class ImageImportProgressDialog(QDialog):
         super().__init__(parent)
         self._can_close = False
         self._cancel_requested = False
-        self._last_file_name: str | None = None
         self._detail_placeholder = "正在检查文件和重复项"
 
         ui_file_path = apppath.app_path / "ui" / "dialog_image_import_progress.ui"
@@ -35,7 +34,6 @@ class ImageImportProgressDialog(QDialog):
         status = "正在中止" if self._cancel_requested else progress.status
         self.labelStatus.setText(status)
         self.progressBar.setValue(progress.percent)
-        self._last_file_name = progress.last_file_name
         if self._cancel_requested:
             self._detail_placeholder = "正在等待当前操作结束"
         elif progress.status == "正在预处理图片":
@@ -46,7 +44,8 @@ class ImageImportProgressDialog(QDialog):
             self._detail_placeholder = "正在生成图片向量"
         else:
             self._detail_placeholder = ""
-        self._render_detail()
+        self.labelDetail.setText(self._detail_placeholder)
+        self.labelDetail.setToolTip("")
 
     def _request_cancel(self) -> None:
         if self._cancel_requested:
@@ -56,27 +55,13 @@ class ImageImportProgressDialog(QDialog):
         self.pushButtonCancel.setEnabled(False)
         self.labelStatus.setText("正在中止")
         self._detail_placeholder = "正在等待当前操作结束"
-        self._render_detail()
+        self.labelDetail.setText(self._detail_placeholder)
+        self.labelDetail.setToolTip("")
         self.cancel_requested.emit()
 
     def finish(self) -> None:
         self._can_close = True
         self.close()
-
-    def _render_detail(self) -> None:
-        if self._last_file_name:
-            full_text = f"最后完成：{self._last_file_name}"
-            text = self.labelDetail.fontMetrics().elidedText(
-                full_text,
-                Qt.TextElideMode.ElideMiddle,
-                max(0, self.labelDetail.width()),
-            )
-            self.labelDetail.setText(text)
-            self.labelDetail.setToolTip(full_text)
-            return
-
-        self.labelDetail.setText(self._detail_placeholder)
-        self.labelDetail.setToolTip("")
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._can_close:
@@ -93,7 +78,3 @@ class ImageImportProgressDialog(QDialog):
             event.ignore()
             return
         super().keyPressEvent(event)
-
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        super().resizeEvent(event)
-        self._render_detail()

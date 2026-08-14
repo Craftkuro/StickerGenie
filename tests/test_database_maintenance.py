@@ -10,19 +10,15 @@ from PIL import Image
 
 import apppath
 import services.global_instances
+from batch_job_runner.exceptions import JobCancelledError
+from batch_job_runner.models import (
+    GeneralDataWrapper,
+    JobProgress,
+    ResultBatch,
+)
 from blob_storage import BlobFileEntity, BlobStorage
 from commons.dto import StickerImage
-from image_features_extractor import (
-    DEFAULT_MODEL_FILENAME,
-    ExtractionCancelledError,
-    ImageFeatureResult,
-)
-from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
-from image_text_extractor import (
-    ImageTextResult,
-    TextExtractionCancelledError,
-)
-from image_text_extractor.models import TextExtractionProgress, TextResultBatch
+from image_features_extractor import DEFAULT_MODEL_FILENAME, normalize_image_path
 from services.database_maintenance import (
     DatabaseMaintenanceOptions,
     VectorMaintenanceScope,
@@ -94,6 +90,76 @@ class FakeVectorStore:
         return len(vector_ids)
 
 
+class _FakeVectorRunner:
+    def __init__(self, model_path):
+        self.model_path = model_path
+        self.captured_paths = []
+        self.captured_total = None
+        self.captured_cancel_event = None
+        self.iter_results = self._default_iter
+
+    def _default_iter(self, image_paths, *, total=None, cancel_event=None):
+        self.captured_paths.extend(image_paths)
+        self.captured_total = total
+        self.captured_cancel_event = cancel_event
+        batches = []
+        for index, image_path in enumerate(image_paths, start=1):
+            batches.append(
+                ResultBatch(
+                    results=(
+                        GeneralDataWrapper(
+                            data=(
+                                normalize_image_path(image_path),
+                                np.full(768, index, dtype=np.float32),
+                            )
+                        ),
+                    ),
+                    progress=JobProgress(
+                        completed=index,
+                        total=len(image_paths),
+                        succeeded=index,
+                        failed=0,
+                    ),
+                )
+            )
+        return iter(batches)
+
+
+class _FakeOcrRunner:
+    def __init__(self):
+        self.captured_paths = []
+        self.error = None
+
+    def set_error(self, error):
+        self.error = error
+
+    def iter_results(self, image_paths, *, total=None, cancel_event=None):
+        self.captured_paths.extend(image_paths)
+        if self.error is not None:
+            raise self.error
+        batches = []
+        for index, image_path in enumerate(image_paths, start=1):
+            batches.append(
+                ResultBatch(
+                    results=(
+                        GeneralDataWrapper(
+                            data=(
+                                normalize_image_path(image_path),
+                                f"[OCR]text-{index}",
+                            )
+                        ),
+                    ),
+                    progress=JobProgress(
+                        completed=index,
+                        total=len(image_paths),
+                        succeeded=index,
+                        failed=0,
+                    ),
+                )
+            )
+        return iter(batches)
+
+
 class DatabaseMaintenanceTests(unittest.TestCase):
     def setUp(self):
         self._temp_dir = tempfile.TemporaryDirectory()
@@ -159,41 +225,17 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         sticker.text_in_image = None
         return self.db.add_stickers([sticker])[0]
 
-    @staticmethod
-    def _successful_iter_features(image_paths, **kwargs):
-        for index, image_path in enumerate(image_paths, start=1):
-            yield FeatureResultBatch(
-                results=(
-                    ImageFeatureResult.succeeded(
-                        image_path,
-                        np.full(768, index, dtype=np.float32),
-                    ),
-                ),
-                progress=ExtractionProgress(
-                    completed=index,
-                    total=len(image_paths),
-                    succeeded=index,
-                    failed=0,
-                ),
-            )
+    def _patch_vector_runner(self, fake_runner):
+        return patch(
+            "services.database_maintenance.VectorBatchJobRunner",
+            side_effect=lambda _model_path: fake_runner,
+        )
 
-    @staticmethod
-    def _successful_iter_texts(image_paths, **kwargs):
-        for index, image_path in enumerate(image_paths, start=1):
-            yield TextResultBatch(
-                results=(
-                    ImageTextResult.succeeded(
-                        image_path,
-                        f"[OCR]text-{index}",
-                    ),
-                ),
-                progress=TextExtractionProgress(
-                    completed=index,
-                    total=len(image_paths),
-                    succeeded=index,
-                    failed=0,
-                ),
-            )
+    def _patch_ocr_runner(self, fake_runner):
+        return patch(
+            "services.database_maintenance.OcrBatchJobRunner",
+            return_value=fake_runner,
+        )
 
     def test_deletes_only_managed_blobs_missing_from_sqlite(self):
         sticker = self._add_sticker("kept.png", "white")
@@ -229,10 +271,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         self.vector_store.add_existing("unlinked-vector", unlinked)
         self.db.set_sticker_vector_ids({valid.id: "valid-vector"})
 
-        with patch(
-            "services.database_maintenance.iter_features",
-            side_effect=self._successful_iter_features,
-        ), patch(
+        with self._patch_vector_runner(_FakeVectorRunner("model")), patch(
             "services.database_maintenance.get_model_hash",
             return_value="current-model",
         ):
@@ -258,10 +297,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         self.vector_store.add_existing("old-vector", sticker)
         self.db.set_sticker_vector_ids({sticker.id: "old-vector"})
 
-        with patch(
-            "services.database_maintenance.iter_features",
-            side_effect=self._successful_iter_features,
-        ), patch(
+        with self._patch_vector_runner(_FakeVectorRunner("model")), patch(
             "services.database_maintenance.get_model_hash",
             return_value="current-model",
         ):
@@ -284,10 +320,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
     def test_sqlite_failure_keeps_new_vectors_for_later_repair(self):
         self._add_sticker("rollback.png", "orange")
 
-        with patch(
-            "services.database_maintenance.iter_features",
-            side_effect=self._successful_iter_features,
-        ), patch(
+        with self._patch_vector_runner(_FakeVectorRunner("model")), patch(
             "services.database_maintenance.get_model_hash",
             return_value="current-model",
         ), patch.object(
@@ -314,16 +347,15 @@ class DatabaseMaintenanceTests(unittest.TestCase):
     def test_cancel_during_extraction_does_not_commit_current_batch(self):
         self._add_sticker("cancel.png", "yellow")
         cancel_event = threading.Event()
+        fake_runner = _FakeVectorRunner("model")
 
-        def cancel_extract(_image_paths, **kwargs):
-            self.assertIs(cancel_event, kwargs["cancel_event"])
+        def iter_results(image_paths, *, total=None, cancel_event=None):
+            self.assertIsNotNone(cancel_event)
             cancel_event.set()
-            raise ExtractionCancelledError("cancelled")
+            raise JobCancelledError("cancelled")
 
-        with patch(
-            "services.database_maintenance.iter_features",
-            side_effect=cancel_extract,
-        ), patch(
+        fake_runner.iter_results = iter_results
+        with self._patch_vector_runner(fake_runner), patch(
             "services.database_maintenance.get_model_hash",
             return_value="current-model",
         ):
@@ -344,10 +376,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         self._add_sticker("weighted.png", "cyan")
         progress_events = []
 
-        with patch(
-            "services.database_maintenance.iter_features",
-            side_effect=self._successful_iter_features,
-        ), patch(
+        with self._patch_vector_runner(_FakeVectorRunner("model")), patch(
             "services.database_maintenance.get_model_hash",
             return_value="current-model",
         ):
@@ -402,28 +431,11 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         self._add_sticker("second.png", "red")
         self._add_sticker("third.png", "blue")
         progress_events = []
-        captured_paths = []
+        fake_runner = _FakeVectorRunner("model")
 
-        def fake_iter_features(image_paths, **kwargs):
-            captured_paths.extend(image_paths)
-            vector = np.ones(768, dtype=np.float32)
-            for completed, image_path in enumerate(image_paths, start=1):
-                yield FeatureResultBatch(
-                    results=(
-                        ImageFeatureResult.succeeded(image_path, vector),
-                    ),
-                    progress=ExtractionProgress(
-                        completed=completed,
-                        total=len(image_paths),
-                        succeeded=completed,
-                        failed=0,
-                    ),
-                )
-
-        iter_features_mock = Mock(side_effect=fake_iter_features)
         with patch("services.database_maintenance.VECTOR_BATCH_SIZE", 1), patch(
-            "services.database_maintenance.iter_features",
-            iter_features_mock,
+            "services.database_maintenance.VectorBatchJobRunner",
+            side_effect=lambda _model_path: fake_runner,
         ), patch(
             "services.database_maintenance.get_model_hash",
             return_value="current-model",
@@ -438,8 +450,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
                 progress=progress_events.append,
             )
 
-        self.assertEqual(1, iter_features_mock.call_count)
-        self.assertEqual(3, len(captured_paths))
+        self.assertEqual(3, len(fake_runner.captured_paths))
         self.assertEqual(3, result.vectorized_count)
         vector_task_percents = [
             event.percent
@@ -459,10 +470,7 @@ class DatabaseMaintenanceTests(unittest.TestCase):
         handwritten = self._add_sticker("handwritten.png", "red")
         self.db.set_sticker_texts({handwritten.id: "手填文本"})
 
-        with patch(
-            "services.database_maintenance.iter_texts",
-            side_effect=self._successful_iter_texts,
-        ):
+        with self._patch_ocr_runner(_FakeOcrRunner()):
             result = run_database_maintenance(
                 DatabaseMaintenanceOptions(
                     delete_orphan_blobs=False,
@@ -482,14 +490,10 @@ class DatabaseMaintenanceTests(unittest.TestCase):
 
     def test_ocr_stage_failure_skips_stage_without_raising(self):
         self._add_sticker("failure.png", "blue")
+        fake_runner = _FakeOcrRunner()
+        fake_runner.set_error(RuntimeError("ocr unavailable"))
 
-        def fail_texts(_image_paths, **kwargs):
-            raise RuntimeError("ocr unavailable")
-
-        with patch(
-            "services.database_maintenance.iter_texts",
-            side_effect=fail_texts,
-        ):
+        with self._patch_ocr_runner(fake_runner):
             result = run_database_maintenance(
                 DatabaseMaintenanceOptions(
                     delete_orphan_blobs=False,
@@ -507,14 +511,10 @@ class DatabaseMaintenanceTests(unittest.TestCase):
 
     def test_ocr_cancel_sets_maintenance_cancelled(self):
         self._add_sticker("cancel-ocr.png", "green")
+        fake_runner = _FakeOcrRunner()
+        fake_runner.set_error(JobCancelledError("cancelled"))
 
-        def cancel_texts(_image_paths, **kwargs):
-            raise TextExtractionCancelledError("cancelled")
-
-        with patch(
-            "services.database_maintenance.iter_texts",
-            side_effect=cancel_texts,
-        ):
+        with self._patch_ocr_runner(fake_runner):
             result = run_database_maintenance(
                 DatabaseMaintenanceOptions(
                     delete_orphan_blobs=False,

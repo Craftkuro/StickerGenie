@@ -11,12 +11,14 @@ from PyQt6.QtCore import QCoreApplication, QEventLoop, QThread, QTimer
 
 import apppath
 import services.global_instances
+from batch_job_runner.models import (
+    GeneralDataWrapper,
+    JobProgress,
+    ResultBatch,
+)
 from blob_storage import BlobStorage
 from commons.signal_objects import ImportImagesRequest
-from image_features_extractor import DEFAULT_MODEL_FILENAME, ImageFeatureResult
-from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
-from image_text_extractor import ImageTextResult
-from image_text_extractor.models import TextExtractionProgress, TextResultBatch
+from image_features_extractor import DEFAULT_MODEL_FILENAME, normalize_image_path
 from services.import_images import (
     ImageImportService,
     ImportImagesProgress,
@@ -27,16 +29,69 @@ from stickerdb.v1.sticker_db import StickerDBV1
 from stickerdb.vectordb import ChromaVectorStore
 
 
-def _single_result_batch(image_path, vector):
-    return FeatureResultBatch(
-        results=(ImageFeatureResult.succeeded(image_path, vector),),
-        progress=ExtractionProgress(
-            completed=1,
-            total=1,
-            succeeded=1,
+def _vector_batch(image_path, vector, *, completed=1, total=1):
+    return ResultBatch(
+        results=(GeneralDataWrapper(data=(image_path, vector)),),
+        progress=JobProgress(
+            completed=completed,
+            total=total,
+            succeeded=completed,
             failed=0,
         ),
     )
+
+
+def _ocr_batch(image_path, text, *, completed=1, total=1):
+    return ResultBatch(
+        results=(GeneralDataWrapper(data=(image_path, text)),),
+        progress=JobProgress(
+            completed=completed,
+            total=total,
+            succeeded=completed,
+            failed=0,
+        ),
+    )
+
+
+class _FakeVectorRunner:
+    def __init__(self, model_path):
+        self.model_path = model_path
+        self.captured_paths = []
+        self.captured_total = None
+        self.captured_cancel_event = None
+        self.batches = []
+
+    def set_batches(self, batches):
+        self.batches = list(batches)
+
+    def iter_results(self, image_paths, *, total=None, cancel_event=None):
+        self.captured_paths.extend(image_paths)
+        self.captured_total = total
+        self.captured_cancel_event = cancel_event
+        return iter(self.batches)
+
+
+class _FakeOcrRunner:
+    def __init__(self):
+        self.captured_paths = []
+        self.captured_total = None
+        self.captured_cancel_event = None
+        self.batches = []
+        self.error = None
+
+    def set_batches(self, batches):
+        self.batches = list(batches)
+
+    def set_error(self, error):
+        self.error = error
+
+    def iter_results(self, image_paths, *, total=None, cancel_event=None):
+        self.captured_paths.extend(image_paths)
+        self.captured_total = total
+        self.captured_cancel_event = cancel_event
+        if self.error is not None:
+            raise self.error
+        return iter(self.batches)
 
 
 class FakeVectorStore:
@@ -82,19 +137,53 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.db.engine.dispose()
         self._temp_dir.cleanup()
 
+    def _patch_vector_runner(self, fake_runner):
+        return patch(
+            "services.import_images.VectorBatchJobRunner",
+            side_effect=lambda _model_path: fake_runner,
+        )
+
+    def _patch_ocr_runner(self, fake_runner):
+        return patch(
+            "services.import_images.OcrBatchJobRunner",
+            return_value=fake_runner,
+        )
+
     def test_vectorizes_blob_path_and_backfills_uuid(self):
-        captured_paths = []
-        captured_cancel_events = []
+        fake_runner = _FakeVectorRunner(self.root / DEFAULT_MODEL_FILENAME)
+        fake_runner.set_batches(
+            [
+                _vector_batch(
+                    "placeholder",
+                    np.ones(768, dtype=np.float32),
+                )
+            ]
+        )
         progress_events = []
         cancel_event = threading.Event()
 
-        def extract(image_paths, **kwargs):
-            captured_paths.extend(image_paths)
-            captured_cancel_events.append(kwargs["cancel_event"])
-            vector = np.ones(768, dtype=np.float32)
-            yield _single_result_batch(image_paths[0], vector)
+        def make_batch_after_paths_known(image_paths):
+            fake_runner.set_batches(
+                [
+                    _vector_batch(
+                        normalize_image_path(image_paths[0]),
+                        np.ones(768, dtype=np.float32),
+                    )
+                ]
+            )
 
-        with patch("services.import_images.iter_features", side_effect=extract), patch(
+        original_iter = fake_runner.iter_results
+
+        def iter_results(image_paths, *, total=None, cancel_event=None):
+            make_batch_after_paths_known(image_paths)
+            return original_iter(
+                image_paths,
+                total=total,
+                cancel_event=cancel_event,
+            )
+
+        fake_runner.iter_results = iter_results
+        with self._patch_vector_runner(fake_runner), patch(
             "services.import_images._get_model_hash",
             return_value="test-model-hash",
         ):
@@ -108,16 +197,18 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(1, len(result.imported_stickers))
         self.assertEqual(1, result.vectorized_count)
         self.assertEqual((), result.vector_errors)
-        self.assertNotEqual(str(self.source_path), captured_paths[0])
+        self.assertNotEqual(str(self.source_path), fake_runner.captured_paths[0])
         self.assertTrue(
-            Path(captured_paths[0]).is_relative_to(self.blob_storage.base_path)
+            Path(fake_runner.captured_paths[0]).is_relative_to(
+                self.blob_storage.base_path
+            )
         )
 
         sticker = self.db.list_stickers()[0]
         self.assertEqual("vector-uuid-1", sticker.vectordb_id)
         self.assertEqual(sticker.id, self.vector_store.metadata[0].sqlite_id)
         self.assertEqual("test-model-hash", self.vector_store.metadata[0].model_hash)
-        self.assertEqual([cancel_event], captured_cancel_events)
+        self.assertIs(cancel_event, fake_runner.captured_cancel_event)
         percents = [event.percent for event in progress_events]
         self.assertEqual(sorted(percents), percents)
         self.assertEqual([0, 5], percents[:2])
@@ -127,24 +218,28 @@ class ImportImagesVectorTests(unittest.TestCase):
             for event in progress_events
             if event.status == "正在生成图片向量"
         ]
-        self.assertTrue(vector_progress)
-        self.assertEqual([40, 100], [
-            event.percent for event in vector_progress
-        ])
-        self.assertEqual([0, 1], [
-            event.completed for event in vector_progress
-        ])
+        self.assertEqual([40, 100], [event.percent for event in vector_progress])
+        self.assertEqual([0, 1], [event.completed for event in vector_progress])
 
-    def test_reimporting_the_same_hash_is_silently_ignored(self):
+    def test_duplicate_hashes_skip_vector_extraction(self):
         vector = np.ones(768, dtype=np.float32)
+        fake_runner = _FakeVectorRunner(self.root / DEFAULT_MODEL_FILENAME)
 
-        def fake_iter_features(image_paths, **kwargs):
-            yield _single_result_batch(image_paths[0], vector)
+        def iter_results(image_paths, *, total=None, cancel_event=None):
+            fake_runner.captured_paths.extend(image_paths)
+            fake_runner.set_batches(
+                [
+                    _vector_batch(
+                        normalize_image_path(image_paths[0]),
+                        vector,
+                    )
+                ]
+            )
+            return iter(fake_runner.batches)
 
-        with patch(
-            "services.import_images.iter_features",
-            side_effect=fake_iter_features,
-        ) as iter_features_call, patch(
+        fake_runner.iter_results = iter_results
+
+        with self._patch_vector_runner(fake_runner) as runner_factory, patch(
             "services.import_images._get_model_hash",
             return_value="test-model-hash",
         ):
@@ -162,7 +257,7 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(1, second_result.duplicate_count)
         self.assertEqual(0, second_result.vectorized_count)
         self.assertEqual((), second_result.vector_errors)
-        self.assertEqual(1, iter_features_call.call_count)
+        self.assertEqual(1, runner_factory.call_count)
         self.assertEqual(1, len(self.db.list_stickers()))
 
     def test_duplicate_hashes_inside_one_request_are_imported_once(self):
@@ -182,28 +277,27 @@ class ImportImagesVectorTests(unittest.TestCase):
         Image.new("RGB", (12, 8), "red").save(second_path)
         Image.new("RGB", (12, 8), "blue").save(third_path)
         progress_events = []
-        captured_paths = []
+        fake_runner = _FakeVectorRunner(self.root / DEFAULT_MODEL_FILENAME)
+        vector = np.ones(768, dtype=np.float32)
 
-        def fake_iter_features(image_paths, **kwargs):
-            captured_paths.extend(image_paths)
-            vector = np.ones(768, dtype=np.float32)
+        def iter_results(image_paths, *, total=None, cancel_event=None):
+            fake_runner.captured_paths.extend(image_paths)
+            batches = []
             for completed, image_path in enumerate(image_paths, 1):
-                yield FeatureResultBatch(
-                    results=(
-                        ImageFeatureResult.succeeded(image_path, vector),
-                    ),
-                    progress=ExtractionProgress(
+                batches.append(
+                    _vector_batch(
+                        normalize_image_path(image_path),
+                        vector,
                         completed=completed,
                         total=len(image_paths),
-                        succeeded=completed,
-                        failed=0,
-                    ),
+                    )
                 )
+            return iter(batches)
 
-        iter_features_mock = Mock(side_effect=fake_iter_features)
+        fake_runner.iter_results = iter_results
         with patch("services.import_images.IMPORT_BATCH_SIZE", 1), patch(
-            "services.import_images.iter_features",
-            iter_features_mock,
+            "services.import_images.VectorBatchJobRunner",
+            side_effect=lambda _model_path: fake_runner,
         ), patch(
             "services.import_images._get_model_hash",
             return_value="test-model-hash",
@@ -218,8 +312,7 @@ class ImportImagesVectorTests(unittest.TestCase):
                 progress=progress_events.append,
             )
 
-        self.assertEqual(1, iter_features_mock.call_count)
-        self.assertEqual(3, len(captured_paths))
+        self.assertEqual(3, len(fake_runner.captured_paths))
         self.assertEqual(3, len(result.imported_stickers))
         self.assertEqual(3, result.vectorized_count)
         vector_progress = [
@@ -244,26 +337,35 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual("正在写入图库", progress_events[1].status)
         self.assertEqual(100, progress_events[-1].percent)
         self.assertEqual("导入完成", progress_events[-1].status)
-        self.assertTrue(
-            any(
-                event.last_file_name == self.source_path.name
-                for event in progress_events
-            )
-        )
 
     def test_vector_store_failure_does_not_report_the_image_import_as_failed(self):
         vector = np.ones(768, dtype=np.float32)
         self.vector_store.add_batch = Mock(
             side_effect=RuntimeError("vector store unavailable")
         )
+        fake_runner = _FakeVectorRunner(self.root / DEFAULT_MODEL_FILENAME)
+        fake_runner.set_batches(
+            [_vector_batch(normalize_image_path("blob.png"), vector)]
+        )
 
-        def fake_iter_features(image_paths, **kwargs):
-            yield _single_result_batch(image_paths[0], vector)
+        # The batch path must map to an inserted sticker, so use the real
+        # blob path produced by the import.
+        captured = {}
 
-        with patch(
-            "services.import_images.iter_features",
-            side_effect=fake_iter_features,
-        ), patch(
+        def iter_results(image_paths, *, total=None, cancel_event=None):
+            captured["paths"] = list(image_paths)
+            fake_runner.set_batches(
+                [
+                    _vector_batch(
+                        normalize_image_path(image_paths[0]),
+                        vector,
+                    )
+                ]
+            )
+            return iter(fake_runner.batches)
+
+        fake_runner.iter_results = iter_results
+        with self._patch_vector_runner(fake_runner), patch(
             "services.import_images._get_model_hash",
             return_value="test-model-hash",
         ):
@@ -278,30 +380,24 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(1, len(self.db.list_stickers()))
 
     def test_extract_text_backfills_blob_path_and_reports_progress(self):
-        captured_paths = []
-        progress_events = []
+        fake_runner = _FakeOcrRunner()
 
-        def extract(image_paths, **kwargs):
-            captured_paths.extend(image_paths)
-            yield TextResultBatch(
-                results=(
-                    ImageTextResult.succeeded(
-                        image_paths[0],
+        def iter_results(image_paths, *, total=None, cancel_event=None):
+            fake_runner.captured_paths.extend(image_paths)
+            fake_runner.captured_total = total
+            fake_runner.captured_cancel_event = cancel_event
+            return iter(
+                [
+                    _ocr_batch(
+                        normalize_image_path(image_paths[0]),
                         "[OCR]hello 世界",
-                    ),
-                ),
-                progress=TextExtractionProgress(
-                    completed=1,
-                    total=1,
-                    succeeded=1,
-                    failed=0,
-                ),
+                    )
+                ]
             )
 
-        with patch(
-            "services.import_images.iter_texts",
-            side_effect=extract,
-        ):
+        fake_runner.iter_results = iter_results
+        progress_events = []
+        with self._patch_ocr_runner(fake_runner):
             result = import_images_with_result(
                 [str(self.source_path)],
                 extract_text=True,
@@ -311,9 +407,11 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(1, len(result.imported_stickers))
         self.assertEqual(1, result.ocr_count)
         self.assertEqual((), result.ocr_errors)
-        self.assertNotEqual(str(self.source_path), captured_paths[0])
+        self.assertNotEqual(str(self.source_path), fake_runner.captured_paths[0])
         self.assertTrue(
-            Path(captured_paths[0]).is_relative_to(self.blob_storage.base_path)
+            Path(fake_runner.captured_paths[0]).is_relative_to(
+                self.blob_storage.base_path
+            )
         )
         sticker = self.db.list_stickers()[0]
         self.assertEqual("[OCR]hello 世界", sticker.text_in_image)
@@ -326,13 +424,9 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual([0, 1], [event.completed for event in ocr_progress])
 
     def test_extract_text_failure_keeps_sqlite_rows_without_raising(self):
-        def fail_texts(_image_paths, **kwargs):
-            raise RuntimeError("ocr unavailable")
-
-        with patch(
-            "services.import_images.iter_texts",
-            side_effect=fail_texts,
-        ):
+        fake_runner = _FakeOcrRunner()
+        fake_runner.set_error(RuntimeError("ocr unavailable"))
+        with self._patch_ocr_runner(fake_runner):
             result = import_images_with_result(
                 [str(self.source_path)],
                 extract_text=True,

@@ -1,6 +1,4 @@
-"""Short-lived, single-worker image text extraction."""
-
-from typing import TYPE_CHECKING
+"""Short-lived batch OCR jobs built on :mod:`batch_job_runner`."""
 
 from .exceptions import (
     ImageTextExtractorError,
@@ -9,47 +7,22 @@ from .exceptions import (
     WorkerCrashedError,
     WorkerInitializationError,
 )
-from .extractor import extract_texts, iter_texts, normalize_image_path
-from .models import (
+from .runner import OcrBatchJobRunner, normalize_image_path
+from .stages import (
     OCR_TEXT_MAX_LENGTH,
     OCR_TEXT_PREFIX,
-    ImageTextResult,
-    TextExtractionProgress,
-    TextExtractionRequest,
-    TextExtractionSummary,
-    TextResultBatch,
-    WorkerStartupInfo,
+    compose_ocr_text,
 )
-from .worker import compose_ocr_text
-
-if TYPE_CHECKING:
-    from .qt import QtImageTextExtractor
 
 __all__ = [
     "OCR_TEXT_MAX_LENGTH",
     "OCR_TEXT_PREFIX",
     "ImageTextExtractorError",
-    "ImageTextResult",
-    "QtImageTextExtractor",
+    "OcrBatchJobRunner",
     "TextExtractionCancelledError",
-    "TextExtractionProgress",
-    "TextExtractionRequest",
-    "TextExtractionSummary",
     "TextExtractionTimeoutError",
-    "TextResultBatch",
     "WorkerCrashedError",
     "WorkerInitializationError",
-    "WorkerStartupInfo",
     "compose_ocr_text",
-    "extract_texts",
-    "iter_texts",
     "normalize_image_path",
 ]
-
-
-def __getattr__(name: str):
-    if name == "QtImageTextExtractor":
-        from .qt import QtImageTextExtractor
-
-        return QtImageTextExtractor
-    raise AttributeError(name)

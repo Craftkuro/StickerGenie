@@ -17,23 +17,20 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 import apppath
 import services.global_instances
+from batch_job_runner.exceptions import JobCancelledError
+from batch_job_runner.models import wrapper_input_identifier
 from services.image_vector_model import get_model_hash as _get_shared_model_hash
 from commons.dto import StickerImage, Tag
 from commons.image_metadata import StickerImageMetadata
 from commons.signal_objects import ImportImagesRequest
-from image_features_extractor import (
-    DEFAULT_MODEL_FILENAME,
-    ExtractionCancelledError,
-    iter_features,
-)
-from image_text_extractor import TextExtractionCancelledError, iter_texts
+from image_features_extractor import DEFAULT_MODEL_FILENAME, VectorBatchJobRunner
+from image_text_extractor import OcrBatchJobRunner, normalize_image_path
 from stickerdb.vectordb import VectorMetadata
 from utils.image_metadata import get_image_metadata
 
 logger = logging.getLogger(__name__)
 
 IMPORT_BATCH_SIZE = 32
-OCR_BATCH_SIZE = 8
 PREPROCESS_END_PERCENT = 5
 SQLITE_END_PERCENT = 15
 OCR_START_PERCENT = 15
@@ -66,7 +63,6 @@ class ImportImagesProgress:
     status: str
     completed: int = 0
     total: int = 0
-    last_file_name: str | None = None
 
     def __post_init__(self):
         if not 0 <= self.percent <= 100:
@@ -89,7 +85,6 @@ def _report_progress(
     *,
     completed: int = 0,
     total: int = 0,
-    last_file_name: str | None = None,
 ) -> None:
     if callback is not None:
         callback(
@@ -98,7 +93,6 @@ def _report_progress(
                 status=status,
                 completed=completed,
                 total=total,
-                last_file_name=last_file_name,
             )
         )
 
@@ -152,7 +146,7 @@ def _generate_vectors(
 
     image_paths = [blob_path for _, blob_path in stickers_and_blob_paths]
     sticker_by_path = {
-        blob_path: sticker
+        normalize_image_path(blob_path): sticker
         for sticker, blob_path in stickers_and_blob_paths
     }
     model_hash = _get_model_hash(model_path)
@@ -170,33 +164,32 @@ def _generate_vectors(
         total=total,
     )
 
+    runner = VectorBatchJobRunner(model_path)
     try:
-        for result_batch in iter_features(
+        for result_batch in runner.iter_results(
             image_paths,
-            model_path=model_path,
             total=total,
             cancel_event=cancel_event,
         ):
             batch_stickers: list[StickerImage] = []
             batch_vectors = []
             batch_metadata = []
-            batch_last_file_name = None
 
-            for feature_result in result_batch.results:
-                sticker = sticker_by_path.get(feature_result.image_path)
+            for wrapper in result_batch.results:
+                image_path = wrapper_input_identifier(wrapper)
+                sticker = sticker_by_path.get(image_path)
                 if sticker is None:
-                    errors.append(
-                        f"{feature_result.image_path}：缺少对应的导入记录"
-                    )
+                    errors.append(f"{image_path}：缺少对应的导入记录")
                     continue
-                if not feature_result.success:
+                if wrapper.hasException:
                     errors.append(
-                        f"{sticker.original_file_name}：{feature_result.error}"
+                        f"{sticker.original_file_name}：{wrapper.error}"
                     )
                     continue
 
+                _, vector = wrapper.data
                 batch_stickers.append(sticker)
-                batch_vectors.append(feature_result.vector)
+                batch_vectors.append(vector)
                 batch_metadata.append(
                     VectorMetadata(
                         image_filename=sticker.original_file_name,
@@ -207,7 +200,6 @@ def _generate_vectors(
                         image_height=sticker.size_height,
                     )
                 )
-                batch_last_file_name = sticker.original_file_name
 
             if batch_stickers:
                 try:
@@ -245,9 +237,8 @@ def _generate_vectors(
                 "正在生成图片向量",
                 completed=completed,
                 total=total,
-                last_file_name=batch_last_file_name,
             )
-    except ExtractionCancelledError:
+    except JobCancelledError:
         return vectorized_count, tuple(errors)
     except Exception as exc:
         logger.exception("图片特征提取任务失败")
@@ -273,7 +264,7 @@ def _extract_texts(
 
     image_paths = [blob_path for _, blob_path in stickers_and_blob_paths]
     sticker_by_path = {
-        blob_path: sticker
+        normalize_image_path(blob_path): sticker
         for sticker, blob_path in stickers_and_blob_paths
     }
     total = len(image_paths)
@@ -290,32 +281,30 @@ def _extract_texts(
         total=total,
     )
 
+    runner = OcrBatchJobRunner()
     try:
-        for result_batch in iter_texts(
+        for result_batch in runner.iter_results(
             image_paths,
-            batch_size=OCR_BATCH_SIZE,
             total=total,
             cancel_event=cancel_event,
         ):
             text_by_sticker_id: dict[int, str | None] = {}
-            batch_last_file_name = None
 
-            for text_result in result_batch.results:
-                sticker = sticker_by_path.get(text_result.image_path)
+            for wrapper in result_batch.results:
+                image_path = wrapper_input_identifier(wrapper)
+                sticker = sticker_by_path.get(image_path)
                 if sticker is None:
-                    errors.append(
-                        f"{text_result.image_path}：缺少对应的导入记录"
-                    )
+                    errors.append(f"{image_path}：缺少对应的导入记录")
                     continue
-                if not text_result.success:
+                if wrapper.hasException:
                     errors.append(
-                        f"{sticker.original_file_name}：{text_result.error}"
+                        f"{sticker.original_file_name}：{wrapper.error}"
                     )
                     continue
 
-                sticker.text_in_image = text_result.text
-                text_by_sticker_id[sticker.id] = text_result.text
-                batch_last_file_name = sticker.original_file_name
+                _, text = wrapper.data
+                sticker.text_in_image = text
+                text_by_sticker_id[sticker.id] = text
 
             if text_by_sticker_id:
                 try:
@@ -338,9 +327,8 @@ def _extract_texts(
                 "正在识别图片文字",
                 completed=completed,
                 total=total,
-                last_file_name=batch_last_file_name,
             )
-    except TextExtractionCancelledError:
+    except JobCancelledError:
         return ocr_count, tuple(errors)
     except Exception as exc:
         logger.exception("图片文字识别任务失败")
@@ -516,18 +504,12 @@ def import_images_with_result(
             PREPROCESS_END_PERCENT,
             sqlite_end,
         )
-        last_file_name = (
-            imported_stickers[-1].original_file_name
-            if imported_stickers
-            else None
-        )
         _report_progress(
             progress,
             percent,
             "正在写入图库",
             completed=completed,
             total=candidate_count,
-            last_file_name=last_file_name,
         )
 
         if _is_cancelled(cancel_event):
@@ -562,18 +544,12 @@ def import_images_with_result(
     if _is_cancelled(cancel_event):
         return make_result(cancelled=True)
 
-    last_file_name = (
-        imported_stickers[-1].original_file_name
-        if imported_stickers
-        else None
-    )
     _report_progress(
         progress,
         100,
         "导入完成",
         completed=len(imported_stickers),
         total=candidate_count,
-        last_file_name=last_file_name,
     )
 
     return make_result()

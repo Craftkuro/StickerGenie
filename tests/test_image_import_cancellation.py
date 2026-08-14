@@ -11,14 +11,15 @@ from PyQt6.QtCore import QCoreApplication, QEventLoop, QTimer
 
 import apppath
 import services.global_instances
+from batch_job_runner.exceptions import JobCancelledError
+from batch_job_runner.models import (
+    GeneralDataWrapper,
+    JobProgress,
+    ResultBatch,
+)
 from blob_storage import BlobStorage
 from commons.signal_objects import ImportImagesRequest
-from image_features_extractor import (
-    DEFAULT_MODEL_FILENAME,
-    ExtractionCancelledError,
-    ImageFeatureResult,
-)
-from image_features_extractor.models import ExtractionProgress, FeatureResultBatch
+from image_features_extractor import DEFAULT_MODEL_FILENAME, normalize_image_path
 from services.import_images import (
     ImageImportService,
     ImportImagesResult,
@@ -40,6 +41,24 @@ class TrackingVectorStore:
 
     def delete_batch(self, vector_ids):
         return len(vector_ids)
+
+
+class _FakeVectorRunner:
+    def __init__(self, model_path):
+        self.model_path = model_path
+        self.batches = []
+
+    def set_batches(self, batches):
+        self.batches = list(batches)
+
+    def iter_results(self, image_paths, *, total=None, cancel_event=None):
+        if self.batches is None:
+            raise self.error
+        return iter(self.batches)
+
+    def raise_error(self, error):
+        self.batches = None
+        self.error = error
 
 
 class ImageImportCancellationTests(unittest.TestCase):
@@ -72,6 +91,23 @@ class ImageImportCancellationTests(unittest.TestCase):
         apppath.app_path = self._old_app_path
         self.db.engine.dispose()
         self._temp_dir.cleanup()
+
+    def _patch_vector_runner(self, fake_runner):
+        return patch(
+            "services.import_images.VectorBatchJobRunner",
+            side_effect=lambda _model_path: fake_runner,
+        )
+
+    def _single_vector_batch(self, image_path, vector):
+        return ResultBatch(
+            results=(GeneralDataWrapper(data=(image_path, vector)),),
+            progress=JobProgress(
+                completed=1,
+                total=1,
+                succeeded=1,
+                failed=0,
+            ),
+        )
 
     def test_cancel_before_preprocessing_returns_no_sqlite_rows(self):
         cancel_event = threading.Event()
@@ -159,16 +195,18 @@ class ImageImportCancellationTests(unittest.TestCase):
 
     def test_cancel_during_feature_extraction_keeps_sqlite_without_vector(self):
         cancel_event = threading.Event()
+        fake_runner = _FakeVectorRunner(self.root / DEFAULT_MODEL_FILENAME)
+        fake_runner.raise_error(
+            JobCancelledError("cancelled"),
+        )
 
-        def fake_iter_features(_image_paths, **kwargs):
-            self.assertIs(cancel_event, kwargs["cancel_event"])
+        def iter_results(image_paths, *, total=None, cancel_event=None):
+            self.assertIsNotNone(cancel_event)
             cancel_event.set()
-            raise ExtractionCancelledError("cancelled")
+            return iter(())
 
-        with patch(
-            "services.import_images.iter_features",
-            side_effect=fake_iter_features,
-        ):
+        fake_runner.iter_results = iter_results
+        with self._patch_vector_runner(fake_runner):
             result = import_images_with_result(
                 [str(self.first_path)],
                 generate_vectors=True,
@@ -185,24 +223,20 @@ class ImageImportCancellationTests(unittest.TestCase):
         cancel_event = threading.Event()
         vector = np.ones(768, dtype=np.float32)
         self.vector_store.on_add = cancel_event.set
+        fake_runner = _FakeVectorRunner(self.root / DEFAULT_MODEL_FILENAME)
+        captured = {}
 
-        def fake_iter_features(image_paths, **kwargs):
-            yield FeatureResultBatch(
-                results=(
-                    ImageFeatureResult.succeeded(image_paths[0], vector),
-                ),
-                progress=ExtractionProgress(
-                    completed=1,
-                    total=1,
-                    succeeded=1,
-                    failed=0,
-                ),
+        def iter_results(image_paths, *, total=None, cancel_event=None):
+            captured["path"] = normalize_image_path(image_paths[0])
+            fake_runner.set_batches(
+                [
+                    self._single_vector_batch(captured["path"], vector),
+                ]
             )
+            return iter(fake_runner.batches)
 
-        with patch(
-            "services.import_images.iter_features",
-            side_effect=fake_iter_features,
-        ), patch(
+        fake_runner.iter_results = iter_results
+        with self._patch_vector_runner(fake_runner), patch(
             "services.import_images._get_model_hash",
             return_value="test-model-hash",
         ):

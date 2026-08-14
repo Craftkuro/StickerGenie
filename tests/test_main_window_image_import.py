@@ -48,7 +48,6 @@ class MainWindowImageImportTests(unittest.TestCase):
             status="正在写入图库",
             completed=2,
             total=5,
-            last_file_name="second.png",
         )
 
         MainWindow._on_import_images_progress_changed(window, progress)

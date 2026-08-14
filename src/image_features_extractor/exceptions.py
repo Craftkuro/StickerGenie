@@ -1,21 +1,18 @@
-"""Job-level exceptions raised by the image feature extractor."""
+"""Job-level exceptions raised by feature extraction batch jobs.
 
+These are aliases of the generic :mod:`batch_job_runner` exceptions so that
+callers can keep feature-specific names while the underlying implementation is
+shared.
+"""
 
-class ImageFeaturesExtractorError(RuntimeError):
-    """Base class for failures that affect an entire extraction job."""
+from batch_job_runner.exceptions import (
+    JobCancelledError,
+    JobError,
+    JobTimeoutError,
+    WorkerCrashedError,
+    WorkerInitializationError,
+)
 
-
-class WorkerInitializationError(ImageFeaturesExtractorError):
-    """The worker could not load or initialize the ONNX model."""
-
-
-class WorkerCrashedError(ImageFeaturesExtractorError):
-    """The worker exited without sending a terminal protocol message."""
-
-
-class ExtractionTimeoutError(ImageFeaturesExtractorError):
-    """The extraction job exceeded its configured timeout."""
-
-
-class ExtractionCancelledError(ImageFeaturesExtractorError):
-    """The extraction job was cancelled before normal completion."""
+ImageFeaturesExtractorError = JobError
+ExtractionCancelledError = JobCancelledError
+ExtractionTimeoutError = JobTimeoutError

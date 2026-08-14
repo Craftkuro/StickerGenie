@@ -27,23 +27,23 @@ class ImageImportProgressDialogTests(unittest.TestCase):
         self.dialog.finish()
         self.app.processEvents()
 
-    def test_displays_status_counts_progress_and_last_file(self):
+    def test_displays_status_counts_and_detail_placeholder(self):
         progress = ImportImagesProgress(
             percent=51,
             status="正在写入图库",
             completed=3,
             total=8,
-            last_file_name="a-very-long-image-file-name.png",
         )
 
         self.dialog.update_progress(progress)
 
         self.assertEqual(51, self.dialog.progressBar.value())
         self.assertEqual("正在写入图库", self.dialog.labelStatus.text())
-        self.assertIn(
-            "a-very-long-image-file-name.png",
-            self.dialog.labelDetail.toolTip(),
+        self.assertEqual(
+            "正在保存图片到图库",
+            self.dialog.labelDetail.text(),
         )
+        self.assertEqual("", self.dialog.labelDetail.toolTip())
 
     def test_cannot_close_until_the_import_finishes(self):
         self.dialog.close()
@@ -74,11 +74,11 @@ class ImageImportProgressDialogTests(unittest.TestCase):
                 status="正在写入图库",
                 completed=1,
                 total=2,
-                last_file_name="first.png",
             )
         )
         self.assertEqual("正在中止", self.dialog.labelStatus.text())
         self.assertEqual(50, self.dialog.progressBar.value())
+        self.assertEqual("正在等待当前操作结束", self.dialog.labelDetail.text())
 
 
 if __name__ == "__main__":

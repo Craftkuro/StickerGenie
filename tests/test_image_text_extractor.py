@@ -1,150 +1,21 @@
 import multiprocessing
 import os
 import tempfile
-import threading
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from image_text_extractor import (
-    ImageTextResult,
-    TextExtractionCancelledError,
-    TextExtractionProgress,
-    TextExtractionTimeoutError,
-    WorkerCrashedError,
-    WorkerInitializationError,
+    OcrBatchJobRunner,
     compose_ocr_text,
-    extract_texts,
-    iter_texts,
     normalize_image_path,
 )
-from image_text_extractor.models import (
+from image_text_extractor.stages import (
     OCR_TEXT_MAX_LENGTH,
     OCR_TEXT_PREFIX,
-    WorkerStartupInfo,
+    load_ocr_engine,
+    ocr_image,
 )
-from image_text_extractor.worker import (
-    BATCH_RESULT,
-    CANCEL,
-    DONE,
-    END_INPUT,
-    INIT_ERROR,
-    INIT_OK,
-    PROCESS_BATCH,
-    REQUEST_BATCH,
-    process_image_batch,
-)
-
-
-def fake_worker_entry(connection):
-    """Small spawn-safe worker used to test the real parent IPC controller."""
-
-    connection.send(
-        (INIT_OK, WorkerStartupInfo(engine_name="rapidocr"))
-    )
-    connection.send((REQUEST_BATCH, None))
-    produced = 0
-    try:
-        while True:
-            kind, payload = connection.recv()
-            if kind == PROCESS_BATCH:
-                results = []
-                for image_path in payload:
-                    if Path(image_path).name.startswith("bad"):
-                        results.append(
-                            ImageTextResult.failed(
-                                image_path,
-                                "damaged image",
-                            )
-                        )
-                    else:
-                        results.append(
-                            ImageTextResult.succeeded(
-                                image_path,
-                                f"{OCR_TEXT_PREFIX}text-{produced}",
-                            )
-                        )
-                    produced += 1
-                connection.send((BATCH_RESULT, tuple(results)))
-                connection.send((REQUEST_BATCH, None))
-            elif kind == END_INPUT:
-                connection.send((DONE, False))
-                return
-            elif kind == CANCEL:
-                connection.send((DONE, True))
-                return
-            else:
-                raise RuntimeError(f"unexpected test message: {kind}")
-    finally:
-        connection.close()
-
-
-def prefetch_probe_worker(connection):
-    """Worker that records when it receives each PROCESS_BATCH to a file."""
-
-    record_path = Path(os.environ["TEXT_PROBE_RECORD"])
-    connection.send(
-        (INIT_OK, WorkerStartupInfo(engine_name="rapidocr"))
-    )
-    connection.send((REQUEST_BATCH, None))
-    try:
-        while True:
-            kind, payload = connection.recv()
-            if kind == PROCESS_BATCH:
-                with open(record_path, "a", encoding="utf-8") as f:
-                    f.write(f"worker_batch:{time.monotonic()}\n")
-                results = tuple(
-                    ImageTextResult.succeeded(image_path, None)
-                    for image_path in payload
-                )
-                connection.send((BATCH_RESULT, tuple(results)))
-                connection.send((REQUEST_BATCH, None))
-            elif kind == END_INPUT:
-                connection.send((DONE, False))
-                return
-            elif kind == CANCEL:
-                connection.send((DONE, True))
-                return
-            else:
-                raise RuntimeError(f"unexpected test message: {kind}")
-    finally:
-        connection.close()
-
-
-def fake_init_error_worker(connection):
-    connection.send((INIT_ERROR, "fake initialization failure"))
-    connection.close()
-
-
-def fake_slow_worker(connection):
-    connection.send((INIT_OK, WorkerStartupInfo(engine_name="rapidocr")))
-    connection.send((REQUEST_BATCH, None))
-    try:
-        while True:
-            kind, payload = connection.recv()
-            if kind == PROCESS_BATCH:
-                time.sleep(2.0)
-            elif kind == CANCEL:
-                connection.send((DONE, True))
-                return
-            elif kind == END_INPUT:
-                connection.send((DONE, False))
-                return
-    finally:
-        connection.close()
-
-
-def fake_crash_worker(connection):
-    connection.send((INIT_OK, WorkerStartupInfo(engine_name="rapidocr")))
-    connection.send((REQUEST_BATCH, None))
-    try:
-        while True:
-            kind, payload = connection.recv()
-            if kind == PROCESS_BATCH:
-                os._exit(17)
-    finally:
-        connection.close()
 
 
 class FakeRapidOutput:
@@ -152,36 +23,7 @@ class FakeRapidOutput:
     scores = (0.95, 0.96)
 
 
-class ImageTextModelTests(unittest.TestCase):
-    def test_result_invariants(self):
-        success = ImageTextResult.succeeded("image.png", "[OCR]hello")
-        no_text = ImageTextResult.succeeded("image.png")
-        failure = ImageTextResult.failed("bad.png", "cannot decode")
-
-        self.assertTrue(success.success)
-        self.assertEqual("[OCR]hello", success.text)
-        self.assertIsNone(no_text.text)
-        self.assertFalse(failure.success)
-        self.assertIsNone(failure.text)
-
-        with self.assertRaises(ValueError):
-            ImageTextResult.succeeded("image.png", "hello")
-        with self.assertRaises(ValueError):
-            ImageTextResult.failed("bad.png", "")
-        with self.assertRaises(ValueError):
-            ImageTextResult(
-                "image.png",
-                True,
-                "[OCR]hello",
-                "unexpected",
-            )
-
-    def test_progress_invariants(self):
-        progress = TextExtractionProgress(3, 5, 2, 1)
-        self.assertEqual(3, progress.completed)
-        with self.assertRaises(ValueError):
-            TextExtractionProgress(3, 5, 1, 1)
-
+class OcrTextModelTests(unittest.TestCase):
     def test_normalize_image_path_is_absolute_without_reading_file(self):
         normalized = normalize_image_path(Path("missing") / "image.png")
         self.assertTrue(Path(normalized).is_absolute())
@@ -253,188 +95,45 @@ class ComposeOcrTextTests(unittest.TestCase):
         )
 
 
-class ImageTextWorkerTests(unittest.TestCase):
-    def test_process_image_batch_preserves_order_and_handles_failures(self):
-        seen_paths = []
-
+class OcrStageTests(unittest.TestCase):
+    def test_ocr_image_returns_path_and_composed_text(self):
         def fake_engine(image_path):
-            seen_paths.append(image_path)
-            if Path(image_path).name.startswith("bad"):
-                raise OSError("cannot decode")
-            if Path(image_path).name.startswith("empty"):
-                return []
+            self.assertEqual("image.png", image_path)
             return [("Hello", 0.95), ("世界", 0.96)]
 
-        results = process_image_batch(
-            fake_engine,
-            ["one.png", "bad.png", "empty.png"],
-        )
+        with patch("image_text_extractor.stages._get_engine", return_value=fake_engine):
+            image_path, text = ocr_image("image.png")
 
-        self.assertEqual(
-            ["one.png", "bad.png", "empty.png"],
-            [result.image_path for result in results],
-        )
-        self.assertEqual(
-            [True, False, True],
-            [result.success for result in results],
-        )
-        self.assertEqual("[OCR]Hello 世界", results[0].text)
-        self.assertIsNone(results[2].text)
-        self.assertTrue(results[1].error)
-        self.assertEqual(seen_paths, ["one.png", "bad.png", "empty.png"])
+        self.assertEqual("image.png", image_path)
+        self.assertEqual("[OCR]Hello 世界", text)
 
-
-class TextExtractionControllerTests(unittest.TestCase):
-    def test_streaming_preserves_order_progress_and_failures(self):
-        paths = ["one.png", "bad.png", "three.png", "four.png", "five.png"]
-        progress_updates = []
-        startup = []
-
+    def test_ocr_image_returns_none_text_for_empty_output(self):
         with patch(
-            "image_text_extractor.extractor.worker_process_entry",
-            fake_worker_entry,
+            "image_text_extractor.stages._get_engine",
+            return_value=lambda _path: [],
         ):
-            batches = list(
-                iter_texts(
-                    paths,
-                    batch_size=2,
-                    progress=progress_updates.append,
-                    started=startup.append,
-                    timeout=10,
-                )
-            )
+            image_path, text = ocr_image("image.png")
+        self.assertEqual("image.png", image_path)
+        self.assertIsNone(text)
 
-        results = [result for batch in batches for result in batch.results]
-        self.assertEqual([2, 2, 1], [len(batch.results) for batch in batches])
-        self.assertEqual(
-            [normalize_image_path(path) for path in paths],
-            [result.image_path for result in results],
-        )
-        self.assertEqual(
-            [True, False, True, True, True],
-            [result.success for result in results],
-        )
-        self.assertEqual([2, 4, 5], [item.completed for item in progress_updates])
-        self.assertEqual([5, 5, 5], [item.total for item in progress_updates])
-        self.assertEqual("rapidocr", startup[0].engine_name)
 
-    def test_generator_without_total_reports_indeterminate_progress(self):
-        paths = (path for path in ["one.png", "two.png", "three.png"])
-        updates = []
-        with patch(
-            "image_text_extractor.extractor.worker_process_entry",
-            fake_worker_entry,
-        ):
-            results = extract_texts(
-                paths,
-                batch_size=2,
-                progress=updates.append,
-                timeout=10,
-            )
-        self.assertEqual(3, len(results))
-        self.assertEqual([None, None], [update.total for update in updates])
-
-    def test_prefetch_dispatches_next_batch_while_consumer_is_busy(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            record_path = Path(temp_dir) / "prefetch_probe.txt"
-            consumer_finished = []
-            os.environ["TEXT_PROBE_RECORD"] = str(record_path)
-            try:
-                with patch(
-                    "image_text_extractor.extractor.worker_process_entry",
-                    prefetch_probe_worker,
-                ):
-                    for batch in iter_texts(
-                        ["one.png", "two.png", "three.png", "four.png"],
-                        batch_size=2,
-                        timeout=10,
-                    ):
-                        if batch.progress.completed < batch.progress.total:
-                            # 模拟消费方写库耗时（SQLite 回填）。
-                            time.sleep(0.5)
-                            consumer_finished.append(time.monotonic())
-            finally:
-                os.environ.pop("TEXT_PROBE_RECORD", None)
-
-            records = [
-                float(line.split(":", 1)[1])
-                for line in record_path.read_text(encoding="utf-8").splitlines()
-                if line.startswith("worker_batch:")
-            ]
-
-        self.assertEqual(2, len(records))
-        # 第二批应在消费方处理第一批期间就已下发（预取），
-        # 否则会晚于消费方完成时刻。
-        self.assertLess(records[1], consumer_finished[0])
-
-    def test_cancellation_timeout_and_crash_reap_worker(self):
-        cancel_event = threading.Event()
-
-        def cancel_after_first_batch(progress):
-            if progress.completed:
-                cancel_event.set()
-
-        with patch(
-            "image_text_extractor.extractor.worker_process_entry",
-            fake_worker_entry,
-        ):
-            with self.assertRaises(TextExtractionCancelledError):
-                list(
-                    iter_texts(
-                        ["one.png", "two.png", "three.png"],
-                        batch_size=1,
-                        progress=cancel_after_first_batch,
-                        cancel_event=cancel_event,
-                        timeout=10,
-                    )
-                )
-
-        with patch(
-            "image_text_extractor.extractor.worker_process_entry",
-            fake_slow_worker,
-        ):
-            with self.assertRaises(TextExtractionTimeoutError):
-                extract_texts(
-                    ["one.png"],
-                    timeout=0.2,
-                )
-
-        with patch(
-            "image_text_extractor.extractor.worker_process_entry",
-            fake_crash_worker,
-        ):
-            with self.assertRaises(WorkerCrashedError):
-                extract_texts(
-                    ["one.png"],
-                    timeout=10,
-                )
-
-        self.assertFalse(
-            any(
-                child.name == "ImageTextExtractorWorker"
-                for child in multiprocessing.active_children()
-            )
-        )
-
-    def test_worker_initialization_failure_is_reported(self):
-        with patch(
-            "image_text_extractor.extractor.worker_process_entry",
-            fake_init_error_worker,
-        ):
-            with self.assertRaises(WorkerInitializationError):
-                extract_texts([], timeout=10)
-        self.assertFalse(
-            any(
-                child.name == "ImageTextExtractorWorker"
-                for child in multiprocessing.active_children()
-            )
-        )
+class OcrRunnerTests(unittest.TestCase):
+    def test_build_pipeline_declares_single_ocr_stage(self):
+        spec = OcrBatchJobRunner().build_pipeline()
+        self.assertEqual(("input", "output"), tuple(q.name for q in spec.queues))
+        self.assertEqual(1, len(spec.stages))
+        stage = spec.stages[0]
+        self.assertEqual("ocr", stage.name)
+        self.assertEqual(1, stage.pool_size)
+        self.assertEqual(1, stage.batch_size)
+        self.assertIs(spec.setup_func, load_ocr_engine)
+        self.assertIs(stage.func, ocr_image)
 
     @unittest.skipUnless(
         os.environ.get("STICKERGENIE_RUN_MODEL_TESTS") == "1",
         "set STICKERGENIE_RUN_MODEL_TESTS=1 to run the real RapidOCR test",
     )
-    def test_real_rapidocr_worker(self):
+    def test_real_rapidocr_runner(self):
         from PIL import Image, ImageDraw, ImageFont
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -448,14 +147,15 @@ class TextExtractionControllerTests(unittest.TestCase):
             draw.text((30, 50), "Hello 世界 123", fill="black", font=font)
             image.save(image_path)
 
-            results = extract_texts(
-                [image_path],
-                timeout=120,
-            )
+            summary = OcrBatchJobRunner().run([image_path], timeout=120)
 
-        self.assertEqual(1, len(results))
-        self.assertTrue(results[0].success)
-        self.assertIsNone(results[0].error)
+        self.assertEqual(1, summary.completed)
+        self.assertEqual(1, summary.succeeded)
+        self.assertEqual(0, summary.failed)
+        self.assertEqual("rapidocr", summary.startup_info["engine_name"])
+        path, text = summary.results[0].data
+        self.assertEqual(normalize_image_path(image_path), path)
+        self.assertTrue(text.startswith(OCR_TEXT_PREFIX))
 
 
 if __name__ == "__main__":

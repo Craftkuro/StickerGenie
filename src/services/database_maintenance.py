@@ -13,14 +13,15 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 import apppath
 import services.global_instances
+from batch_job_runner.exceptions import JobCancelledError
+from batch_job_runner.models import wrapper_input_identifier
 from blob_storage import BlobFileEntity
 from image_features_extractor import (
     DEFAULT_MODEL_FILENAME,
-    ExtractionCancelledError,
-    iter_features,
+    VectorBatchJobRunner,
     normalize_image_path,
 )
-from image_text_extractor import TextExtractionCancelledError, iter_texts
+from image_text_extractor import OcrBatchJobRunner
 from services.image_vector_model import get_model_hash
 from stickerdb.v1.sticker_db import StickerMaintenanceRecord
 from stickerdb.vectordb import VectorMetadata, VectorRecord
@@ -29,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 VECTOR_BATCH_SIZE = 32
 VECTOR_PREP_FRACTION = 0.3
-OCR_BATCH_SIZE = 8
 
 
 class VectorMaintenanceScope(str, Enum):
@@ -322,27 +322,27 @@ def _extract_missing_texts(
     }
     ocr_count = 0
 
+    runner = OcrBatchJobRunner()
     try:
-        for result_batch in iter_texts(
+        for result_batch in runner.iter_results(
             image_paths,
-            batch_size=OCR_BATCH_SIZE,
             total=candidate_total,
             cancel_event=cancel_event,
         ):
             text_by_sticker_id: dict[int, str | None] = {}
-            for text_result in result_batch.results:
-                sticker = sticker_by_path.get(text_result.image_path)
+            for wrapper in result_batch.results:
+                image_path = wrapper_input_identifier(wrapper)
+                sticker = sticker_by_path.get(image_path)
                 if sticker is None:
+                    errors.append(f"{image_path}：缺少对应的维护记录")
+                    continue
+                if wrapper.hasException:
                     errors.append(
-                        f"{text_result.image_path}：缺少对应的维护记录"
+                        f"{sticker.original_file_name}：{wrapper.error}"
                     )
                     continue
-                if not text_result.success:
-                    errors.append(
-                        f"{sticker.original_file_name}：{text_result.error}"
-                    )
-                    continue
-                text_by_sticker_id[sticker.id] = text_result.text
+                _, text = wrapper.data
+                text_by_sticker_id[sticker.id] = text
 
             if text_by_sticker_id:
                 try:
@@ -365,7 +365,7 @@ def _extract_missing_texts(
                 total=candidate_total,
                 cancellable=True,
             )
-    except TextExtractionCancelledError:
+    except JobCancelledError:
         return ocr_count, tuple(errors), True
     except Exception as exc:
         logger.exception("图片文字识别任务失败")
@@ -530,31 +530,30 @@ def _generate_vectors(
         for sticker, blob_path in zip(candidates, image_paths)
     }
 
+    runner = VectorBatchJobRunner(model_path)
     try:
-        for result_batch in iter_features(
+        for result_batch in runner.iter_results(
             image_paths,
-            model_path=model_path,
-            batch_size=VECTOR_BATCH_SIZE,
             total=candidate_total,
             cancel_event=cancel_event,
         ):
             batch_stickers: list[StickerMaintenanceRecord] = []
             batch_vectors = []
             batch_metadata = []
-            for feature_result in result_batch.results:
-                sticker = sticker_by_path.get(feature_result.image_path)
+            for wrapper in result_batch.results:
+                image_path = wrapper_input_identifier(wrapper)
+                sticker = sticker_by_path.get(image_path)
                 if sticker is None:
+                    errors.append(f"{image_path}：缺少对应的维护记录")
+                    continue
+                if wrapper.hasException:
                     errors.append(
-                        f"{feature_result.image_path}：缺少对应的维护记录"
+                        f"{sticker.original_file_name}：{wrapper.error}"
                     )
                     continue
-                if not feature_result.success:
-                    errors.append(
-                        f"{sticker.original_file_name}：{feature_result.error}"
-                    )
-                    continue
+                _, vector = wrapper.data
                 batch_stickers.append(sticker)
-                batch_vectors.append(feature_result.vector)
+                batch_vectors.append(vector)
                 batch_metadata.append(
                     VectorMetadata(
                         image_filename=sticker.original_file_name,
@@ -615,7 +614,7 @@ def _generate_vectors(
                 total=total,
                 cancellable=True,
             )
-    except ExtractionCancelledError:
+    except JobCancelledError:
         return vectorized_count, relinked_count, skipped_count, tuple(errors), True
 
     return vectorized_count, relinked_count, skipped_count, tuple(errors), False
