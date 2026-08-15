@@ -1,17 +1,14 @@
 # 项目约定
 
-## 文本文件编码（Windows / PowerShell 5.1）
+## 文本文件编码（Windows / PowerShell 7）
 
-本仓库的源码文件统一使用 UTF-8（无 BOM）。在 Windows PowerShell 5.1 中读取文件时，必须显式指定 UTF-8，否则中文会被按 GBK 解码成乱码，导致 apply_patch 无法匹配文件内容。
+本仓库的源码文件统一使用 UTF-8（无 BOM）。开发任务优先使用 PowerShell 7（`pwsh`），其默认编码即为 UTF-8，读写文件无需额外参数。
 
-- 读取文件时使用 `Get-Content -Encoding UTF8`（或 `-Raw -Encoding UTF8`），不要使用不带 `-Encoding` 参数的 `Get-Content`。
-- 也可以使用 `[System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)`。
-- apply_patch 的上下文行或新增行中如果包含中文，必须从 UTF-8 读取结果中原样复制；不要使用乱码文本。也可以用纯 ASCII 代码行作为锚点来避免匹配中文行。
 - 不要向仓库写入 GBK/GB2312 编码或带 BOM 的文本文件；新增或编辑的文本文件保持 UTF-8 无 BOM。
 
-## apply_patch 用法（Windows）
+## apply_patch 用法（PowerShell 7）
 
-应用补丁统一使用项目根目录的 `apply_patch.ps1`，不要用 `apply_patch.bat`（经 cmd.exe 传参，多行补丁会在首个换行处被截断）。
+应用补丁统一使用项目根目录的 `apply_patch.ps1`，并在 PowerShell 7（`pwsh`）中调用；不要用 `apply_patch.bat`（经 cmd.exe 传参，多行补丁会在首个换行处被截断）。
 
 - 直接传多行补丁：`& .\apply_patch.ps1 $patch`，例如：
 
@@ -29,6 +26,7 @@ $patch = @'
 - 管道输入：`Get-Content .\patch.txt -Raw | & .\apply_patch.ps1`
 - 退出码 0 表示成功；codex.exe 的输出会原样显示。
 - codex.exe 路径解析顺序：`-ExePath` 参数 > `CODEX_APPLY_PATCH_EXE` 环境变量 > 脚本内默认 npm 路径（换机器或重装后需更新）。
+- 补丁中的相对路径以 `pwsh` 启动时的目录为准；`Set-Location` 不会改变子进程的工作目录，跨目录时请使用绝对路径或直接从目标目录启动 `pwsh`。
 
 ## 项目数据完整性需求
 
