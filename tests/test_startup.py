@@ -10,6 +10,15 @@ import services.startup as startup
 from services.settings import SETTINGS_SCHEMA, SETTINGS_VERSION, create_settings_manager
 
 
+class _FakeSettings:
+    def __init__(self, value):
+        self.value = value
+
+    def get(self, key):
+        self.key = key
+        return self.value
+
+
 class StartupLibraryPathsTests(unittest.TestCase):
     def test_settings_schema_declares_library_base_path(self):
         field = next(
@@ -41,70 +50,112 @@ class StartupLibraryPathsTests(unittest.TestCase):
                 content,
             )
 
-    def test_run_startup_tasks_configures_library_before_storage(self):
+    def test_run_startup_tasks_resolves_path_then_opens_library(self):
         order = []
 
         def mark(name):
             return lambda *args, **kwargs: order.append(name)
+
+        def resolve_library_path_mock(*args, **kwargs):
+            order.append("resolve")
+            return mock.sentinel.library_path
 
         with mock.patch.object(
             startup, "set_logging_levels", side_effect=mark("log")
         ), mock.patch.object(
             startup, "init_settings_manager", side_effect=mark("settings")
         ), mock.patch.object(
-            startup, "configure_library_paths", side_effect=mark("configure")
+            startup, "resolve_library_path",
+            side_effect=resolve_library_path_mock,
         ), mock.patch.object(
-            startup, "open_db", side_effect=mark("db")
-        ), mock.patch.object(
-            startup, "init_blob_storage", side_effect=mark("blob")
-        ), mock.patch.object(
-            startup, "init_thumbnail_cache", side_effect=mark("thumb")
-        ), mock.patch.object(
-            startup, "init_vector_store", side_effect=mark("vector")
-        ):
+            startup, "open_library", side_effect=mark("open")
+        ) as open_library:
             startup.run_startup_tasks()
 
-        self.assertEqual(
-            order,
-            ["log", "settings", "configure", "db", "blob", "thumb", "vector"],
-        )
+        self.assertEqual(order, ["log", "settings", "resolve", "open"])
+        open_library.assert_called_once_with(mock.sentinel.library_path)
 
-    def test_configure_library_paths_reads_setting(self):
-        class FakeSettings:
-            def get(self, key):
-                self.key = key
-                return "My Library"
+    def test_resolve_library_path_relative_to_base_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "data"
+            fake_settings = _FakeSettings("My Library")
 
-        fake_settings = FakeSettings()
-        with mock.patch.object(
-            services.global_instances,
-            "current_settings_manager",
-            fake_settings,
-        ), mock.patch.object(apppath, "setup_library_paths") as setup:
-            startup.configure_library_paths()
+            with mock.patch.object(
+                services.global_instances,
+                "current_settings_manager",
+                fake_settings,
+            ), mock.patch.object(apppath, "base_path", data_root):
+                result = startup.resolve_library_path()
 
-        self.assertEqual(fake_settings.key, "library_base_path")
-        setup.assert_called_once_with("My Library")
+            expected = data_root / "My Library" / "Default Library"
+            self.assertEqual(expected, result)
+            self.assertTrue(expected.exists())
+            self.assertEqual("library_base_path", fake_settings.key)
 
-    def test_configure_library_paths_requires_settings_manager(self):
+    def test_resolve_library_path_accepts_absolute_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "data"
+            custom_root = Path(tmp) / "custom-lib"
+
+            with mock.patch.object(
+                services.global_instances,
+                "current_settings_manager",
+                _FakeSettings(str(custom_root)),
+            ), mock.patch.object(apppath, "base_path", data_root):
+                result = startup.resolve_library_path()
+
+            self.assertEqual(custom_root / "Default Library", result)
+            self.assertTrue(result.exists())
+
+    def test_resolve_library_path_requires_settings_manager(self):
         with mock.patch.object(
             services.global_instances, "current_settings_manager", None
         ):
             with self.assertRaises(RuntimeError):
-                startup.configure_library_paths()
+                startup.resolve_library_path()
 
-    def test_configure_library_paths_rejects_blank_value(self):
-        class BlankSettings:
-            def get(self, key):
-                return "   "
-
+    def test_resolve_library_path_rejects_blank_value(self):
         with mock.patch.object(
             services.global_instances,
             "current_settings_manager",
-            BlankSettings(),
+            _FakeSettings("   "),
         ):
             with self.assertRaises(RuntimeError):
-                startup.configure_library_paths()
+                startup.resolve_library_path()
+
+    def test_open_library_requires_absolute_path(self):
+        with mock.patch.object(startup, "open_db") as open_db, mock.patch.object(
+            startup, "init_blob_storage"
+        ) as init_blob, mock.patch.object(
+            startup, "init_thumbnail_cache"
+        ) as init_thumb, mock.patch.object(
+            startup, "init_vector_store"
+        ) as init_vector:
+            with self.assertRaises(ValueError):
+                startup.open_library("relative/library")
+
+        open_db.assert_not_called()
+        init_blob.assert_not_called()
+        init_thumb.assert_not_called()
+        init_vector.assert_not_called()
+
+    def test_open_library_calls_each_store_with_library_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            library_path = Path(tmp) / "Default Library"
+
+            with mock.patch.object(startup, "open_db") as open_db, mock.patch.object(
+                startup, "init_blob_storage"
+            ) as init_blob, mock.patch.object(
+                startup, "init_thumbnail_cache"
+            ) as init_thumb, mock.patch.object(
+                startup, "init_vector_store"
+            ) as init_vector:
+                startup.open_library(str(library_path))
+
+        open_db.assert_called_once_with(library_path)
+        init_blob.assert_called_once_with(library_path)
+        init_thumb.assert_called_once_with(library_path)
+        init_vector.assert_called_once_with(library_path)
 
 
 if __name__ == "__main__":

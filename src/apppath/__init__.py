@@ -4,8 +4,6 @@ import pathlib
 base_path = None
 app_path = None
 user_data_dir_path = None
-library_base_path = None
-default_library_path = None
 main_config_file_path = None
 
 def setup_data_path(_app_path, _base_data_path=None):
@@ -28,20 +26,3 @@ def setup_data_path(_app_path, _base_data_path=None):
     user_data_dir_path.mkdir(parents=True, exist_ok=True)
 
     main_config_file_path = pathlib.Path(user_data_dir_path, 'config.toml')
-
-
-def setup_library_paths(library_base_dir):
-    global library_base_path
-    global default_library_path
-
-    if base_path is None:
-        raise RuntimeError("数据根目录尚未初始化")
-
-    raw_path = pathlib.Path(library_base_dir).expanduser()
-    library_base_path = (
-        raw_path if raw_path.is_absolute() else base_path / raw_path
-    )
-    library_base_path.mkdir(parents=True, exist_ok=True)
-
-    default_library_path = library_base_path / 'Default Library'
-    default_library_path.mkdir(parents=True, exist_ok=True)

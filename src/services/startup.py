@@ -17,11 +17,8 @@ logger = logging.getLogger(__name__)
 def run_startup_tasks():
     set_logging_levels()
     init_settings_manager()
-    configure_library_paths()
-    open_db()
-    init_blob_storage()
-    init_thumbnail_cache()
-    init_vector_store()
+    library_path = resolve_library_path()
+    open_library(library_path)
 
 
 def set_logging_levels():
@@ -34,7 +31,7 @@ def init_settings_manager():
     services.global_instances.current_settings_manager = settings_manager
 
 
-def configure_library_paths():
+def resolve_library_path():
     settings_manager = services.global_instances.current_settings_manager
     if settings_manager is None:
         raise RuntimeError("配置管理器尚未初始化")
@@ -43,39 +40,48 @@ def configure_library_paths():
     if not isinstance(library_base_path, str) or not library_base_path.strip():
         raise RuntimeError("配置项 library_base_path 无效")
 
-    apppath.setup_library_paths(library_base_path)
+    if apppath.base_path is None:
+        raise RuntimeError("数据根目录尚未初始化")
+
+    raw_path = pathlib.Path(library_base_path).expanduser()
+    library_base_path = (
+        raw_path if raw_path.is_absolute() else apppath.base_path / raw_path
+    )
+    library_base_path.mkdir(parents=True, exist_ok=True)
+
+    default_library_path = library_base_path / 'Default Library'
+    default_library_path.mkdir(parents=True, exist_ok=True)
+    return default_library_path
 
 
-def _resolve_active_library_path(library_path=None):
-    if library_path is not None:
-        return pathlib.Path(library_path)
+def open_library(library_path):
+    library_path = pathlib.Path(library_path)
+    if not library_path.is_absolute():
+        raise ValueError("图库路径必须是绝对路径")
 
-    if apppath.default_library_path is None:
-        raise RuntimeError("图库路径尚未初始化")
+    open_db(library_path)
+    init_blob_storage(library_path)
+    init_thumbnail_cache(library_path)
+    init_vector_store(library_path)
 
-    return apppath.default_library_path
 
-
-def open_db(library_path=None):
+def open_db(library_path):
     # 打开数据库
-    default_library_path = _resolve_active_library_path(library_path)
-    db_base_path = default_library_path / 'db' / 'v1'
+    db_base_path = pathlib.Path(library_path) / 'db' / 'v1'
     db_file_path = db_base_path / 'sticker.db'
 
     db = StickerDBV1(str(db_file_path))
     services.global_instances.current_library_db = db
     
 
-def init_blob_storage(library_path=None):
-    default_library_path = _resolve_active_library_path(library_path)
-    blob_storage_path = default_library_path / 'blob'
+def init_blob_storage(library_path):
+    blob_storage_path = pathlib.Path(library_path) / 'blob'
     current_blob_storage = blob_storage.BlobStorage(str(blob_storage_path))
     services.global_instances.current_blob_storage = current_blob_storage
 
 
-def init_thumbnail_cache(library_path=None):
-    default_library_path = _resolve_active_library_path(library_path)
-    thumbnail_path = default_library_path / 'thumbnails'
+def init_thumbnail_cache(library_path):
+    thumbnail_path = pathlib.Path(library_path) / 'thumbnails'
     current_thumbnail_disk_storage = thumbnail_disk_storage.ThumbnailDiskStorage(
         str(thumbnail_path)
     )
@@ -89,9 +95,8 @@ def init_thumbnail_cache(library_path=None):
     )
 
 
-def init_vector_store(library_path=None):
-    default_library_path = _resolve_active_library_path(library_path)
-    vector_store_path = default_library_path / 'vectors'
+def init_vector_store(library_path):
+    vector_store_path = pathlib.Path(library_path) / 'vectors'
     vector_store = ChromaVectorStore(str(vector_store_path))
     vector_store.initialize()
     services.global_instances.current_vector_store = vector_store
