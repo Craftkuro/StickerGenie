@@ -105,7 +105,7 @@
         </widget>
        </item>
        <item>
-        <widget class="QListWidget" name="listWidget"/>
+        <widget class="PathDropListWidget" name="listWidget"/>
        </item>
       </layout>
      </widget>
@@ -198,6 +198,13 @@
    </item>
   </layout>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>PathDropListWidget</class>
+   <extends>QListWidget</extends>
+   <header>ui.widgets.path_drop_list_widget</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

@@ -6,13 +6,19 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QImage
+from PyQt6.QtCore import QMimeData, QPoint, QPointF, QUrl, Qt
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QImage
 from PyQt6.QtWidgets import QApplication, QDialog
 
 import apppath
 from commons.signal_objects import ImportImagesRequest
-from ui.dialog_image_import import ImageImportDialog
+from ui.dialog_image_import import (
+    DIRECTORY_SOURCE,
+    FILE_PATH_ROLE,
+    FILE_SOURCE,
+    SOURCE_TYPE_ROLE,
+    ImageImportDialog,
+)
 
 
 class ImageImportDialogTests(unittest.TestCase):
@@ -38,6 +44,45 @@ class ImageImportDialogTests(unittest.TestCase):
         image.fill(color)
         self.assertTrue(image.save(str(path)))
         return path
+
+    def _drop_mime_data(self, mime_data: QMimeData) -> None:
+        viewport = self.dialog.listWidget.viewport()
+        drop_action = Qt.DropAction.CopyAction
+        buttons = Qt.MouseButton.LeftButton
+        modifiers = Qt.KeyboardModifier.NoModifier
+        QApplication.sendEvent(
+            viewport,
+            QDragEnterEvent(
+                QPoint(2, 2),
+                drop_action,
+                mime_data,
+                buttons,
+                modifiers,
+            ),
+        )
+        QApplication.sendEvent(
+            viewport,
+            QDropEvent(
+                QPointF(2, 2),
+                drop_action,
+                mime_data,
+                buttons,
+                modifiers,
+            ),
+        )
+
+    def _drop_paths(self, *paths: str | Path) -> None:
+        mime_data = QMimeData()
+        mime_data.setUrls([QUrl.fromLocalFile(str(path)) for path in paths])
+        self._drop_mime_data(mime_data)
+
+    def _item_for_path(self, path: str | Path):
+        target = self.dialog._normalize_path(path)
+        for row in range(self.dialog.listWidget.count()):
+            item = self.dialog.listWidget.item(row)
+            if item.data(FILE_PATH_ROLE) == target:
+                return item
+        self.fail(f"missing item for {path}")
 
     def test_switches_primary_buttons_between_pages(self):
         image_path = self._make_image("one.png")
@@ -123,6 +168,59 @@ class ImageImportDialogTests(unittest.TestCase):
             self.dialog.prepared_file_paths,
         )
         self.assertEqual(2, self.dialog.listWidget.count())
+
+    def test_drops_mixed_files_and_directories_into_list(self):
+        image_path = self._make_image("dropped.png")
+        nested_image = self._make_image("dropped_dir/nested.jpg")
+        image_dir = self.temp_path / "dropped_dir"
+
+        self._drop_paths(image_path, image_dir)
+
+        self.assertEqual(
+            {str(image_path.resolve()), str(image_dir.resolve())},
+            set(self.dialog.selected_file_paths),
+        )
+        self.assertEqual(
+            FILE_SOURCE,
+            self._item_for_path(image_path).data(SOURCE_TYPE_ROLE),
+        )
+        self.assertEqual(
+            DIRECTORY_SOURCE,
+            self._item_for_path(image_dir).data(SOURCE_TYPE_ROLE),
+        )
+
+        self.dialog._show_confirmation_page()
+
+        self.assertEqual(
+            {str(image_path.resolve()), str(nested_image.resolve())},
+            set(self.dialog.prepared_file_paths),
+        )
+
+    def test_drop_deduplicates_against_existing_list_entries(self):
+        image_path = self._make_image("drop-duplicate.png")
+        self.dialog._add_paths([image_path])
+
+        self._drop_paths(image_path)
+
+        self.assertEqual(1, self.dialog.listWidget.count())
+
+    def test_drop_ignores_obviously_invalid_urls(self):
+        image_path = self._make_image("local-only.png")
+        mime_data = QMimeData()
+        mime_data.setUrls(
+            [
+                QUrl.fromLocalFile(str(image_path)),
+                QUrl("https://example.com/remote.png"),
+                QUrl("file:relative/path.png"),
+            ]
+        )
+
+        self._drop_mime_data(mime_data)
+
+        self.assertEqual(
+            [str(image_path.resolve())],
+            self.dialog.selected_file_paths,
+        )
 
     def test_accepts_and_sends_import_request(self):
         image_path = self._make_image("one.png")

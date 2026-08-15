@@ -31,6 +31,7 @@ datas = [
     ("src/resources/thumbnail_placeholder.png", "resources"),
     ("src/resources/menu.svg", "resources"),
     ("src/resources/plus.svg", "resources"),
+    ("src/resources/pencil.svg", "resources"),
     ("src/resources/search.svg", "resources"),
     ("src/resources/binoculars.svg", "resources"),
     ("src/resources/funnel.svg", "resources"),
@@ -56,6 +57,7 @@ hiddenimports = chromadb_hiddenimports + rust_hiddenimports + rapidocr_hiddenimp
     "ui.widgets.sticker_list_view_widget",
     "ui.widgets.pan_zoom_image_view",
     "ui.widgets.image_text_edit_widget",
+    "ui.widgets.path_drop_list_widget",
     "PyQt6.QtSvg",
 ]
 

@@ -87,6 +87,7 @@ class ImageImportDialog(QDialog):
         self.pushButtonNext.clicked.connect(self._show_confirmation_page)
         self.pushButtonOk.clicked.connect(self._send_import_request)
         self.pushButtonCancel.clicked.connect(self.reject)
+        self.listWidget.paths_dropped.connect(self._add_dropped_paths)
         self.listWidget.itemSelectionChanged.connect(self._sync_selection_controls)
         self.stackedWidget.currentChanged.connect(self._sync_page_controls)
 
@@ -112,11 +113,27 @@ class ImageImportDialog(QDialog):
         *,
         source_type: str = FILE_SOURCE,
     ):
+        self._add_path_entries(
+            (file_path, source_type) for file_path in file_paths
+        )
+
+    def _add_dropped_paths(self, dropped_paths: list[tuple[str, bool]]):
+        self._add_path_entries(
+            (
+                (path, DIRECTORY_SOURCE if is_directory else FILE_SOURCE)
+                for path, is_directory in dropped_paths
+            )
+        )
+
+    def _add_path_entries(
+        self,
+        path_entries: Iterable[tuple[str | Path, str]],
+    ):
         known_paths = {
             self._path_key(path) for path in self.selected_file_paths
         }
 
-        for file_path in file_paths:
+        for file_path, source_type in path_entries:
             normalized_path = self._normalize_path(file_path)
             path_key = self._path_key(normalized_path)
             if path_key in known_paths:
