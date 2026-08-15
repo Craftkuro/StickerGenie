@@ -1,5 +1,6 @@
 #coding=utf-8
 import logging
+from pathlib import Path
 
 from PyQt6 import uic
 from PyQt6.QtCore import (
@@ -16,7 +17,11 @@ from PyQt6.QtWidgets import QMenu, QMessageBox, QSizePolicy, QSlider, QWidget
 import apppath
 import commons.constants
 #import commons.classes
-from commons.roles import ROLE_FILE_PATH, ROLE_STICKER_IMAGE
+from commons.roles import (
+    ROLE_BLOB_ENTITY,
+    ROLE_FILE_PATH,
+    ROLE_STICKER_IMAGE,
+)
 import services.image_clipboard_service
 import services.sticker_library_viewer_service
 
@@ -137,7 +142,10 @@ class StickerListPage(QWidget):
         # 复制、查找相似图片和图片属性只适用于单选；多选时只保留删除入口。
         if len(selected_indexes) == 1:
             selected_index = selected_indexes[0]
+            is_gif = self._is_gif_index(selected_index)
             copy_action = menu.addAction("复制到剪贴板")
+            if is_gif:
+                copy_first_frame_action = menu.addAction("复制首帧到剪贴板")
             menu.addSeparator()
             find_similar_action = menu.addAction("查找相似图片")
             image_properties_action = menu.addAction("图片属性")
@@ -147,6 +155,13 @@ class StickerListPage(QWidget):
                     selected_index
                 )
             )
+            if is_gif:
+                copy_first_frame_action.triggered.connect(
+                    lambda _checked=False: self._copy_sticker_for_index(
+                        selected_index,
+                        anim_as_static_image=True,
+                    )
+                )
             find_similar_action.triggered.connect(
                 lambda _checked=False: self._find_similar_for_index(
                     selected_index
@@ -189,7 +204,28 @@ class StickerListPage(QWidget):
         )
         return [model.index(row, 0) for row in rows]
 
-    def _copy_sticker_for_index(self, index: QModelIndex):
+    def _is_gif_index(self, index: QModelIndex) -> bool:
+        blob_entity = index.data(ROLE_BLOB_ENTITY)
+        if blob_entity is not None:
+            if blob_entity.extension.casefold() == ".gif":
+                return True
+
+        file_path = index.data(ROLE_FILE_PATH)
+        if file_path:
+            if Path(file_path).suffix.casefold() == ".gif":
+                return True
+
+        sticker = index.data(ROLE_STICKER_IMAGE)
+        if sticker is not None:
+            return getattr(sticker, "extension", "").casefold() == ".gif"
+        return False
+
+    def _copy_sticker_for_index(
+        self,
+        index: QModelIndex,
+        *,
+        anim_as_static_image: bool = False,
+    ):
         file_path = index.data(ROLE_FILE_PATH)
         sticker = index.data(ROLE_STICKER_IMAGE)
         if not file_path or sticker is None:
@@ -199,6 +235,7 @@ class StickerListPage(QWidget):
             services.image_clipboard_service.copy_image_to_clipboard(
                 file_path,
                 sticker.original_file_name,
+                anim_as_static_image=anim_as_static_image,
             )
         except Exception as exc:
             logger.exception("复制图片到剪贴板失败")

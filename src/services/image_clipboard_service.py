@@ -113,13 +113,14 @@ def create_image_mime_data(
     display_name: str,
     *,
     staging_root: str | Path | None = None,
+    anim_as_static_image: bool = False,
 ) -> tuple[QMimeData, Path]:
     """Build clipboard data and a staged file with a readable name.
 
     GIFs are exposed as an HTML fragment with a local file URL so QQ/WeChat
     paste them as animated images (plain bitmap copies only carry the first
-    frame). Other images use file + raw bytes + bitmap formats so they paste
-    everywhere.
+    frame). With anim_as_static_image=True, GIFs use the same file + raw bytes
+    + bitmap path as other images and only the first frame is copied.
     """
     source = Path(source_path)
     if not source.is_file():
@@ -131,7 +132,8 @@ def create_image_mime_data(
     staged_path = _stage_image_file(source, display_name, root)
 
     mime_data = QMimeData()
-    if is_gif:
+    # 普通图片分支即可复制 GIF 首帧：QImage 读取 GIF 时只会取到首帧。
+    if is_gif and not anim_as_static_image:
         local_url = _local_file_url_for_html(staged_path.resolve())
         mime_data.setHtml(
             '<html><body><!--StartFragment-->'
@@ -157,11 +159,17 @@ def create_image_mime_data(
 def copy_image_to_clipboard(
     source_path: str | Path,
     display_name: str,
+    *,
+    anim_as_static_image: bool = False,
 ) -> Path:
-    """Copy an image to the clipboard (GIFs as an HTML fragment)."""
+    """Copy an image to the clipboard (GIFs as an HTML fragment by default)."""
     if QGuiApplication.instance() is None:
         raise RuntimeError("应用程序尚未初始化。")
 
-    mime_data, staged_path = create_image_mime_data(source_path, display_name)
+    mime_data, staged_path = create_image_mime_data(
+        source_path,
+        display_name,
+        anim_as_static_image=anim_as_static_image,
+    )
     QGuiApplication.clipboard().setMimeData(mime_data)
     return staged_path

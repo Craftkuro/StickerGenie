@@ -78,6 +78,42 @@ class ImageClipboardServiceTests(unittest.TestCase):
                 html_text,
             )
 
+    def test_gif_first_frame_reuses_static_image_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "stored-hash.gif"
+            first_frame = Image.new("RGBA", (2, 2), "red")
+            second_frame = Image.new("RGBA", (2, 2), "blue")
+            first_frame.save(
+                source,
+                save_all=True,
+                append_images=[second_frame],
+                duration=100,
+                loop=0,
+            )
+
+            mime_data, staged_path = create_image_mime_data(
+                source,
+                "动态表情.gif",
+                staging_root=root / "clipboard",
+                anim_as_static_image=True,
+            )
+
+            self.assertEqual("动态表情.gif", staged_path.name)
+            self.assertEqual(source.read_bytes(), staged_path.read_bytes())
+            self.assertTrue(mime_data.hasImage())
+            self.assertTrue(mime_data.hasUrls())
+            self.assertFalse(mime_data.hasHtml())
+            self.assertIn("image/gif", mime_data.formats())
+            self.assertEqual(
+                source.read_bytes(),
+                bytes(mime_data.data("image/gif")),
+            )
+            first_frame_image = QImage.fromData(
+                bytes(mime_data.data("image/gif"))
+            )
+            self.assertEqual("#ff0000", first_frame_image.pixelColor(0, 0).name())
+
     def test_copy_cleans_only_expired_staging_directories(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

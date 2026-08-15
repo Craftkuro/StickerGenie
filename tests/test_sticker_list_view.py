@@ -316,6 +316,55 @@ class StickerListViewTests(unittest.TestCase):
         open_mock.assert_called_once_with(index)
         page.close()
 
+    def test_context_menu_gif_offers_copy_first_frame_after_copy(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        item = QStandardItem("")
+        item.setData(BlobFileEntity("gif-hash", ".gif"), ROLE_BLOB_ENTITY)
+        model.appendRow(item)
+        page.refresh_content(model)
+        index = page.listViewStickerList.model().index(0, 0)
+
+        def fake_exec(menu, position):
+            action_texts = [action.text() for action in menu.actions()]
+            self.assertEqual(
+                [
+                    "复制到剪贴板",
+                    "复制首帧到剪贴板",
+                    "",
+                    "查找相似图片",
+                    "图片属性",
+                    "",
+                    "更多",
+                ],
+                action_texts,
+            )
+            copy_first_frame_action = next(
+                action
+                for action in menu.actions()
+                if action.text() == "复制首帧到剪贴板"
+            )
+            copy_first_frame_action.trigger()
+            return None
+
+        with patch.object(
+            page.listViewStickerList,
+            "indexAt",
+            return_value=index,
+        ):
+            with patch.object(QMenu, "exec", fake_exec):
+                with patch.object(
+                    page,
+                    "_copy_sticker_for_index",
+                ) as copy_sticker_mock:
+                    page._show_sticker_context_menu(QPoint(0, 0))
+
+        copy_sticker_mock.assert_called_once_with(
+            index,
+            anim_as_static_image=True,
+        )
+        page.close()
+
     def test_delete_stickers_removes_all_selected_rows(self):
         page = SearchResultPage(auto_refresh=False)
         model = QStandardItemModel()
@@ -1089,6 +1138,40 @@ class StickerListViewTests(unittest.TestCase):
             copy_image.assert_called_once_with(
                 str(image_path),
                 "原始名称.png",
+                anim_as_static_image=False,
+            )
+            page.close()
+
+    def test_copy_static_uses_current_item_file_and_original_name(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "stored-hash.png"
+            image = QImage(2, 2, QImage.Format.Format_ARGB32)
+            image.fill(0xFFFFFFFF)
+            self.assertTrue(image.save(str(image_path)))
+
+            sticker = make_sticker()
+            sticker.original_file_name = "动态表情.gif"
+            sticker.extension = ".gif"
+            with patch(
+                "services.global_instances.current_blob_storage",
+                FakeBlobStorage(image_path),
+            ):
+                model = build_sticker_model([sticker])
+
+            page = FiniteStickerCollectionPage(auto_refresh=False)
+            page.refresh_content(model)
+            with patch(
+                "services.image_clipboard_service.copy_image_to_clipboard"
+            ) as copy_image:
+                page._copy_sticker_for_index(
+                    model.index(0, 0),
+                    anim_as_static_image=True,
+                )
+
+            copy_image.assert_called_once_with(
+                str(image_path),
+                "动态表情.gif",
+                anim_as_static_image=True,
             )
             page.close()
 
