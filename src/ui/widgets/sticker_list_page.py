@@ -1,5 +1,7 @@
 #coding=utf-8
 import logging
+import shutil
+import unicodedata
 from pathlib import Path
 
 from PyQt6 import uic
@@ -12,7 +14,14 @@ from PyQt6.QtCore import (
     pyqtSignal,
 )
 from PyQt6.QtGui import QAction, QStandardItemModel
-from PyQt6.QtWidgets import QMenu, QMessageBox, QSizePolicy, QSlider, QWidget
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QMenu,
+    QMessageBox,
+    QSizePolicy,
+    QSlider,
+    QWidget,
+)
 
 import apppath
 import commons.constants
@@ -139,7 +148,7 @@ class StickerListPage(QWidget):
 
         selected_indexes = self._selected_indexes()
         menu = QMenu(self)
-        # 复制、查找相似图片和图片属性只适用于单选；多选时只保留删除入口。
+        # 另存为对单选和多选都可用；复制、查找相似图片和图片属性只适用于单选。
         if len(selected_indexes) == 1:
             selected_index = selected_indexes[0]
             is_gif = self._is_gif_index(selected_index)
@@ -148,6 +157,7 @@ class StickerListPage(QWidget):
                 copy_first_frame_action = menu.addAction("复制首帧到剪贴板")
             menu.addSeparator()
             find_similar_action = menu.addAction("查找相似图片")
+            save_as_action = menu.addAction("另存为")
             image_properties_action = menu.addAction("图片属性")
             menu.addSeparator()
             copy_action.triggered.connect(
@@ -167,9 +177,21 @@ class StickerListPage(QWidget):
                     selected_index
                 )
             )
+            save_as_action.triggered.connect(
+                lambda _checked=False: self._save_as_for_indexes(
+                    selected_indexes
+                )
+            )
             image_properties_action.triggered.connect(
                 lambda _checked=False: self._open_image_viewer_for_index(
                     selected_index
+                )
+            )
+        else:
+            save_as_action = menu.addAction("另存为")
+            save_as_action.triggered.connect(
+                lambda _checked=False: self._save_as_for_indexes(
+                    selected_indexes
                 )
             )
         more_menu = menu.addMenu("更多")
@@ -240,6 +262,94 @@ class StickerListPage(QWidget):
         except Exception as exc:
             logger.exception("复制图片到剪贴板失败")
             QMessageBox.warning(self, "复制失败", str(exc))
+
+    def _save_as_for_indexes(self, indexes: list[QModelIndex]):
+        records = []
+        for index in indexes:
+            if not index.isValid():
+                continue
+            sticker = index.data(ROLE_STICKER_IMAGE)
+            file_path = index.data(ROLE_FILE_PATH)
+            if sticker is None or not file_path:
+                continue
+            records.append((sticker, Path(file_path)))
+        if not records:
+            return
+
+        is_multi_selection = (
+            sum(1 for index in indexes if index.isValid()) > 1
+        )
+        if not is_multi_selection:
+            sticker = records[0][0]
+            destination, _ = QFileDialog.getSaveFileName(
+                self,
+                "另存为",
+                sticker.original_file_name,
+            )
+            if not destination:
+                return
+            targets = [Path(destination)]
+        else:
+            if self._has_duplicate_original_file_names(
+                [record[0] for record in records]
+            ):
+                QMessageBox.warning(
+                    self,
+                    "无法另存为",
+                    "您所选的文件名的原始文件名有重复，"
+                    "请少选一些或使用图库导出的功能。",
+                )
+                return
+            destination = QFileDialog.getExistingDirectory(
+                self,
+                "选择保存目录",
+            )
+            if not destination:
+                return
+            destination_path = Path(destination)
+            targets = [
+                destination_path / record[0].original_file_name
+                for record in records
+            ]
+
+        succeeded = 0
+        failed = 0
+        for (sticker, source_path), target_path in zip(records, targets):
+            try:
+                shutil.copy2(source_path, target_path)
+                succeeded += 1
+            except Exception:
+                logger.exception(
+                    "另存为图片失败：%s",
+                    sticker.original_file_name,
+                )
+                failed += 1
+
+        if failed:
+            QMessageBox.information(
+                self,
+                "导出完成",
+                f"已导出{succeeded}张图片，{failed}张导出失败。",
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "导出完成",
+                f"已导出{succeeded}张图片。",
+            )
+
+    @staticmethod
+    def _has_duplicate_original_file_names(stickers) -> bool:
+        seen_names = set()
+        for sticker in stickers:
+            file_name = unicodedata.normalize(
+                "NFC",
+                sticker.original_file_name,
+            ).casefold()
+            if file_name in seen_names:
+                return True
+            seen_names.add(file_name)
+        return False
 
     def _find_similar_for_index(self, index: QModelIndex):
         sticker = index.data(ROLE_STICKER_IMAGE)

@@ -44,6 +44,7 @@ from blob_storage import BlobFileEntity
 from commons.dto import StickerImage
 from commons.roles import (
     ROLE_BLOB_ENTITY,
+    ROLE_FILE_PATH,
     ROLE_SIMILARITY,
     ROLE_STICKER_IMAGE,
 )
@@ -230,7 +231,7 @@ class StickerListViewTests(unittest.TestCase):
         delete_mock.assert_called_once_with(index)
         page.close()
 
-    def test_context_menu_multi_selection_only_offers_delete(self):
+    def test_context_menu_multi_selection_offers_save_as_and_delete(self):
         page = SearchResultPage(auto_refresh=False)
         model = QStandardItemModel()
         model.appendRow(QStandardItem(""))
@@ -248,8 +249,9 @@ class StickerListViewTests(unittest.TestCase):
         )
 
         def fake_exec(menu, position):
-            self.assertEqual(["更多"], [action.text() for action in menu.actions()])
-            more_menu = menu.actions()[0].menu()
+            action_texts = [action.text() for action in menu.actions()]
+            self.assertEqual(["另存为", "更多"], action_texts)
+            more_menu = menu.actions()[1].menu()
             delete_action = more_menu.actions()[0]
             self.assertEqual("删除图片", delete_action.text())
             delete_action.trigger()
@@ -287,6 +289,7 @@ class StickerListViewTests(unittest.TestCase):
                     "复制到剪贴板",
                     "",
                     "查找相似图片",
+                    "另存为",
                     "图片属性",
                     "",
                     "更多",
@@ -333,6 +336,7 @@ class StickerListViewTests(unittest.TestCase):
                     "复制首帧到剪贴板",
                     "",
                     "查找相似图片",
+                    "另存为",
                     "图片属性",
                     "",
                     "更多",
@@ -364,6 +368,157 @@ class StickerListViewTests(unittest.TestCase):
             anim_as_static_image=True,
         )
         page.close()
+
+    def test_save_as_single_uses_file_dialog_and_copies_image(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source_path = temp_root / "source.png"
+            source_path.write_bytes(b"single-image")
+            target_path = temp_root / "saved.png"
+
+            model = QStandardItemModel()
+            item = QStandardItem("")
+            item.setData(make_sticker(), ROLE_STICKER_IMAGE)
+            item.setData(str(source_path), ROLE_FILE_PATH)
+            model.appendRow(item)
+
+            page = SearchResultPage(auto_refresh=False)
+            page.refresh_content(model)
+            with patch(
+                "ui.widgets.sticker_list_page.QFileDialog.getSaveFileName",
+                return_value=(str(target_path), ""),
+            ) as dialog_mock, patch(
+                "ui.widgets.sticker_list_page.QMessageBox.information"
+            ) as information_mock:
+                page._save_as_for_indexes([model.index(0, 0)])
+
+            dialog_mock.assert_called_once_with(
+                page,
+                "另存为",
+                "原始名称.png",
+            )
+            self.assertEqual(b"single-image", target_path.read_bytes())
+            information_mock.assert_called_once_with(
+                page,
+                "导出完成",
+                "已导出1张图片。",
+            )
+            page.close()
+
+    def test_save_as_multi_uses_directory_dialog_and_copies_all(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source_paths = {
+                "one.png": b"one",
+                "two.png": b"two",
+            }
+            model = QStandardItemModel()
+            for file_name, content in source_paths.items():
+                source_path = temp_root / f"source-{file_name}"
+                source_path.write_bytes(content)
+                sticker = make_sticker()
+                sticker.original_file_name = file_name
+                item = QStandardItem("")
+                item.setData(sticker, ROLE_STICKER_IMAGE)
+                item.setData(str(source_path), ROLE_FILE_PATH)
+                model.appendRow(item)
+
+            destination = temp_root / "export"
+            destination.mkdir()
+            page = SearchResultPage(auto_refresh=False)
+            page.refresh_content(model)
+            indexes = [model.index(0, 0), model.index(1, 0)]
+            with patch(
+                "ui.widgets.sticker_list_page.QFileDialog.getExistingDirectory",
+                return_value=str(destination),
+            ) as dialog_mock, patch(
+                "ui.widgets.sticker_list_page.QMessageBox.information"
+            ) as information_mock:
+                page._save_as_for_indexes(indexes)
+
+            dialog_mock.assert_called_once_with(page, "选择保存目录")
+            self.assertEqual(b"one", (destination / "one.png").read_bytes())
+            self.assertEqual(b"two", (destination / "two.png").read_bytes())
+            information_mock.assert_called_once_with(
+                page,
+                "导出完成",
+                "已导出2张图片。",
+            )
+            page.close()
+
+    def test_save_as_multi_rejects_duplicate_original_file_names(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            model = QStandardItemModel()
+            for index in range(2):
+                sticker = make_sticker()
+                sticker.original_file_name = "same.png"
+                item = QStandardItem("")
+                item.setData(sticker, ROLE_STICKER_IMAGE)
+                item.setData(str(temp_root / f"source-{index}.png"), ROLE_FILE_PATH)
+                model.appendRow(item)
+
+            page = SearchResultPage(auto_refresh=False)
+            page.refresh_content(model)
+            with patch(
+                "ui.widgets.sticker_list_page.QFileDialog.getExistingDirectory"
+            ) as dialog_mock, patch(
+                "ui.widgets.sticker_list_page.QMessageBox.warning"
+            ) as warning_mock, patch(
+                "ui.widgets.sticker_list_page.shutil.copy2"
+            ) as copy_mock:
+                page._save_as_for_indexes(
+                    [model.index(0, 0), model.index(1, 0)]
+                )
+
+            dialog_mock.assert_not_called()
+            copy_mock.assert_not_called()
+            warning_mock.assert_called_once_with(
+                page,
+                "无法另存为",
+                "您所选的文件名的原始文件名有重复，请少选一些或使用图库导出的功能。",
+            )
+            page.close()
+
+    def test_save_as_multi_reports_partial_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            model = QStandardItemModel()
+            for file_name in ("one.png", "two.png"):
+                source_path = temp_root / f"source-{file_name}"
+                source_path.write_bytes(file_name.encode("ascii"))
+                sticker = make_sticker()
+                sticker.original_file_name = file_name
+                item = QStandardItem("")
+                item.setData(sticker, ROLE_STICKER_IMAGE)
+                item.setData(str(source_path), ROLE_FILE_PATH)
+                model.appendRow(item)
+
+            destination = temp_root / "export"
+            destination.mkdir()
+            page = SearchResultPage(auto_refresh=False)
+            page.refresh_content(model)
+            with patch(
+                "ui.widgets.sticker_list_page.QFileDialog.getExistingDirectory",
+                return_value=str(destination),
+            ), patch(
+                "ui.widgets.sticker_list_page.shutil.copy2",
+                side_effect=[None, OSError("boom")],
+            ), patch(
+                "ui.widgets.sticker_list_page.logger.exception"
+            ), patch(
+                "ui.widgets.sticker_list_page.QMessageBox.information"
+            ) as information_mock:
+                page._save_as_for_indexes(
+                    [model.index(0, 0), model.index(1, 0)]
+                )
+
+            information_mock.assert_called_once_with(
+                page,
+                "导出完成",
+                "已导出1张图片，1张导出失败。",
+            )
+            page.close()
 
     def test_delete_stickers_removes_all_selected_rows(self):
         page = SearchResultPage(auto_refresh=False)
