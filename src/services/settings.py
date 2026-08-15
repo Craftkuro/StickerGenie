@@ -13,9 +13,15 @@ import apppath
 from config_manager import ConfigField, ConfigManager, ConfigType
 
 
-SETTINGS_VERSION = "1.3.0"
+SETTINGS_VERSION = "1.4.0"
 
 SETTINGS_SCHEMA = [
+    ConfigField(
+        "library_base_path",
+        ConfigType.STRING,
+        "StickerGenie Library",
+        "图库根目录；可以是相对数据目录的路径，也可以是绝对路径",
+    ),
     ConfigField(
         "recent_search_limit",
         ConfigType.INT,

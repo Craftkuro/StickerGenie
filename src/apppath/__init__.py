@@ -12,8 +12,6 @@ def setup_data_path(_app_path, _base_data_path=None):
     global base_path
     global app_path
     global user_data_dir_path
-    global library_base_path
-    global default_library_path
     global main_config_file_path
 
     app_path = pathlib.Path(_app_path)
@@ -29,7 +27,21 @@ def setup_data_path(_app_path, _base_data_path=None):
     user_data_dir_path = pathlib.Path(base_path, 'StickerGenie Settings')
     user_data_dir_path.mkdir(parents=True, exist_ok=True)
 
-    library_base_path = pathlib.Path(base_path, 'StickerGenie Library')
-    library_base_path.mkdir(parents=True, exist_ok=True)
-    default_library_path = library_base_path / 'Default Library'
     main_config_file_path = pathlib.Path(user_data_dir_path, 'config.toml')
+
+
+def setup_library_paths(library_base_dir):
+    global library_base_path
+    global default_library_path
+
+    if base_path is None:
+        raise RuntimeError("数据根目录尚未初始化")
+
+    raw_path = pathlib.Path(library_base_dir).expanduser()
+    library_base_path = (
+        raw_path if raw_path.is_absolute() else base_path / raw_path
+    )
+    library_base_path.mkdir(parents=True, exist_ok=True)
+
+    default_library_path = library_base_path / 'Default Library'
+    default_library_path.mkdir(parents=True, exist_ok=True)

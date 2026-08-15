@@ -66,6 +66,7 @@ class SettingsDialogTests(unittest.TestCase):
     def test_schema_contains_only_active_settings_and_internal_history(self):
         self.assertEqual(
             [
+                "library_base_path",
                 "recent_search_limit",
                 "tag_suggestion_limit",
                 "recent_searches",
