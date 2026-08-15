@@ -19,8 +19,8 @@ from batch_job_runner.models import (
 from blob_storage import BlobStorage
 from commons.signal_objects import ImportImagesRequest
 from image_features_extractor import DEFAULT_MODEL_FILENAME, normalize_image_path
+from services.image_import_service import ImageImportService
 from services.import_images import (
-    ImageImportService,
     ImportImagesProgress,
     ImportImagesResult,
     import_images_with_result,
@@ -184,7 +184,7 @@ class ImportImagesVectorTests(unittest.TestCase):
 
         fake_runner.iter_results = iter_results
         with self._patch_vector_runner(fake_runner), patch(
-            "services.import_images._get_model_hash",
+            "services.import_images.get_model_hash",
             return_value="test-model-hash",
         ):
             result = import_images_with_result(
@@ -240,7 +240,7 @@ class ImportImagesVectorTests(unittest.TestCase):
         fake_runner.iter_results = iter_results
 
         with self._patch_vector_runner(fake_runner) as runner_factory, patch(
-            "services.import_images._get_model_hash",
+            "services.import_images.get_model_hash",
             return_value="test-model-hash",
         ):
             first_result = import_images_with_result(
@@ -299,7 +299,7 @@ class ImportImagesVectorTests(unittest.TestCase):
             "services.import_images.VectorBatchJobRunner",
             side_effect=lambda _model_path: fake_runner,
         ), patch(
-            "services.import_images._get_model_hash",
+            "services.import_images.get_model_hash",
             return_value="test-model-hash",
         ):
             result = import_images_with_result(
@@ -366,7 +366,7 @@ class ImportImagesVectorTests(unittest.TestCase):
 
         fake_runner.iter_results = iter_results
         with self._patch_vector_runner(fake_runner), patch(
-            "services.import_images._get_model_hash",
+            "services.import_images.get_model_hash",
             return_value="test-model-hash",
         ):
             result = import_images_with_result(

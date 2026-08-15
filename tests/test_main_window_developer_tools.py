@@ -41,7 +41,7 @@ class MainWindowDeveloperToolsTests(unittest.TestCase):
 
     def _create_window(self, *, frozen: bool):
         with patch.object(sys, "frozen", frozen, create=True), patch(
-            "ui.main_window.services.import_images.ImageImportService"
+            "ui.main_window.ImageImportService"
         ), patch(
             "ui.main_window.services.export_library.LibraryExportService"
         ), patch.object(MainWindow, "debug_start_test_view"):

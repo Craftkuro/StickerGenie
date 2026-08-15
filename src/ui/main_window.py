@@ -14,10 +14,8 @@ from PyQt6.QtGui import QAction, QCloseEvent, QFont, QPainter, QStandardItemMode
 
 import apppath
 from commons.signal_objects import ImportImagesRequest, MainWindowNewTabRequest
-import services.database_maintenance
 import services.export_library
 import services.global_instances
-import services.import_images
 import services.sticker_library_viewer_service
 import services.search
 
@@ -26,6 +24,8 @@ from .dialog_image_import import ImageImportDialog
 from .dialog_image_import_progress import ImageImportProgressDialog
 from .dialog_database_maintenance import DatabaseMaintenanceDialog
 from .dialog_settings import SettingsDialog
+from services.database_maintenance_service import DatabaseMaintenanceService
+from services.image_import_service import ImageImportService
 from services.settings import create_settings_manager
 from .dialog_tag_manager import TagManagerDialog
 
@@ -56,9 +56,7 @@ class MainWindow(QMainWindow):
         )
         self._init_search_controls()
 
-        self._image_import_service = services.import_images.ImageImportService(
-            self
-        )
+        self._image_import_service = ImageImportService(self)
         self._image_import_service.import_finished.connect(
             self._on_import_images_finished
         )
@@ -86,9 +84,7 @@ class MainWindow(QMainWindow):
             self._on_export_library_progress_changed
         )
 
-        self._database_maintenance_service = (
-            services.database_maintenance.DatabaseMaintenanceService(self)
-        )
+        self._database_maintenance_service = DatabaseMaintenanceService(self)
         self._database_maintenance_service.maintenance_finished.connect(
             self._on_database_maintenance_finished
         )

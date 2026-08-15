@@ -28,9 +28,7 @@ class MainWindowSearchBoxTests(unittest.TestCase):
         self.settings_manager = create_settings_manager(
             Path(self.temporary_directory.name) / "settings.toml"
         )
-        with patch(
-            "ui.main_window.services.import_images.ImageImportService"
-        ), patch(
+        with patch("ui.main_window.ImageImportService"), patch(
             "ui.main_window.services.export_library.LibraryExportService"
         ), patch.object(MainWindow, "debug_start_test_view"):
             self.window = MainWindow(settings_manager=self.settings_manager)

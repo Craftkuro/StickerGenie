@@ -9,20 +9,16 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import Callable, List, Optional
-
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 import apppath
 import services.global_instances
 from batch_job_runner.exceptions import JobCancelledError
 from batch_job_runner.models import wrapper_input_identifier
-from services.image_vector_model import get_model_hash as _get_shared_model_hash
+from services.image_vector_model import get_model_hash
 from commons.dto import StickerImage, Tag
 from commons.image_metadata import StickerImageMetadata
-from commons.signal_objects import ImportImagesRequest
 from image_features_extractor import DEFAULT_MODEL_FILENAME, VectorBatchJobRunner
 from image_text_extractor import OcrBatchJobRunner, normalize_image_path
 from stickerdb.vectordb import VectorMetadata
@@ -98,9 +94,6 @@ def _report_progress(
         )
 
 
-def _get_model_hash(model_path: Path) -> str:
-    return _get_shared_model_hash(model_path)
-
 def _metadata_to_sticker_image(metadata: StickerImageMetadata, file_path: Path) -> StickerImage:
     """
     将图片元数据转换为 StickerImage DTO。
@@ -150,7 +143,7 @@ def _generate_vectors(
         normalize_image_path(blob_path): sticker
         for sticker, blob_path in stickers_and_blob_paths
     }
-    model_hash = _get_model_hash(model_path)
+    model_hash = get_model_hash(model_path)
     total = len(image_paths)
     vectorized_count = 0
     errors: list[str] = []
@@ -342,6 +335,238 @@ def _extract_texts(
     return ocr_count, tuple(errors)
 
 
+def _prepare_candidates(
+    file_paths: List[str],
+    tags: Optional[List[Tag]] = None,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel_event: threading.Event | None = None,
+) -> tuple[list[tuple[StickerImage, str, str]], int, bool]:
+    """读取图片元数据并过滤同一请求内的重复 hash。"""
+    candidates: list[tuple[StickerImage, str, str]] = []
+    request_hashes: set[str] = set()
+    duplicate_count = 0
+
+    _report_progress(
+        progress,
+        0,
+        "正在预处理图片",
+        total=len(file_paths),
+    )
+    if _is_cancelled(cancel_event):
+        return candidates, duplicate_count, True
+
+    for file_path in file_paths:
+        if _is_cancelled(cancel_event):
+            return candidates, duplicate_count, True
+
+        path = Path(file_path)
+        if not path.exists():
+            continue
+
+        try:
+            metadata = get_image_metadata(path)
+            if _is_cancelled(cancel_event):
+                return candidates, duplicate_count, True
+
+            if metadata.hash in request_hashes:
+                duplicate_count += 1
+                continue
+            request_hashes.add(metadata.hash)
+
+            sticker = _metadata_to_sticker_image(metadata, path)
+            if tags:
+                for tag in tags:
+                    sticker.tags.append(tag)
+            candidates.append((sticker, file_path, metadata.hash))
+        except (OSError, ValueError) as exc:
+            logger.warning("无法读取图片 %s: %s", file_path, exc)
+            continue
+
+    return candidates, duplicate_count, False
+
+
+def _select_new_candidates(
+    candidates: list[tuple[StickerImage, str, str]],
+    current_library_db,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> tuple[list[tuple[StickerImage, str, str]], int, bool]:
+    """过滤图库中已经存在的 hash。"""
+    if _is_cancelled(cancel_event):
+        return [], 0, True
+
+    existing_hashes = current_library_db.get_existing_sticker_hashes(
+        sticker.hash for sticker, _, _ in candidates
+    )
+    if _is_cancelled(cancel_event):
+        return [], 0, True
+
+    duplicate_count = sum(
+        1 for sticker, _, _ in candidates if sticker.hash in existing_hashes
+    )
+    import_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate[0].hash not in existing_hashes
+    ]
+    return import_candidates, duplicate_count, False
+
+
+def _commit_candidates(
+    import_candidates: list[tuple[StickerImage, str, str]],
+    *,
+    current_library_db,
+    current_blob_storage,
+    progress: ProgressCallback | None = None,
+    cancel_event: threading.Event | None = None,
+    run_enrichment: bool = False,
+) -> tuple[list[StickerImage], list[tuple[StickerImage, str]], int, bool]:
+    """分批复制 Blob 并提交 SQLite，返回实际插入的图片。"""
+    candidate_count = len(import_candidates)
+    imported_stickers: list[StickerImage] = []
+    all_inserted_stickers_and_blob_paths: list[tuple[StickerImage, str]] = []
+    duplicate_count = 0
+
+    _report_progress(
+        progress,
+        PREPROCESS_END_PERCENT,
+        "正在写入图库",
+        total=candidate_count,
+    )
+
+    for batch_start in range(0, candidate_count, IMPORT_BATCH_SIZE):
+        if _is_cancelled(cancel_event):
+            return (
+                imported_stickers,
+                all_inserted_stickers_and_blob_paths,
+                duplicate_count,
+                True,
+            )
+
+        batch_candidates = import_candidates[
+            batch_start : batch_start + IMPORT_BATCH_SIZE
+        ]
+        batch_stickers = []
+        batch_stickers_and_blob_paths = []
+        for sticker, file_path, file_hash in batch_candidates:
+            if _is_cancelled(cancel_event):
+                return (
+                    imported_stickers,
+                    all_inserted_stickers_and_blob_paths,
+                    duplicate_count,
+                    True,
+                )
+
+            blob_entity = current_blob_storage.store_file(file_path, file_hash)
+            if _is_cancelled(cancel_event):
+                return (
+                    imported_stickers,
+                    all_inserted_stickers_and_blob_paths,
+                    duplicate_count,
+                    True,
+                )
+
+            blob_path = current_blob_storage.read_file(blob_entity)
+            batch_stickers.append(sticker)
+            batch_stickers_and_blob_paths.append((sticker, blob_path))
+
+        if _is_cancelled(cancel_event):
+            return (
+                imported_stickers,
+                all_inserted_stickers_and_blob_paths,
+                duplicate_count,
+                True,
+            )
+
+        inserted_stickers = current_library_db.add_stickers(batch_stickers)
+        duplicate_count += len(batch_stickers) - len(inserted_stickers)
+        inserted_object_ids = {id(sticker) for sticker in inserted_stickers}
+        inserted_stickers_and_blob_paths = [
+            (sticker, blob_path)
+            for sticker, blob_path in batch_stickers_and_blob_paths
+            if id(sticker) in inserted_object_ids
+        ]
+        imported_stickers.extend(inserted_stickers)
+        all_inserted_stickers_and_blob_paths.extend(
+            inserted_stickers_and_blob_paths
+        )
+
+        completed = len(imported_stickers)
+        sqlite_end = SQLITE_END_PERCENT if run_enrichment else 100
+        percent = _percent_in_range(
+            completed,
+            candidate_count,
+            PREPROCESS_END_PERCENT,
+            sqlite_end,
+        )
+        _report_progress(
+            progress,
+            percent,
+            "正在写入图库",
+            completed=completed,
+            total=candidate_count,
+        )
+
+        if _is_cancelled(cancel_event):
+            return (
+                imported_stickers,
+                all_inserted_stickers_and_blob_paths,
+                duplicate_count,
+                True,
+            )
+
+    return (
+        imported_stickers,
+        all_inserted_stickers_and_blob_paths,
+        duplicate_count,
+        False,
+    )
+
+
+def _run_enrichment(
+    stickers_and_blob_paths: list[tuple[StickerImage, str]],
+    *,
+    generate_vectors: bool,
+    extract_text: bool,
+    progress: ProgressCallback | None = None,
+    cancel_event: threading.Event | None = None,
+) -> tuple[int, tuple[str, ...], int, tuple[str, ...]]:
+    """对已入库图片执行可选的 OCR 与向量生成。"""
+    ocr_count = 0
+    ocr_errors: tuple[str, ...] = ()
+    vectorized_count = 0
+    vector_errors: tuple[str, ...] = ()
+
+    if extract_text and stickers_and_blob_paths:
+        try:
+            ocr_count, ocr_errors = _extract_texts(
+                stickers_and_blob_paths,
+                progress,
+                cancel_event=cancel_event,
+                start_percent=OCR_START_PERCENT,
+                end_percent=OCR_END_PERCENT if generate_vectors else 100,
+            )
+        except Exception as exc:
+            logger.exception("图片文字识别失败")
+            ocr_errors = (*ocr_errors, f"文字识别失败：{exc}")
+
+    if generate_vectors and stickers_and_blob_paths:
+        try:
+            vectorized_count, vector_errors = _generate_vectors(
+                stickers_and_blob_paths,
+                progress,
+                cancel_event=cancel_event,
+                start_percent=VECTOR_START_PERCENT,
+                end_percent=100,
+            )
+        except Exception as exc:
+            logger.exception("写入图片向量失败")
+            vector_errors = (*vector_errors, f"向量写入失败：{exc}")
+
+    return ocr_count, ocr_errors, vectorized_count, vector_errors
+
+
 def import_images_with_result(
     file_paths: List[str],
     tags: Optional[List[Tag]] = None,
@@ -366,185 +591,69 @@ def import_images_with_result(
 
     current_library_db = services.global_instances.current_library_db
     current_blob_storage = services.global_instances.current_blob_storage
-    candidates = []
-    request_hashes = set()
+    imported_stickers: list[StickerImage] = []
+    all_inserted_stickers_and_blob_paths: list[tuple[StickerImage, str]] = []
     duplicate_count = 0
-    imported_stickers = []
     vectorized_count = 0
-    vector_errors: list[str] = []
+    vector_errors: tuple[str, ...] = ()
     ocr_count = 0
-    ocr_errors: list[str] = []
+    ocr_errors: tuple[str, ...] = ()
 
     def make_result(*, cancelled: bool = False) -> ImportImagesResult:
         return ImportImagesResult(
             imported_stickers=tuple(imported_stickers),
             duplicate_count=duplicate_count,
             vectorized_count=vectorized_count,
-            vector_errors=tuple(vector_errors),
+            vector_errors=vector_errors,
             ocr_count=ocr_count,
-            ocr_errors=tuple(ocr_errors),
+            ocr_errors=ocr_errors,
             cancelled=cancelled,
         )
 
-    _report_progress(
-        progress,
-        0,
-        "正在预处理图片",
-        total=len(file_paths),
+    candidates, request_duplicate_count, cancelled = _prepare_candidates(
+        file_paths,
+        tags,
+        progress=progress,
+        cancel_event=cancel_event,
     )
-
-    if _is_cancelled(cancel_event):
+    if cancelled:
         return make_result(cancelled=True)
-    
-    for file_path in file_paths:
-        if _is_cancelled(cancel_event):
-            return make_result(cancelled=True)
+    duplicate_count += request_duplicate_count
 
-        path = Path(file_path)
-        
-        if not path.exists():
-            continue
-        
-        try:
-            # 使用工具函数获取图片元数据
-            metadata = get_image_metadata(path)
-
-            if _is_cancelled(cancel_event):
-                return make_result(cancelled=True)
-
-            if metadata.hash in request_hashes:
-                duplicate_count += 1
-                continue
-            request_hashes.add(metadata.hash)
-            
-            # 转换为 StickerImage DTO
-            sticker = _metadata_to_sticker_image(metadata, path)
-            
-            # 添加标签
-            if tags:
-                for tag in tags:
-                    sticker.tags.append(tag)
-
-            candidates.append((sticker, file_path, metadata.hash))
-            
-        except (OSError, ValueError) as e:
-            # 跳过无法读取的图片文件
-            logger.warning("无法读取图片 %s: %s", file_path, e)
-            continue
-
-    if _is_cancelled(cancel_event):
+    import_candidates, existing_duplicate_count, cancelled = _select_new_candidates(
+        candidates,
+        current_library_db,
+        cancel_event=cancel_event,
+    )
+    if cancelled:
         return make_result(cancelled=True)
+    duplicate_count += existing_duplicate_count
 
-    existing_hashes = current_library_db.get_existing_sticker_hashes(
-        sticker.hash for sticker, _, _ in candidates
+    (
+        imported_stickers,
+        all_inserted_stickers_and_blob_paths,
+        batch_duplicate_count,
+        cancelled,
+    ) = _commit_candidates(
+        import_candidates,
+        current_library_db=current_library_db,
+        current_blob_storage=current_blob_storage,
+        progress=progress,
+        cancel_event=cancel_event,
+        run_enrichment=generate_vectors or extract_text,
     )
-
-    if _is_cancelled(cancel_event):
+    if cancelled:
         return make_result(cancelled=True)
+    duplicate_count += batch_duplicate_count
 
-    duplicate_count += sum(
-        1 for sticker, _, _ in candidates if sticker.hash in existing_hashes
-    )
-    import_candidates = [
-        candidate
-        for candidate in candidates
-        if candidate[0].hash not in existing_hashes
-    ]
-
-    _report_progress(
-        progress,
-        PREPROCESS_END_PERCENT,
-        "正在写入图库",
-        total=len(import_candidates),
-    )
-
-    candidate_count = len(import_candidates)
-    all_inserted_stickers_and_blob_paths: list[tuple[StickerImage, str]] = []
-    for batch_start in range(0, candidate_count, IMPORT_BATCH_SIZE):
-        if _is_cancelled(cancel_event):
-            return make_result(cancelled=True)
-
-        batch_candidates = import_candidates[
-            batch_start : batch_start + IMPORT_BATCH_SIZE
-        ]
-        batch_stickers = []
-        batch_stickers_and_blob_paths = []
-        for sticker, file_path, file_hash in batch_candidates:
-            if _is_cancelled(cancel_event):
-                return make_result(cancelled=True)
-
-            blob_entity = current_blob_storage.store_file(file_path, file_hash)
-            if _is_cancelled(cancel_event):
-                return make_result(cancelled=True)
-
-            blob_path = current_blob_storage.read_file(blob_entity)
-            batch_stickers.append(sticker)
-            batch_stickers_and_blob_paths.append((sticker, blob_path))
-
-        if _is_cancelled(cancel_event):
-            return make_result(cancelled=True)
-
-        inserted_stickers = current_library_db.add_stickers(batch_stickers)
-        duplicate_count += len(batch_stickers) - len(inserted_stickers)
-        inserted_object_ids = {id(sticker) for sticker in inserted_stickers}
-        inserted_stickers_and_blob_paths = [
-            (sticker, blob_path)
-            for sticker, blob_path in batch_stickers_and_blob_paths
-            if id(sticker) in inserted_object_ids
-        ]
-        imported_stickers.extend(inserted_stickers)
-        all_inserted_stickers_and_blob_paths.extend(
-            inserted_stickers_and_blob_paths
+    if generate_vectors or extract_text:
+        ocr_count, ocr_errors, vectorized_count, vector_errors = _run_enrichment(
+            all_inserted_stickers_and_blob_paths,
+            generate_vectors=generate_vectors,
+            extract_text=extract_text,
+            progress=progress,
+            cancel_event=cancel_event,
         )
-
-        completed = len(imported_stickers)
-        sqlite_end = (
-            SQLITE_END_PERCENT
-            if (generate_vectors or extract_text)
-            else 100
-        )
-        percent = _percent_in_range(
-            completed,
-            candidate_count,
-            PREPROCESS_END_PERCENT,
-            sqlite_end,
-        )
-        _report_progress(
-            progress,
-            percent,
-            "正在写入图库",
-            completed=completed,
-            total=candidate_count,
-        )
-
-        if _is_cancelled(cancel_event):
-            return make_result(cancelled=True)
-
-    if extract_text and all_inserted_stickers_and_blob_paths:
-        try:
-            ocr_count, ocr_errors = _extract_texts(
-                all_inserted_stickers_and_blob_paths,
-                progress,
-                cancel_event=cancel_event,
-                start_percent=OCR_START_PERCENT,
-                end_percent=OCR_END_PERCENT if generate_vectors else 100,
-            )
-        except Exception as exc:
-            logger.exception("图片文字识别失败")
-            ocr_errors.append(f"文字识别失败：{exc}")
-
-    if generate_vectors and all_inserted_stickers_and_blob_paths:
-        try:
-            vectorized_count, vector_errors = _generate_vectors(
-                all_inserted_stickers_and_blob_paths,
-                progress,
-                cancel_event=cancel_event,
-                start_percent=VECTOR_START_PERCENT,
-                end_percent=100,
-            )
-        except Exception as exc:
-            logger.exception("写入图片向量失败")
-            vector_errors.append(f"向量写入失败：{exc}")
 
     if _is_cancelled(cancel_event):
         return make_result(cancelled=True)
@@ -554,119 +663,7 @@ def import_images_with_result(
         100,
         "导入完成",
         completed=len(imported_stickers),
-        total=candidate_count,
+        total=len(import_candidates),
     )
 
     return make_result()
-
-
-def import_images(
-    file_paths: List[str],
-    tags: Optional[List[Tag]] = None,
-    *,
-    generate_vectors: bool = False,
-) -> List[StickerImage]:
-    """导入图片并返回 SQLite DTO；详细结果由后台服务消费。"""
-    result = import_images_with_result(
-        file_paths,
-        tags,
-        generate_vectors=generate_vectors,
-    )
-    for error in result.vector_errors:
-        logger.warning("生成图片向量失败：%s", error)
-    return list(result.imported_stickers)
-
-
-class _ImportImagesWorker(QObject):
-    """在独立 QThread 中执行导入并通过 Qt 信号回传进度与结果。"""
-    succeeded = pyqtSignal(object)
-    cancelled = pyqtSignal(object)
-    failed = pyqtSignal(str)
-    progress_changed = pyqtSignal(object)
-
-    def __init__(self, request: ImportImagesRequest, cancel_event: threading.Event):
-        super().__init__()
-        self._request = request
-        self._cancel_event = cancel_event
-
-    @pyqtSlot()
-    def run(self):
-        try:
-            result = import_images_with_result(
-                list(self._request.file_paths),
-                generate_vectors=self._request.generate_vectors,
-                extract_text=self._request.extract_text,
-                progress=self.progress_changed.emit,
-                cancel_event=self._cancel_event,
-            )
-        except Exception as exc:
-            logger.exception("导入图片失败")
-            self.failed.emit(str(exc))
-            return
-        if result.cancelled:
-            self.cancelled.emit(result)
-        else:
-            self.succeeded.emit(result)
-
-
-class ImageImportService(QObject):
-    """在独立 QThread 中执行每个导入请求。"""
-
-    import_finished = pyqtSignal(object)
-    import_cancelled = pyqtSignal(object)
-    import_failed = pyqtSignal(str)
-    import_progress_changed = pyqtSignal(object)
-
-    def __init__(self, parent: QObject | None = None):
-        super().__init__(parent)
-        self._jobs: dict[QThread, _ImportImagesWorker] = {}
-        self._cancel_events: dict[QThread, threading.Event] = {}
-
-    @property
-    def active_job_count(self) -> int:
-        return len(self._jobs)
-
-    def start_import(self, request: ImportImagesRequest) -> None:
-        if not isinstance(request, ImportImagesRequest):
-            raise TypeError("request must be an ImportImagesRequest")
-        if self._jobs:
-            raise RuntimeError("已有图片导入任务正在进行")
-
-        # 每个导入请求独占一个 QThread；worker 结束时通过信号退出线程并释放
-        # 资源，因此同一时间只允许一个导入任务。
-        thread = QThread(self)
-        cancel_event = threading.Event()
-        worker = _ImportImagesWorker(request, cancel_event)
-        worker.moveToThread(thread)
-        self._jobs[thread] = worker
-        self._cancel_events[thread] = cancel_event
-
-        thread.started.connect(worker.run)
-        worker.succeeded.connect(self.import_finished)
-        worker.cancelled.connect(self.import_cancelled)
-        worker.failed.connect(self.import_failed)
-        worker.progress_changed.connect(self.import_progress_changed)
-        worker.succeeded.connect(thread.quit)
-        worker.cancelled.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        worker.succeeded.connect(worker.deleteLater)
-        worker.cancelled.connect(worker.deleteLater)
-        worker.failed.connect(worker.deleteLater)
-        thread.finished.connect(partial(self._release_job, thread))
-        thread.finished.connect(thread.deleteLater)
-        thread.start()
-
-    def cancel_import(self) -> bool:
-        if not self._cancel_events:
-            return False
-
-        cancel_event = next(iter(self._cancel_events.values()))
-        if cancel_event.is_set():
-            return False
-
-        cancel_event.set()
-        return True
-
-    def _release_job(self, thread: QThread) -> None:
-        self._jobs.pop(thread, None)
-        self._cancel_events.pop(thread, None)

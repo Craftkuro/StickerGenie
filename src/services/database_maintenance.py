@@ -2,8 +2,8 @@
 """数据库维护服务。
 
 负责孤立 Blob 清理、OCR 文本补全、向量重建/关联修复和缩略图缓存清理。
-OCR 与向量部分通过 batch_job_runner 在子进程中执行，本模块在 QThread 中
-同步消费其结果批次。
+OCR 与向量部分通过 batch_job_runner 在子进程中执行，本模块只提供同步函数，
+后台线程由 services.background_job 管理。
 """
 from __future__ import annotations
 
@@ -12,10 +12,7 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
-from functools import partial
 from typing import Callable
-
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 import apppath
 import services.global_instances
@@ -729,107 +726,3 @@ def run_database_maintenance(
         thumbnail_errors=thumbnail_errors,
         cancelled=cancelled,
     )
-
-
-class _DatabaseMaintenanceWorker(QObject):
-    """在独立 QThread 中运行维护逻辑并通过 Qt 信号回传结果。"""
-    succeeded = pyqtSignal(object)
-    cancelled = pyqtSignal(object)
-    failed = pyqtSignal(str)
-    progress_changed = pyqtSignal(object)
-
-    def __init__(
-        self,
-        options: DatabaseMaintenanceOptions,
-        cancel_event: threading.Event,
-    ) -> None:
-        super().__init__()
-        self._options = options
-        self._cancel_event = cancel_event
-
-    @pyqtSlot()
-    def run(self) -> None:
-        try:
-            result = run_database_maintenance(
-                self._options,
-                progress=self.progress_changed.emit,
-                cancel_event=self._cancel_event,
-            )
-        except Exception as exc:
-            logger.exception("数据库维护失败")
-            self.failed.emit(str(exc))
-            return
-
-        if result.cancelled:
-            self.cancelled.emit(result)
-        else:
-            self.succeeded.emit(result)
-
-
-class DatabaseMaintenanceService(QObject):
-    """管理数据库维护后台线程、进度转发和取消请求。"""
-    maintenance_finished = pyqtSignal(object)
-    maintenance_cancelled = pyqtSignal(object)
-    maintenance_failed = pyqtSignal(str)
-    maintenance_progress_changed = pyqtSignal(object)
-
-    def __init__(self, parent: QObject | None = None) -> None:
-        super().__init__(parent)
-        self._jobs: dict[QThread, _DatabaseMaintenanceWorker] = {}
-        self._cancel_events: dict[QThread, threading.Event] = {}
-        self._can_cancel = False
-
-    @property
-    def active_job_count(self) -> int:
-        return len(self._jobs)
-
-    def start_maintenance(self, options: DatabaseMaintenanceOptions) -> None:
-        if not isinstance(options, DatabaseMaintenanceOptions):
-            raise TypeError("options must be a DatabaseMaintenanceOptions")
-        if self._jobs:
-            raise RuntimeError("已有数据库维护任务正在运行")
-
-        # 每个任务独占一个 QThread；worker 信号驱动线程退出和资源释放，
-        # 因此维护操作之间天然互斥。
-        thread = QThread(self)
-        cancel_event = threading.Event()
-        worker = _DatabaseMaintenanceWorker(options, cancel_event)
-        worker.moveToThread(thread)
-        self._jobs[thread] = worker
-        self._cancel_events[thread] = cancel_event
-        self._can_cancel = False
-
-        thread.started.connect(worker.run)
-        worker.succeeded.connect(self.maintenance_finished)
-        worker.cancelled.connect(self.maintenance_cancelled)
-        worker.failed.connect(self.maintenance_failed)
-        worker.progress_changed.connect(self._forward_progress)
-        worker.succeeded.connect(thread.quit)
-        worker.cancelled.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        worker.succeeded.connect(worker.deleteLater)
-        worker.cancelled.connect(worker.deleteLater)
-        worker.failed.connect(worker.deleteLater)
-        thread.finished.connect(partial(self._release_job, thread))
-        thread.finished.connect(thread.deleteLater)
-        thread.start()
-
-    @pyqtSlot(object)
-    def _forward_progress(self, progress: DatabaseMaintenanceProgress) -> None:
-        self._can_cancel = progress.cancellable
-        self.maintenance_progress_changed.emit(progress)
-
-    def cancel_maintenance(self) -> bool:
-        if not self._can_cancel or not self._cancel_events:
-            return False
-
-        cancel_event = next(iter(self._cancel_events.values()))
-        if cancel_event.is_set():
-            return False
-        cancel_event.set()
-        return True
-
-    def _release_job(self, thread: QThread) -> None:
-        self._jobs.pop(thread, None)
-        self._cancel_events.pop(thread, None)
-        self._can_cancel = False

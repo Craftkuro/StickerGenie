@@ -39,12 +39,12 @@ class MainWindowMainMenuButtonTests(unittest.TestCase):
 
     def _create_window(self, *, frozen: bool):
         with patch.object(sys, "frozen", frozen, create=True), patch(
-            "ui.main_window.services.import_images.ImageImportService"
+            "ui.main_window.ImageImportService"
         ), patch(
             "ui.main_window.services.export_library.LibraryExportService"
-        ), patch(
-            "ui.main_window.services.database_maintenance.DatabaseMaintenanceService"
-        ), patch.object(MainWindow, "debug_start_test_view"):
+        ), patch("ui.main_window.DatabaseMaintenanceService"), patch.object(
+            MainWindow, "debug_start_test_view"
+        ):
             self.window = MainWindow(settings_manager=self.settings_manager)
 
     def test_menu_bar_is_hidden_and_button_opens_same_menus(self):

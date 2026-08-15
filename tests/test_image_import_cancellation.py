@@ -20,11 +20,8 @@ from batch_job_runner.models import (
 from blob_storage import BlobStorage
 from commons.signal_objects import ImportImagesRequest
 from image_features_extractor import DEFAULT_MODEL_FILENAME, normalize_image_path
-from services.import_images import (
-    ImageImportService,
-    ImportImagesResult,
-    import_images_with_result,
-)
+from services.image_import_service import ImageImportService
+from services.import_images import ImportImagesResult, import_images_with_result
 from stickerdb.v1.sticker_db import StickerDBV1
 
 
@@ -237,7 +234,7 @@ class ImageImportCancellationTests(unittest.TestCase):
 
         fake_runner.iter_results = iter_results
         with self._patch_vector_runner(fake_runner), patch(
-            "services.import_images._get_model_hash",
+            "services.import_images.get_model_hash",
             return_value="test-model-hash",
         ):
             result = import_images_with_result(

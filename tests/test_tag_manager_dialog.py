@@ -273,13 +273,11 @@ class MainWindowTagManagerTests(unittest.TestCase):
             settings_manager = create_settings_manager(
                 Path(temp_dir) / "settings.toml"
             )
-            with patch(
-                "ui.main_window.services.import_images.ImageImportService"
-            ), patch(
+            with patch("ui.main_window.ImageImportService"), patch(
                 "ui.main_window.services.export_library.LibraryExportService"
-            ), patch(
-                "ui.main_window.services.database_maintenance.DatabaseMaintenanceService"
-            ), patch.object(MainWindow, "debug_start_test_view"):
+            ), patch("ui.main_window.DatabaseMaintenanceService"), patch.object(
+                MainWindow, "debug_start_test_view"
+            ):
                 window = MainWindow(settings_manager=settings_manager)
             try:
                 with patch.object(
