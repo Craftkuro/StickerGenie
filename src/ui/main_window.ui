@@ -154,22 +154,19 @@ QPushButton::menu-indicator { image: none; width: 0px; height: 0px; }</string>
      <string>文件</string>
     </property>
     <addaction name="actionImportImages"/>
-    <addaction name="actionExportLibrary"/>
     <addaction name="separator"/>
     <addaction name="actionQuit"/>
    </widget>
    <widget class="QMenu" name="menu_2">
     <property name="title">
-     <string>仓库</string>
+     <string>图库</string>
     </property>
-    <addaction name="actionNewStickerRepo"/>
-    <addaction name="actionOpenExistingRepo"/>
-    <addaction name="separator"/>
-    <addaction name="actionManageLoadedRepos"/>
     <addaction name="actionOpenTagManager"/>
+    <addaction name="actionStartLibraryAudit"/>
     <addaction name="actionStartDatabaseMaintenance"/>
     <addaction name="separator"/>
     <addaction name="actionImportRepoBackup"/>
+    <addaction name="actionExportLibrary"/>
    </widget>
    <widget class="QMenu" name="menu_4">
     <property name="title">
@@ -190,14 +187,6 @@ QPushButton::menu-indicator { image: none; width: 0px; height: 0px; }</string>
     <enum>QAction::MenuRole::QuitRole</enum>
    </property>
   </action>
-  <action name="actionNewStickerRepo">
-   <property name="text">
-    <string>新建表情仓库</string>
-   </property>
-   <property name="menuRole">
-    <enum>QAction::MenuRole::NoRole</enum>
-   </property>
-  </action>
   <action name="actionOpenSettings">
    <property name="text">
     <string>设置</string>
@@ -208,7 +197,7 @@ QPushButton::menu-indicator { image: none; width: 0px; height: 0px; }</string>
   </action>
   <action name="actionExportLibrary">
    <property name="text">
-    <string>导出图库</string>
+    <string>导出备份</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>
@@ -216,39 +205,7 @@ QPushButton::menu-indicator { image: none; width: 0px; height: 0px; }</string>
   </action>
   <action name="actionImportRepoBackup">
    <property name="text">
-    <string>导入仓库备份</string>
-   </property>
-   <property name="menuRole">
-    <enum>QAction::MenuRole::NoRole</enum>
-   </property>
-  </action>
-  <action name="actionCurrentViewMenuSortMode">
-   <property name="text">
-    <string>当前视图 - 排序方式</string>
-   </property>
-   <property name="menuRole">
-    <enum>QAction::MenuRole::NoRole</enum>
-   </property>
-  </action>
-  <action name="actionMostUsedKeywords">
-   <property name="text">
-    <string>常用关键词</string>
-   </property>
-   <property name="menuRole">
-    <enum>QAction::MenuRole::NoRole</enum>
-   </property>
-  </action>
-  <action name="actionOpenExistingRepo">
-   <property name="text">
-    <string>打开仓库</string>
-   </property>
-   <property name="menuRole">
-    <enum>QAction::MenuRole::NoRole</enum>
-   </property>
-  </action>
-  <action name="actionManageLoadedRepos">
-   <property name="text">
-    <string>管理已加载的仓库</string>
+    <string>导入备份</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>
@@ -257,6 +214,14 @@ QPushButton::menu-indicator { image: none; width: 0px; height: 0px; }</string>
   <action name="actionOpenTagManager">
    <property name="text">
     <string>标签管理器</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionStartLibraryAudit">
+   <property name="text">
+    <string>开始图库审计</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>

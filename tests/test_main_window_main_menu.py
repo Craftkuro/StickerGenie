@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QApplication
 
 import apppath
@@ -85,6 +86,45 @@ class MainWindowMainMenuButtonTests(unittest.TestCase):
         self.assertIsNotNone(popup)
         popup_titles = [action.text() for action in popup.actions()]
         self.assertNotIn("开发工具", popup_titles)
+
+    def test_menu_structure_matches_expected(self):
+        self._create_window(frozen=False)
+
+        expected = {
+            "文件": ["导入图片", None, "退出"],
+            "图库": [
+                "标签管理器",
+                "开始图库审计",
+                "开始数据库维护",
+                None,
+                "导入备份",
+                "导出备份",
+            ],
+            "选项": ["设置"],
+            "开发工具": ["自定义调试操作"],
+        }
+
+        actual = {}
+        for menu_action in self.window.menuBar().actions():
+            menu = menu_action.menu()
+            if menu is None:
+                continue
+            items = [
+                None if action.isSeparator() else action.text()
+                for action in menu.actions()
+            ]
+            actual[menu.title()] = items
+
+        self.assertEqual(expected, actual)
+
+        for removed_name in (
+            "actionNewStickerRepo",
+            "actionOpenExistingRepo",
+            "actionManageLoadedRepos",
+            "actionCurrentViewMenuSortMode",
+            "actionMostUsedKeywords",
+        ):
+            self.assertIsNone(self.window.findChild(QAction, removed_name))
 
 
 if __name__ == "__main__":
