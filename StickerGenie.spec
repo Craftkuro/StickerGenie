@@ -45,6 +45,12 @@ datas = [
 # ChromaDB 1.x 通过字符串动态加载实现类；Rust 绑定是独立二进制包。
 # 不显式收集时，打包后向量库初始化会报找不到模块或 DLL。
 chromadb_datas, chromadb_binaries, chromadb_hiddenimports = collect_all("chromadb")
+# collect_all 会把 chromadb 自带的 test/ 测试套件也收进 hiddenimports，
+# 进而把仅测试/独立 server 使用的 uvicorn、rich 等拉进打包；
+# 本项目走嵌入模式，运行时不会加载这些，这里直接过滤掉。
+chromadb_hiddenimports = [
+    m for m in chromadb_hiddenimports if not m.startswith("chromadb.test")
+]
 rust_datas, rust_binaries, rust_hiddenimports = collect_all("chromadb_rust_bindings")
 rapidocr_datas, rapidocr_binaries, rapidocr_hiddenimports = collect_all("rapidocr")
 
@@ -84,7 +90,22 @@ a = Analysis(
     runtime_hooks=[],
     # 排除 torch 系依赖：运行时只使用 onnxruntime，torch 仅是测试/调试链被
     # PyInstaller 静态分析误收集，剔除后体积可减少约 477 MB。
-    excludes=["torch", "torchvision", "functorch"],
+    # uvicorn/httptools/watchfiles/websockets：仅被 chromadb 自带 test 套件和
+    # 独立 server (chroma run) 引用，本项目嵌入模式不会加载。
+    # rich：仅被 chromadb 测试/CLI 链引用；bcrypt：仅 chromadb basic auth 使用。
+    # setuptools：运行时无引用，属于打包分析残留。
+    excludes=[
+        "torch",
+        "torchvision",
+        "functorch",
+        "bcrypt",
+        "httptools",
+        "watchfiles",
+        "websockets",
+        "setuptools",
+        "uvicorn",
+        "rich",
+    ],
     noarchive=False,
     optimize=0,
 )
