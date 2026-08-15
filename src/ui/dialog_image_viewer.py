@@ -10,7 +10,9 @@ from PyQt6.QtGui import QMovie, QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QFileDialog,
     QHeaderView,
+    QMenu,
     QMessageBox,
     QTableWidgetItem,
 )
@@ -18,7 +20,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import apppath
 import services.global_instances
+import services.image_clipboard_service
 from commons.dto import StickerImage, Tag
+from utils.save_as_files import save_as_files
 from ui.dialog_tag_selector import TagSelectorDialog
 from ui.widgets.custom_tag_widget import CustomTagWidget, TAG_ACCENT_COLOR_ROLE
 
@@ -45,6 +49,8 @@ class ImageViewerDialog(QDialog):
         )
         self._sticker: Optional[StickerImage] = None
         self._movie: Optional[QMovie] = None
+        self._file_path: Optional[str] = None
+        self._display_name: str = ""
 
         ui_file_path = apppath.app_path / 'ui' / 'dialog_image_viewer.ui'
         uic.loadUi(ui_file_path, self)
@@ -74,6 +80,12 @@ class ImageViewerDialog(QDialog):
 
     def _init_image_viewer(self):
         self._image_view = self.widgetImageViewer
+        self._image_view.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self._image_view.customContextMenuRequested.connect(
+            self._show_image_context_menu
+        )
         self.splitter.setSizes([320, 160])
 
     def _init_file_info_table(self):
@@ -122,6 +134,12 @@ class ImageViewerDialog(QDialog):
             self.setWindowTitle(DEFAULT_WINDOW_TITLE)
 
         self._sticker = sticker
+        self._file_path = file_path
+        self._display_name = (
+            getattr(self._sticker, "original_file_name", None)
+            or title
+            or Path(file_path).name
+        )
         self.imageTextEditWidget.set_sticker(sticker)
         self.widgetTagEditor.setVisible(sticker is not None)
         self._reload_tag_model()
@@ -138,6 +156,73 @@ class ImageViewerDialog(QDialog):
             movie.setFileName("")
             movie.deleteLater()
             self._movie = None
+
+    def _show_image_context_menu(self, position):
+        if not self._file_path:
+            return
+
+        menu = QMenu(self)
+        copy_action = menu.addAction("复制到剪贴板")
+        copy_action.triggered.connect(
+            lambda _checked=False: self._copy_current_image_to_clipboard()
+        )
+        if self._is_current_image_gif():
+            copy_first_frame_action = menu.addAction("复制首帧到剪贴板")
+            copy_first_frame_action.triggered.connect(
+                lambda _checked=False: self._copy_current_image_to_clipboard(
+                    anim_as_static_image=True
+                )
+            )
+        save_as_action = menu.addAction("另存为")
+        save_as_action.triggered.connect(
+            lambda _checked=False: self._save_current_image_as()
+        )
+        menu.exec(self._image_view.viewport().mapToGlobal(position))
+
+    def _is_current_image_gif(self) -> bool:
+        if getattr(self._sticker, "extension", "").casefold() == ".gif":
+            return True
+        return Path(self._file_path or "").suffix.casefold() == ".gif"
+
+    def _copy_current_image_to_clipboard(
+        self,
+        *,
+        anim_as_static_image: bool = False,
+    ) -> None:
+        if not self._file_path or not self._display_name:
+            return
+        try:
+            services.image_clipboard_service.copy_image_to_clipboard(
+                self._file_path,
+                self._display_name,
+                anim_as_static_image=anim_as_static_image,
+            )
+        except Exception as exc:
+            logger.exception("复制图片到剪贴板失败")
+            QMessageBox.warning(self, "复制失败", str(exc))
+
+    def _save_current_image_as(self) -> None:
+        if not self._file_path or not self._display_name:
+            return
+
+        destination, _ = QFileDialog.getSaveFileName(
+            self,
+            "另存为",
+            self._display_name,
+        )
+        if not destination:
+            return
+
+        target_path = Path(destination)
+        _, failed = save_as_files(
+            [(self._file_path, self._display_name)],
+            target_path.parent,
+            target_names=[target_path.name],
+        )
+        if failed:
+            QMessageBox.warning(self, "另存为失败", "图片保存失败。")
+        else:
+            QMessageBox.information(self, "另存为成功", "图片已保存。")
 
     def _reload_file_info(self, file_path: str, pixmap: QPixmap, title: str):
         path = Path(file_path)
