@@ -4,6 +4,8 @@ import threading
 import time
 import unittest
 
+import numpy as np
+
 from batch_job_runner import (
     BatchJobRunner,
     GeneralDataWrapper,
@@ -73,6 +75,17 @@ def stage_setup_error():
     raise RuntimeError("engine missing")
 
 
+def stage_vector_preprocess(path):
+    return (path, np.full(4096, 1.0, dtype=np.float32))
+
+
+def stage_vector_infer(items):
+    return [
+        (path, np.full(4096, 1.0, dtype=np.float32))
+        for path, _ in items
+    ]
+
+
 class _UpperPrefixRunner(BatchJobRunner):
     def build_pipeline(self):
         return PipelineSpec(
@@ -118,6 +131,36 @@ class _SingleStepRunner(BatchJobRunner):
                 ),
             ),
             setup_func=self._setup,
+            result_batch_size=8,
+        )
+
+
+class _LargeVectorRunner(BatchJobRunner):
+    def build_pipeline(self):
+        return PipelineSpec(
+            queues=(
+                QueueSpec("input", 64),
+                QueueSpec("preprocessed", 16),
+                QueueSpec("inferred", 8),
+            ),
+            stages=(
+                StageSpec(
+                    "preprocess",
+                    "input",
+                    "preprocessed",
+                    stage_vector_preprocess,
+                    pool_size=4,
+                ),
+                StageSpec(
+                    "infer",
+                    "preprocessed",
+                    "inferred",
+                    stage_vector_infer,
+                    pool_size=1,
+                    batch_size=8,
+                ),
+            ),
+            setup_func=stage_setup_ok,
             result_batch_size=8,
         )
 
@@ -426,6 +469,15 @@ class SchedulerIntegrationTests(unittest.TestCase):
         self.assertEqual(500, summary.completed)
         self.assertEqual(500, summary.succeeded)
         self.assertEqual(500, len(summary.results))
+        self.assertNotIn("BatchJobRunnerWorker", _active_worker_names())
+
+    def test_large_result_payload_stream_does_not_deadlock(self):
+        runner = _LargeVectorRunner()
+        items = [f"item-{index}" for index in range(256)]
+        summary = runner.run(items, timeout=60)
+        self.assertEqual(256, summary.completed)
+        self.assertEqual(256, summary.succeeded)
+        self.assertEqual(256, len(summary.results))
         self.assertNotIn("BatchJobRunnerWorker", _active_worker_names())
 
 

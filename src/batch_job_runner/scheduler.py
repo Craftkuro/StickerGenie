@@ -25,6 +25,7 @@ ITEMS = "ITEMS"
 END_INPUT = "END_INPUT"
 CANCEL = "CANCEL"
 RESULT_BATCH = "RESULT_BATCH"
+REQUEST_INPUT = "REQUEST_INPUT"
 DONE = "DONE"
 JOB_ERROR = "JOB_ERROR"
 
@@ -254,6 +255,8 @@ def scheduler_entry(connection: Connection, spec: PipelineSpec) -> None:
         fed = 0
         drained = 0
         input_exhausted = False
+        received_items = False
+        request_sent = False
 
         while True:
             if state.errors:
@@ -265,6 +268,8 @@ def scheduler_entry(connection: Connection, spec: PipelineSpec) -> None:
                 if kind == ITEMS:
                     if not isinstance(payload, (tuple, list)):
                         raise RuntimeError("ITEMS requires a tuple payload")
+                    received_items = True
+                    request_sent = False
                     for item in payload:
                         while True:
                             try:
@@ -299,6 +304,7 @@ def scheduler_entry(connection: Connection, spec: PipelineSpec) -> None:
                         fed += 1
                 elif kind == END_INPUT:
                     input_exhausted = True
+                    request_sent = False
                 elif kind == CANCEL:
                     cancelled = True
                     break
@@ -307,14 +313,23 @@ def scheduler_entry(connection: Connection, spec: PipelineSpec) -> None:
                         f"unknown parent IPC message: {kind!r}"
                     )
 
-            batch = _drain(tail_queue, spec.result_batch_size)
-            if batch:
-                _send(connection, RESULT_BATCH, tuple(batch))
-                drained += len(batch)
+            if not request_sent:
+                batch = _drain(tail_queue, spec.result_batch_size)
+                if batch:
+                    _send(connection, RESULT_BATCH, tuple(batch))
+                    drained += len(batch)
 
-            if input_exhausted and fed == drained:
-                _send(connection, DONE, False)
-                return
+                if input_exhausted and fed == drained:
+                    _send(connection, DONE, False)
+                    return
+
+                if (
+                    not input_exhausted
+                    and received_items
+                    and not batch
+                ):
+                    _send(connection, REQUEST_INPUT, None)
+                    request_sent = True
     except BaseException as error:
         logger.error("batch job worker failed:\n%s", traceback.format_exc())
         try:

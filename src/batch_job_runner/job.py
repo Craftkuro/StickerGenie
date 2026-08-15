@@ -35,6 +35,7 @@ from .scheduler import (
     INIT_OK,
     ITEMS,
     JOB_ERROR,
+    REQUEST_INPUT,
     RESULT_BATCH,
     scheduler_entry,
 )
@@ -213,9 +214,6 @@ class _BatchJob:
             if event is not None:
                 return event
 
-        if not self._cancel_requested and not self._input_exhausted:
-            self._maybe_send_next_batch()
-
         if not has_message and not self._process.is_alive():
             return self._handle_worker_exit()
         return None
@@ -253,6 +251,10 @@ class _BatchJob:
 
         if kind == RESULT_BATCH:
             return self._handle_result_batch(payload)
+
+        if kind == REQUEST_INPUT:
+            self._maybe_send_next_batch()
+            return None
 
         if kind == JOB_ERROR:
             self._terminate_and_join()
@@ -330,7 +332,6 @@ class _BatchJob:
         if self._cancel_requested:
             return None
 
-        self._maybe_send_next_batch()
         return _JobEvent(
             "batch",
             ResultBatch(

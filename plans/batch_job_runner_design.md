@@ -194,16 +194,22 @@ while not stop_event.is_set():
 
 ```
 fed = 0; drained = 0; input_exhausted = False
+received_items = False; request_sent = False
 while True:
     if conn.poll(0.05):
         kind, payload = conn.recv()
-        ITEMS     -> 逐个包成 GeneralDataWrapper 放入 queue[0]；fed += n
-        END_INPUT -> input_exhausted = True
+        ITEMS     -> 逐个包成 GeneralDataWrapper 放入 queue[0]；fed += n；
+                    received_items = True; request_sent = False
+        END_INPUT -> input_exhausted = True; request_sent = False
         CANCEL    -> 进入取消路径
         其他      -> 发 JOB_ERROR 并退出
+    if request_sent:
+        continue        # 已请求下一批输入；结果发送暂停，等待 ITEMS/END_INPUT
     drain 尾队列：攒满 result_batch_size 或流尾 -> conn.send(RESULT_BATCH, wrappers)；drained += n
     if input_exhausted and fed == drained:
         conn.send(DONE, False); break
+    if not input_exhausted and received_items and 尾队列空:
+        conn.send(REQUEST_INPUT); request_sent = True
 ```
 
 - 管道只由调度线程访问（send/recv 同线程），worker 线程只碰队列。
@@ -267,16 +273,19 @@ class BatchJobRunner:
 
 ### 背压与防死锁
 
-- 父进程发送与接收交替：每轮 poll 至多发一个 ITEMS 批（32 条），随后收消息；
-  管道内 in-flight 总量有界（约等于首队列 maxsize + 两个 ITEMS 批）。
-- 队列 maxsize 提供子进程内背压；子进程 send 阻塞时父进程处于 poll/recv，
-  不会互相阻塞死锁。
+- 父进程只在收到 `INIT_OK` 或 `REQUEST_INPUT` 后下发一个 ITEMS 批（32 条），
+  不在收到结果后主动继续推送输入。
+- 子进程发出 `REQUEST_INPUT` 后暂停发送 `RESULT_BATCH`，直到收到下一批
+  `ITEMS`（或 `END_INPUT`）；两个方向的大消息不会同时进入管道。
+- 队列 maxsize 提供子进程内背压；管道内 in-flight 总量有界（约等于首队列
+  maxsize + 一个 ITEMS 批）。
 
 ## IPC 协议
 
 ```
 父 -> 子:  ITEMS(tuple) / END_INPUT / CANCEL
 子 -> 父:  INIT_OK(startup_info) / INIT_ERROR(str)
+           / REQUEST_INPUT
            / RESULT_BATCH(tuple[GeneralDataWrapper, ...])
            / DONE(cancelled: bool) / JOB_ERROR(str)
 ```
