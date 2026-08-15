@@ -43,15 +43,12 @@ def resolve_library_path():
     if apppath.base_path is None:
         raise RuntimeError("数据根目录尚未初始化")
 
-    raw_path = pathlib.Path(library_base_path).expanduser()
-    library_base_path = (
-        raw_path if raw_path.is_absolute() else apppath.base_path / raw_path
-    )
-    library_base_path.mkdir(parents=True, exist_ok=True)
+    library_path = pathlib.Path(library_base_path).expanduser()
+    if not library_path.is_absolute():
+        library_path = apppath.base_path / library_path
 
-    default_library_path = library_base_path / 'Default Library'
-    default_library_path.mkdir(parents=True, exist_ok=True)
-    return default_library_path
+    library_path.mkdir(parents=True, exist_ok=True)
+    return library_path
 
 
 def open_library(library_path):

@@ -27,7 +27,10 @@ class StartupLibraryPathsTests(unittest.TestCase):
             if config_field.key == "library_base_path"
         )
         self.assertEqual("str", field.type.value)
-        self.assertEqual("StickerGenie Library", field.default)
+        self.assertEqual(
+            "StickerGenie Library/Default Library",
+            field.default,
+        )
 
     def test_existing_config_gains_library_base_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -40,13 +43,13 @@ class StartupLibraryPathsTests(unittest.TestCase):
             manager = create_settings_manager(config_path)
 
             self.assertEqual(
-                "StickerGenie Library",
+                "StickerGenie Library/Default Library",
                 manager.get("library_base_path"),
             )
             content = config_path.read_text(encoding="utf-8")
             self.assertIn(f'__version__ = "{SETTINGS_VERSION}"', content)
             self.assertIn(
-                'library_base_path = "StickerGenie Library"',
+                'library_base_path = "StickerGenie Library/Default Library"',
                 content,
             )
 
@@ -87,7 +90,7 @@ class StartupLibraryPathsTests(unittest.TestCase):
             ), mock.patch.object(apppath, "base_path", data_root):
                 result = startup.resolve_library_path()
 
-            expected = data_root / "My Library" / "Default Library"
+            expected = data_root / "My Library"
             self.assertEqual(expected, result)
             self.assertTrue(expected.exists())
             self.assertEqual("library_base_path", fake_settings.key)
@@ -104,7 +107,7 @@ class StartupLibraryPathsTests(unittest.TestCase):
             ), mock.patch.object(apppath, "base_path", data_root):
                 result = startup.resolve_library_path()
 
-            self.assertEqual(custom_root / "Default Library", result)
+            self.assertEqual(custom_root, result)
             self.assertTrue(result.exists())
 
     def test_resolve_library_path_requires_settings_manager(self):

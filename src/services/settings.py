@@ -19,8 +19,8 @@ SETTINGS_SCHEMA = [
     ConfigField(
         "library_base_path",
         ConfigType.STRING,
-        "StickerGenie Library",
-        "图库根目录；可以是相对数据目录的路径，也可以是绝对路径",
+        "StickerGenie Library/Default Library",
+        "图库路径；可以是相对数据目录的路径，也可以是绝对路径",
     ),
     ConfigField(
         "recent_search_limit",
