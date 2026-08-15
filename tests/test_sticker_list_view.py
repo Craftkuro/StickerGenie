@@ -465,7 +465,7 @@ class StickerListViewTests(unittest.TestCase):
             ) as dialog_mock, patch(
                 "ui.widgets.sticker_list_page.QMessageBox.warning"
             ) as warning_mock, patch(
-                "ui.widgets.sticker_list_page.shutil.copy2"
+                "utils.save_as_files.shutil.copy2"
             ) as copy_mock:
                 page._save_as_for_indexes(
                     [model.index(0, 0), model.index(1, 0)]
@@ -502,10 +502,10 @@ class StickerListViewTests(unittest.TestCase):
                 "ui.widgets.sticker_list_page.QFileDialog.getExistingDirectory",
                 return_value=str(destination),
             ), patch(
-                "ui.widgets.sticker_list_page.shutil.copy2",
+                "utils.save_as_files.shutil.copy2",
                 side_effect=[None, OSError("boom")],
             ), patch(
-                "ui.widgets.sticker_list_page.logger.exception"
+                "utils.save_as_files.logger.exception"
             ), patch(
                 "ui.widgets.sticker_list_page.QMessageBox.information"
             ) as information_mock:

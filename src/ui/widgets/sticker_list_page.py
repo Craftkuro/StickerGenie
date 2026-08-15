@@ -1,7 +1,5 @@
 #coding=utf-8
 import logging
-import shutil
-import unicodedata
 from pathlib import Path
 
 from PyQt6 import uic
@@ -33,6 +31,7 @@ from commons.roles import (
 )
 import services.image_clipboard_service
 import services.sticker_library_viewer_service
+from utils.save_as_files import has_duplicate_original_file_names, save_as_files
 
 from ..dialog_image_viewer import ImageViewerDialog
 
@@ -276,6 +275,10 @@ class StickerListPage(QWidget):
         if not records:
             return
 
+        source_files = [
+            (source_path, sticker.original_file_name)
+            for sticker, source_path in records
+        ]
         is_multi_selection = (
             sum(1 for index in indexes if index.isValid()) > 1
         )
@@ -288,10 +291,15 @@ class StickerListPage(QWidget):
             )
             if not destination:
                 return
-            targets = [Path(destination)]
+            target_path = Path(destination)
+            succeeded, failed = save_as_files(
+                source_files,
+                target_path.parent,
+                target_names=[target_path.name],
+            )
         else:
-            if self._has_duplicate_original_file_names(
-                [record[0] for record in records]
+            if has_duplicate_original_file_names(
+                [original_file_name for _, original_file_name in source_files]
             ):
                 QMessageBox.warning(
                     self,
@@ -306,24 +314,10 @@ class StickerListPage(QWidget):
             )
             if not destination:
                 return
-            destination_path = Path(destination)
-            targets = [
-                destination_path / record[0].original_file_name
-                for record in records
-            ]
-
-        succeeded = 0
-        failed = 0
-        for (sticker, source_path), target_path in zip(records, targets):
-            try:
-                shutil.copy2(source_path, target_path)
-                succeeded += 1
-            except Exception:
-                logger.exception(
-                    "另存为图片失败：%s",
-                    sticker.original_file_name,
-                )
-                failed += 1
+            succeeded, failed = save_as_files(
+                source_files,
+                destination,
+            )
 
         if failed:
             QMessageBox.information(
@@ -337,19 +331,6 @@ class StickerListPage(QWidget):
                 "导出完成",
                 f"已导出{succeeded}张图片。",
             )
-
-    @staticmethod
-    def _has_duplicate_original_file_names(stickers) -> bool:
-        seen_names = set()
-        for sticker in stickers:
-            file_name = unicodedata.normalize(
-                "NFC",
-                sticker.original_file_name,
-            ).casefold()
-            if file_name in seen_names:
-                return True
-            seen_names.add(file_name)
-        return False
 
     def _find_similar_for_index(self, index: QModelIndex):
         sticker = index.data(ROLE_STICKER_IMAGE)
