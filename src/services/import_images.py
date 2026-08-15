@@ -54,6 +54,15 @@ class ImportImagesResult:
     cancelled: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class ImportCandidate:
+    """准备阶段产出的单张待导入图片。"""
+
+    sticker: StickerImage
+    file_path: str
+    file_hash: str
+
+
 @dataclass(frozen=True)
 class ImportImagesProgress:
     percent: int
@@ -341,9 +350,9 @@ def _prepare_candidates(
     *,
     progress: ProgressCallback | None = None,
     cancel_event: threading.Event | None = None,
-) -> tuple[list[tuple[StickerImage, str, str]], int, bool]:
+) -> tuple[list[ImportCandidate], int, bool]:
     """读取图片元数据并过滤同一请求内的重复 hash。"""
-    candidates: list[tuple[StickerImage, str, str]] = []
+    candidates: list[ImportCandidate] = []
     request_hashes: set[str] = set()
     duplicate_count = 0
 
@@ -378,7 +387,13 @@ def _prepare_candidates(
             if tags:
                 for tag in tags:
                     sticker.tags.append(tag)
-            candidates.append((sticker, file_path, metadata.hash))
+            candidates.append(
+                ImportCandidate(
+                    sticker=sticker,
+                    file_path=file_path,
+                    file_hash=metadata.hash,
+                )
+            )
         except (OSError, ValueError) as exc:
             logger.warning("无法读取图片 %s: %s", file_path, exc)
             continue
@@ -387,34 +402,36 @@ def _prepare_candidates(
 
 
 def _select_new_candidates(
-    candidates: list[tuple[StickerImage, str, str]],
+    candidates: list[ImportCandidate],
     current_library_db,
     *,
     cancel_event: threading.Event | None = None,
-) -> tuple[list[tuple[StickerImage, str, str]], int, bool]:
+) -> tuple[list[ImportCandidate], int, bool]:
     """过滤图库中已经存在的 hash。"""
     if _is_cancelled(cancel_event):
         return [], 0, True
 
     existing_hashes = current_library_db.get_existing_sticker_hashes(
-        sticker.hash for sticker, _, _ in candidates
+        candidate.sticker.hash for candidate in candidates
     )
     if _is_cancelled(cancel_event):
         return [], 0, True
 
     duplicate_count = sum(
-        1 for sticker, _, _ in candidates if sticker.hash in existing_hashes
+        1
+        for candidate in candidates
+        if candidate.sticker.hash in existing_hashes
     )
     import_candidates = [
         candidate
         for candidate in candidates
-        if candidate[0].hash not in existing_hashes
+        if candidate.sticker.hash not in existing_hashes
     ]
     return import_candidates, duplicate_count, False
 
 
 def _commit_candidates(
-    import_candidates: list[tuple[StickerImage, str, str]],
+    import_candidates: list[ImportCandidate],
     *,
     current_library_db,
     current_blob_storage,
@@ -449,7 +466,7 @@ def _commit_candidates(
         ]
         batch_stickers = []
         batch_stickers_and_blob_paths = []
-        for sticker, file_path, file_hash in batch_candidates:
+        for candidate in batch_candidates:
             if _is_cancelled(cancel_event):
                 return (
                     imported_stickers,
@@ -458,7 +475,10 @@ def _commit_candidates(
                     True,
                 )
 
-            blob_entity = current_blob_storage.store_file(file_path, file_hash)
+            blob_entity = current_blob_storage.store_file(
+                candidate.file_path,
+                candidate.file_hash,
+            )
             if _is_cancelled(cancel_event):
                 return (
                     imported_stickers,
@@ -468,8 +488,10 @@ def _commit_candidates(
                 )
 
             blob_path = current_blob_storage.read_file(blob_entity)
-            batch_stickers.append(sticker)
-            batch_stickers_and_blob_paths.append((sticker, blob_path))
+            batch_stickers.append(candidate.sticker)
+            batch_stickers_and_blob_paths.append(
+                (candidate.sticker, blob_path)
+            )
 
         if _is_cancelled(cancel_event):
             return (
