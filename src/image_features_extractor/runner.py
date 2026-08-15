@@ -1,4 +1,8 @@
-"""Vector batch job runner built on :mod:`batch_job_runner`."""
+"""基于 batch_job_runner 的图片特征向量批处理任务。
+
+VectorBatchJobRunner 声明“预处理 -> 批量推理”两阶段流水线，父进程只传图片
+路径，子进程自行读图、预处理和加载 ONNX 模型。
+"""
 
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ from .stages import ProviderSpec, load_session, preprocess_image, run_batch_infe
 
 
 def normalize_image_path(image_path: str | os.PathLike[str]) -> str:
-    """Return a normalized absolute path without touching the image file."""
+    """返回规范化后的绝对路径（不读取图片文件）。"""
 
     raw_path = os.fspath(image_path)
     if not isinstance(raw_path, str) or not raw_path.strip():
@@ -31,6 +35,7 @@ def normalize_image_path(image_path: str | os.PathLike[str]) -> str:
 def _normalize_providers(
     providers: Sequence[ProviderSpec] | None,
 ) -> tuple[ProviderSpec, ...] | None:
+    """把用户传入的 provider 配置统一为可 pickle 的元组序列。"""
     if providers is None:
         return None
     if not providers:
@@ -54,10 +59,10 @@ def _normalize_providers(
 
 
 class VectorBatchJobRunner(BatchJobRunner):
-    """Run one feature-vector batch job over blob paths.
+    """对一组 blob 图片路径运行特征向量批处理任务。
 
-    Stage 1 preprocesses images with a CPU thread pool; stage 2 runs batched
-    ONNX inference with a single thread to avoid intra-op oversubscription.
+    第一阶段用 CPU 线程池并行预处理图片；第二阶段用单线程批量跑 ONNX
+    推理，避免 onnxruntime 内部线程与流水线线程叠加导致超订。
     """
 
     def __init__(
@@ -84,6 +89,7 @@ class VectorBatchJobRunner(BatchJobRunner):
         self._result_batch_size = result_batch_size
 
     def build_pipeline(self) -> PipelineSpec:
+        """声明向量流水线：input -> preprocess -> infer -> inferred。"""
         return PipelineSpec(
             queues=(
                 QueueSpec("input", self._queue_size),
@@ -120,7 +126,7 @@ class VectorBatchJobRunner(BatchJobRunner):
         items: Iterable[str | os.PathLike[str]],
         **kwargs: Any,
     ) -> Iterator[ResultBatch]:
-        """Yield vector result batches; results carry ``(path, vector)``."""
+        """逐批产出向量结果；每条结果为 ``(path, vector)`` 元组。"""
 
         return super().iter_results(
             (normalize_image_path(path) for path in items),
@@ -132,7 +138,7 @@ class VectorBatchJobRunner(BatchJobRunner):
         items: Iterable[str | os.PathLike[str]],
         **kwargs: Any,
     ):
-        """Collect all vector results into a :class:`JobSummary`."""
+        """收集全部向量结果并返回 JobSummary。"""
 
         return super().run(
             (normalize_image_path(path) for path in items),

@@ -31,6 +31,7 @@ from utils.image_metadata import get_image_metadata
 logger = logging.getLogger(__name__)
 
 IMPORT_BATCH_SIZE = 32
+# 导入进度区间：0-5 预处理，5-15 写 SQLite，15-40 OCR，40-100 向量。
 PREPROCESS_END_PERCENT = 5
 SQLITE_END_PERCENT = 15
 OCR_START_PERCENT = 15
@@ -171,6 +172,8 @@ def _generate_vectors(
             total=total,
             cancel_event=cancel_event,
         ):
+            # 子进程结果不保证顺序，先按路径映射回 StickerImage，再成批写入
+            # 向量库和 SQLite；失败项只记录错误，不影响同批其他图片。
             batch_stickers: list[StickerImage] = []
             batch_vectors = []
             batch_metadata = []
@@ -288,6 +291,8 @@ def _extract_texts(
             total=total,
             cancel_event=cancel_event,
         ):
+            # 把 OCR 结果按路径映射回 sticker，成功文本批量回填数据库；
+            # wrapper.hasException 表示单条失败，任务仍继续。
             text_by_sticker_id: dict[int, str | None] = {}
 
             for wrapper in result_batch.results:
@@ -573,6 +578,7 @@ def import_images(
 
 
 class _ImportImagesWorker(QObject):
+    """在独立 QThread 中执行导入并通过 Qt 信号回传进度与结果。"""
     succeeded = pyqtSignal(object)
     cancelled = pyqtSignal(object)
     failed = pyqtSignal(str)
@@ -626,6 +632,8 @@ class ImageImportService(QObject):
         if self._jobs:
             raise RuntimeError("已有图片导入任务正在进行")
 
+        # 每个导入请求独占一个 QThread；worker 结束时通过信号退出线程并释放
+        # 资源，因此同一时间只允许一个导入任务。
         thread = QThread(self)
         cancel_event = threading.Event()
         worker = _ImportImagesWorker(request, cancel_event)

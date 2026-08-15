@@ -1,4 +1,9 @@
 # coding=utf-8
+"""图片导入进度对话框。
+
+导入完成前禁止关闭/按 Esc 退出，只允许通过取消按钮请求中止，避免用户
+在后台任务仍写入数据库时提前关闭界面。
+"""
 from PyQt6 import uic
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QKeyEvent
@@ -28,6 +33,7 @@ class ImageImportProgressDialog(QDialog):
         self.pushButtonCancel.clicked.connect(self._request_cancel)
 
     def update_progress(self, progress: ImportImagesProgress) -> None:
+        """用最新进度刷新状态、进度条和详情文本。"""
         if not isinstance(progress, ImportImagesProgress):
             raise TypeError("progress must be an ImportImagesProgress")
 
@@ -48,6 +54,7 @@ class ImageImportProgressDialog(QDialog):
         self.labelDetail.setToolTip("")
 
     def _request_cancel(self) -> None:
+        """请求中止导入：禁用取消按钮并发出信号，由服务层置位 cancel_event。"""
         if self._cancel_requested:
             return
 

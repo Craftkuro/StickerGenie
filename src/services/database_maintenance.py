@@ -1,4 +1,10 @@
 # coding=utf-8
+"""数据库维护服务。
+
+负责孤立 Blob 清理、OCR 文本补全、向量重建/关联修复和缩略图缓存清理。
+OCR 与向量部分通过 batch_job_runner 在子进程中执行，本模块在 QThread 中
+同步消费其结果批次。
+"""
 from __future__ import annotations
 
 import logging
@@ -329,6 +335,8 @@ def _extract_missing_texts(
             total=candidate_total,
             cancel_event=cancel_event,
         ):
+            # 按子进程返回的路径把结果映射回维护记录；失败的 wrapper 只记入
+            # errors，不中断整个 OCR 任务。
             text_by_sticker_id: dict[int, str | None] = {}
             for wrapper in result_batch.results:
                 image_path = wrapper_input_identifier(wrapper)
@@ -438,6 +446,7 @@ def _generate_vectors(
         return vectorized_count, relinked_count, skipped_count, tuple(errors), True
 
     if scope is VectorMaintenanceScope.ALL:
+        # 全量重建：先清空向量库，后面所有记录都会重新生成向量。
         with services.global_instances.vector_store_lock:
             vector_store.reset()
 
@@ -463,6 +472,8 @@ def _generate_vectors(
         batch = records[batch_start:batch_start + VECTOR_BATCH_SIZE]
 
         if scope is VectorMaintenanceScope.MISSING:
+            # 增量修复：先检查当前批次已有的向量；能复用的记录改关联，
+            # 完全没有向量的才进入候选列表。
             existing_by_sticker_id: dict[int, VectorRecord | None] = {}
             with services.global_instances.vector_store_lock:
                 for sticker in batch:
@@ -485,6 +496,7 @@ def _generate_vectors(
                 add_candidate(sticker)
 
         checked = min(total, batch_start + len(batch))
+        # 准备阶段已完成数 = 已检查数 - 候选数（即已跳过/复用的记录数）。
         completed = min(total, checked - len(candidates))
         _report_progress(
             progress,
@@ -537,6 +549,8 @@ def _generate_vectors(
             total=candidate_total,
             cancel_event=cancel_event,
         ):
+            # 每个结果批次先按路径归集 sticker、向量和元数据，再在向量库锁内
+            # 一次性写入 Chroma 与 SQLite，保证两边的关联一致。
             batch_stickers: list[StickerMaintenanceRecord] = []
             batch_vectors = []
             batch_metadata = []
@@ -595,6 +609,8 @@ def _generate_vectors(
                 total,
                 total - candidate_total + result_batch.progress.completed,
             )
+            # 总体进度 = 30% 准备阶段 + 70% 向量生成阶段；生成阶段按候选
+            # 条数折算，并把已有向量造成的“已完成”基数带入界面计数。
             extraction_ratio = result_batch.progress.completed / candidate_total
             if extraction_ratio >= 1.0:
                 task_fraction = 1.0
@@ -716,6 +732,7 @@ def run_database_maintenance(
 
 
 class _DatabaseMaintenanceWorker(QObject):
+    """在独立 QThread 中运行维护逻辑并通过 Qt 信号回传结果。"""
     succeeded = pyqtSignal(object)
     cancelled = pyqtSignal(object)
     failed = pyqtSignal(str)
@@ -750,6 +767,7 @@ class _DatabaseMaintenanceWorker(QObject):
 
 
 class DatabaseMaintenanceService(QObject):
+    """管理数据库维护后台线程、进度转发和取消请求。"""
     maintenance_finished = pyqtSignal(object)
     maintenance_cancelled = pyqtSignal(object)
     maintenance_failed = pyqtSignal(str)
@@ -771,6 +789,8 @@ class DatabaseMaintenanceService(QObject):
         if self._jobs:
             raise RuntimeError("已有数据库维护任务正在运行")
 
+        # 每个任务独占一个 QThread；worker 信号驱动线程退出和资源释放，
+        # 因此维护操作之间天然互斥。
         thread = QThread(self)
         cancel_event = threading.Event()
         worker = _DatabaseMaintenanceWorker(options, cancel_event)

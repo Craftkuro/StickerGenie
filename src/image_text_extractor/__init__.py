@@ -1,4 +1,8 @@
-"""Short-lived batch OCR jobs built on :mod:`batch_job_runner`."""
+"""基于 batch_job_runner 的图片 OCR 对外接口。
+
+保留 OcrBatchJobRunner、文本拼接和路径规范化等必要导出；旧 extractor
+的 worker/qt/同步接口已由 runner + stages 替代。
+"""
 
 from .exceptions import (
     ImageTextExtractorError,

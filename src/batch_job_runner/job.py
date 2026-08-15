@@ -1,4 +1,8 @@
-"""Parent-process batch job controller and synchronous runner API."""
+"""父进程侧批处理任务控制器与同步调用 API。
+
+BatchJobRunner 负责启动/回收子进程、维护 IPC 状态机，并把结果批次逐批交给
+调用方；迭代式接口 iter_results 与收集式接口 run 都基于同一状态机实现。
+"""
 
 from __future__ import annotations
 
@@ -44,6 +48,8 @@ from .scheduler import (
 logger = logging.getLogger(__name__)
 _POLL_INTERVAL_SECONDS = 0.05
 _DEFAULT_SHUTDOWN_SECONDS = 1.0
+# 父进程每批最多下发 32 条输入；批量下发降低 IPC 次数，同时让管道和子进程
+# 首队列中的在途数据保持有界。
 _ITEMS_BATCH_SIZE = 32
 
 
@@ -97,7 +103,11 @@ class _JobEvent:
 
 
 class _BatchJob:
-    """Non-blocking parent-side state machine for one worker process."""
+    """父进程侧单个 worker 的非阻塞状态机。
+
+    持有管道连接、输入迭代器、进度计数和取消/超时截止时间；poll() 每次驱动
+    一步，终态事件通过 _JobEvent 返回给 BatchJobRunner。
+    """
 
     def __init__(
         self,
@@ -149,6 +159,8 @@ class _BatchJob:
             child_connection.close()
             raise
         finally:
+            # 子进程端连接只应由子进程持有；父进程立即关闭，避免两端同持一份
+            # 句柄导致 EOF 判定失真。
             child_connection.close()
 
     @property
@@ -160,6 +172,7 @@ class _BatchJob:
         return self._cancel_requested
 
     def request_cancel(self) -> None:
+        """请求取消当前任务，并记录宽限期截止时间。"""
         if self._terminal or self._cancel_requested:
             return
         self._cancel_requested = True
@@ -178,6 +191,7 @@ class _BatchJob:
             pass
 
     def poll(self, timeout: float = 0.0) -> _JobEvent | None:
+        """单步驱动状态机：检查超时、收消息，返回一个终态/结果事件。"""
         if self._terminal:
             return None
 
@@ -219,6 +233,7 @@ class _BatchJob:
         return None
 
     def _check_timeout(self, now: float) -> None:
+        """超过 deadline 时终止子进程并抛出 JobTimeoutError。"""
         if self._deadline is None or now < self._deadline:
             return
         self._terminate_and_join()
@@ -228,6 +243,7 @@ class _BatchJob:
         )
 
     def _handle_message(self, message: Any) -> _JobEvent | None:
+        """按 IPC 消息类型推进状态机，未知/非法消息视为协议错误。"""
         if (
             not isinstance(message, tuple)
             or len(message) != 2
@@ -268,6 +284,11 @@ class _BatchJob:
         return None
 
     def _maybe_send_next_batch(self) -> None:
+        """仅在收到 INIT_OK 或子进程 REQUEST_INPUT 后下发下一批输入。
+
+        不主动在收到结果后继续灌入输入：输入侧和结果侧交替使用管道，避免
+        父进程与子进程同时阻塞在 send() 上形成管道死锁。
+        """
         if (
             self._terminal
             or self._cancel_requested
@@ -278,11 +299,11 @@ class _BatchJob:
         try:
             self._send_next_items_batch()
         except (BrokenPipeError, EOFError, OSError):
-            # The worker may have exited; the next poll converts this to a
-            # WorkerCrashedError.
+            # 子进程可能已退出；下一次 poll 会把它转换成 WorkerCrashedError。
             pass
 
     def _send_next_items_batch(self) -> None:
+        """从输入迭代器取一批路径发送给子进程；输入耗尽时发送 END_INPUT。"""
         items: list[Any] = []
         try:
             for _ in range(_ITEMS_BATCH_SIZE):
@@ -297,6 +318,8 @@ class _BatchJob:
             raise
 
         if not items:
+            # total 若已指定，输入条数必须与 total 完全一致；不一致属于调用方
+            # 契约错误，立即终止任务。
             if self._total is not None and self._submitted != self._total:
                 self._terminate_and_join()
                 self._terminal = True
@@ -317,6 +340,7 @@ class _BatchJob:
         self._connection.send((ITEMS, tuple(items)))
 
     def _handle_result_batch(self, payload: Any) -> _JobEvent | None:
+        """累计一批结果的成功/失败计数，并生成 ResultBatch 事件。"""
         if not self._received_init_ok:
             self._fail_protocol("worker sent results before INIT_OK")
         if not isinstance(payload, (tuple, list)) or not all(
@@ -346,8 +370,10 @@ class _BatchJob:
         )
 
     def _handle_done(self, worker_cancelled: bool) -> _JobEvent:
+        """处理正常完成或取消完成消息，并回收子进程。"""
         cancelled = self._cancel_requested or worker_cancelled
         if not cancelled:
+            # 未取消时，正常完成必须满足“输入全部提交且结果全部返回”的契约。
             if not self._input_exhausted:
                 self._fail_protocol(
                     "worker finished before all input was submitted"
@@ -363,6 +389,7 @@ class _BatchJob:
         return _JobEvent("cancelled" if cancelled else "finished", summary)
 
     def _handle_worker_exit(self) -> _JobEvent:
+        """子进程未发终态消息即退出：取消场景视为取消，其余视为崩溃。"""
         self._process.join(timeout=_DEFAULT_SHUTDOWN_SECONDS)
         if self._process.is_alive():
             self._terminate_and_join()
@@ -379,6 +406,7 @@ class _BatchJob:
         )
 
     def _finish_cancelled(self, *, force: bool) -> _JobEvent:
+        """完成取消路径；force=True 时不等子进程协作直接终止。"""
         if force:
             self._terminate_and_join()
         else:
@@ -404,12 +432,14 @@ class _BatchJob:
         raise JobError(message)
 
     def _join_after_terminal_message(self) -> None:
+        """收到终态消息后优雅回收进程；超时再升级为 terminate/kill。"""
         self._close_connection()
         self._process.join(timeout=_DEFAULT_SHUTDOWN_SECONDS)
         if self._process.is_alive():
             self._terminate_and_join()
 
     def _terminate_and_join(self) -> None:
+        """强制回收子进程：先 terminate，超时后 kill。"""
         self._close_connection()
         if self._process.is_alive():
             self._process.terminate()
@@ -427,6 +457,7 @@ class _BatchJob:
             pass
 
     def close(self) -> None:
+        """结束任务：终态后只回收进程，未终态则强制终止。"""
         if self._terminal:
             self._process.join(timeout=_DEFAULT_SHUTDOWN_SECONDS)
             if self._process.is_alive():
@@ -438,11 +469,10 @@ class _BatchJob:
 
 
 class BatchJobRunner:
-    """Base class for generic subprocess pipeline jobs.
+    """通用子进程流水线任务基类。
 
-    Subclasses implement :meth:`build_pipeline` to declare the worker-side
-    pipeline and use :meth:`iter_results` / :meth:`run` to drive it. This
-    class contains no Qt integration; callers run it synchronously.
+    子类实现 build_pipeline() 声明 worker 侧流水线，再通过 iter_results() 或
+    run() 同步驱动任务。本类不含 Qt 集成，调用方应在后台线程中调用。
     """
 
     def build_pipeline(self) -> PipelineSpec:
@@ -459,7 +489,7 @@ class BatchJobRunner:
         timeout: float | None = None,
         cancel_grace_seconds: float = 1.0,
     ) -> Iterator[ResultBatch]:
-        """Yield result batches while one worker processes the pipeline."""
+        """逐批产出流水线结果；取消时抛出 JobCancelledError。"""
 
         spec = self.build_pipeline()
         validate_pipeline_spec(spec)
@@ -494,6 +524,8 @@ class BatchJobRunner:
                     continue
                 if event.kind == "finished":
                     summary: JobSummary = event.payload
+                    # 空输入或没有任何结果批次时，也要补发一次最终进度，
+                    # 否则调用方进度条会停在 0。
                     if progress is not None and not reported_progress:
                         progress(
                             JobProgress(
@@ -524,7 +556,7 @@ class BatchJobRunner:
         timeout: float | None = None,
         cancel_grace_seconds: float = 1.0,
     ) -> JobSummary:
-        """Collect all results; a cancellation yields a cancelled summary."""
+        """收集全部结果并返回 JobSummary；取消时返回 cancelled=True 的摘要。"""
 
         results: list[GeneralDataWrapper] = []
         last_progress: JobProgress | None = None

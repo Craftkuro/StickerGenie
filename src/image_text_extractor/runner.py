@@ -1,4 +1,4 @@
-"""OCR batch job runner built on :mod:`batch_job_runner`."""
+"""基于 batch_job_runner 的 OCR 批处理任务。"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from .stages import load_ocr_engine, ocr_image
 
 
 def normalize_image_path(image_path: str | os.PathLike[str]) -> str:
-    """Return a normalized absolute path without touching the image file."""
+    """返回规范化后的绝对路径（不读取图片文件）。"""
 
     raw_path = os.fspath(image_path)
     if not isinstance(raw_path, str) or not raw_path.strip():
@@ -28,10 +28,10 @@ def normalize_image_path(image_path: str | os.PathLike[str]) -> str:
 
 
 class OcrBatchJobRunner(BatchJobRunner):
-    """Run one OCR batch job over blob paths.
+    """对一组 blob 图片路径运行 OCR 批处理任务。
 
-    OCR is CPU-bound single-threaded work; per the confirmed design the
-    pipeline uses ``pool_size=1`` and ``batch_size=1``.
+    OCR 是 CPU 密集型单线程工作，按已确认的设计使用 pool_size=1、
+    batch_size=1，避免多个 OCR 引擎实例争夺 CPU。
     """
 
     def __init__(self, *, queue_size: int = 64, result_batch_size: int = 32):
@@ -39,6 +39,7 @@ class OcrBatchJobRunner(BatchJobRunner):
         self._result_batch_size = result_batch_size
 
     def build_pipeline(self) -> PipelineSpec:
+        """声明 OCR 单阶段流水线：input -> ocr -> output。"""
         return PipelineSpec(
             queues=(
                 QueueSpec("input", self._queue_size),
@@ -63,7 +64,7 @@ class OcrBatchJobRunner(BatchJobRunner):
         items: Iterable[str | os.PathLike[str]],
         **kwargs: Any,
     ) -> Iterator[ResultBatch]:
-        """Yield OCR result batches; results carry ``(path, text)`` data."""
+        """逐批产出 OCR 结果；每条结果为 ``(path, text)`` 元组。"""
 
         return super().iter_results(
             (normalize_image_path(path) for path in items),
@@ -75,7 +76,7 @@ class OcrBatchJobRunner(BatchJobRunner):
         items: Iterable[str | os.PathLike[str]],
         **kwargs: Any,
     ):
-        """Collect all OCR results into a :class:`JobSummary`."""
+        """收集全部 OCR 结果并返回 JobSummary。"""
 
         return super().run(
             (normalize_image_path(path) for path in items),

@@ -1,4 +1,8 @@
-"""Short-lived batch feature extraction jobs built on :mod:`batch_job_runner`."""
+"""基于 batch_job_runner 的图片特征向量提取对外接口。
+
+保留模型规格、路径规范化与 VectorBatchJobRunner 等必要导出；旧 extractor
+的 worker/qt/同步接口已由 runner + stages 替代。
+"""
 
 from .exceptions import (
     ExtractionCancelledError,

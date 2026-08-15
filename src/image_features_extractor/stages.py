@@ -1,8 +1,8 @@
-"""Image preprocessing and ONNX inference stage functions.
+"""图片预处理与 ONNX 推理的 stage 函数。
 
-These functions run inside the ``batch_job_runner`` worker process. The ONNX
-session is initialized once by :func:`load_session` (the pipeline setup_func)
-before any stage worker starts.
+这些函数运行在 batch_job_runner 的子进程内。ONNX session 由
+load_session()（流水线 setup_func）在 stage worker 启动前一次性初始化，
+之后通过模块级单例复用。
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def select_execution_providers(
     available_providers: Sequence[str],
     requested_providers: Sequence[ProviderSpec] | None = None,
 ) -> list[ProviderSpec]:
-    """Select the default CUDA/CPU provider chain or validate an explicit chain."""
+    """选择默认 CUDA/CPU provider 链，或校验调用方显式指定的 provider 链。"""
 
     available = set(available_providers)
     if requested_providers is None:
@@ -73,6 +73,7 @@ def select_execution_providers(
 
 
 def _convert_to_rgb(image: Image.Image) -> Image.Image:
+    """把图片统一转为 RGB；带透明通道时先合成到白色背景上。"""
     has_transparency = image.mode in {"RGBA", "LA"} or "transparency" in image.info
     if not has_transparency:
         return image.convert("RGB")
@@ -83,6 +84,7 @@ def _convert_to_rgb(image: Image.Image) -> Image.Image:
 
 
 def _resize_shorter_side(image: Image.Image, size: int) -> Image.Image:
+    """保持宽高比，把短边缩放到 size。"""
     width, height = image.size
     if width <= 0 or height <= 0:
         raise ValueError(f"image has invalid dimensions: {image.size!r}")
@@ -94,6 +96,7 @@ def _resize_shorter_side(image: Image.Image, size: int) -> Image.Image:
 
 
 def _center_crop(image: Image.Image, size: int) -> Image.Image:
+    """从图片中心裁剪出 size x size 正方形。"""
     width, height = image.size
     left = int(round((width - size) / 2.0))
     top = int(round((height - size) / 2.0))
@@ -104,9 +107,11 @@ def _transform_image(
     image_path: str,
     spec: ImageFeatureModelSpec,
 ) -> np.ndarray:
-    """Load and transform one image into a contiguous normalized NCHW tensor."""
+    """读取并变换一张图片，输出连续的归一化 NCHW tensor。"""
 
     with Image.open(image_path) as source:
+        # 先按 EXIF 方向摆正，再统一背景和尺寸，保证不同手机拍摄的图片
+        # 进入模型前的朝向一致。
         transposed = ImageOps.exif_transpose(source)
         rgb_image = _convert_to_rgb(transposed)
         if spec.resize_mode == "resize":
@@ -120,6 +125,7 @@ def _transform_image(
             cropped = _center_crop(resized, spec.input_size)
         pixels = np.asarray(cropped, dtype=np.float32)
 
+    # HWC -> CHW，并执行与训练时一致的均值/方差归一化。
     chw = np.transpose(pixels, (2, 0, 1)) / np.float32(255.0)
     mean = np.asarray(spec.normalize_mean, dtype=np.float32)[:, None, None]
     std = np.asarray(spec.normalize_std, dtype=np.float32)[:, None, None]
@@ -131,7 +137,7 @@ def preprocess_image(
     image_path: str,
     spec: ImageFeatureModelSpec | None = None,
 ):
-    """Stage function: transform one image into ``(image_path, tensor)``."""
+    """预处理 stage：把一张图片转换为 ``(image_path, tensor)``。"""
 
     if spec is None:
         spec = _get_spec()
@@ -140,12 +146,14 @@ def preprocess_image(
 
 
 def _get_spec() -> ImageFeatureModelSpec:
+    """返回子进程内已初始化的模型规格；未初始化时视为流水线契约错误。"""
     if _spec is None:
         raise RuntimeError("feature extraction session is not initialized")
     return _spec
 
 
 def _get_session() -> Any:
+    """返回子进程内已初始化的 ONNX session；未初始化时视为契约错误。"""
     if _session is None:
         raise RuntimeError("feature extraction session is not initialized")
     return _session
@@ -155,7 +163,7 @@ def load_session(
     model_path: str,
     providers: Sequence[ProviderSpec] | None = None,
 ) -> dict[str, Any]:
-    """Initialize the ONNX session once per worker process."""
+    """在 worker 进程内一次性初始化 ONNX session。"""
 
     global _session, _input_name, _spec
     if _session is not None:
@@ -172,6 +180,8 @@ def load_session(
         ort.get_available_providers(), providers
     )
     session_options = ort.SessionOptions()
+    # 线程数交给 onnxruntime 自动决策；推理 stage 本身 pool_size=1，
+    # 避免 intra-op/inter-op 线程与流水线线程互相叠加。
     session_options.intra_op_num_threads = 0
     session_options.inter_op_num_threads = 0
     session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -196,6 +206,7 @@ def load_session(
 
 
 def _startup_info_dict() -> dict[str, Any]:
+    """生成随 INIT_OK 返回父进程的启动信息，便于界面展示模型状态。"""
     return {
         "providers": tuple(_session.get_providers()),
         "input_name": _input_name,
@@ -205,10 +216,10 @@ def _startup_info_dict() -> dict[str, Any]:
 
 
 def run_batch_inference(items):
-    """Infer one batch of ``(image_path, tensor)`` items.
+    """推理一批 ``(image_path, tensor)``，返回 ``(image_path, vector)`` 列表。
 
-    Returns a list of ``(image_path, vector)`` tuples. Any exception raised
-    here marks the whole batch failed (decision 5).
+    本函数抛出的任何异常会让整批输入标记失败（设计决策 5），由调度模块
+    把该批每一条都转成失败 wrapper。
     """
 
     session = _get_session()
@@ -227,6 +238,7 @@ def run_batch_inference(items):
         )
 
     features = np.asarray(outputs[spec.output_index])
+    # 校验输出 shape 和 dtype 与模型规格一致，避免后续写入向量库时静默出错。
     expected_shape = (len(tensors), spec.feature_vector_size)
     if features.shape != expected_shape:
         raise RuntimeError(

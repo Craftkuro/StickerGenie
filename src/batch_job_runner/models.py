@@ -1,4 +1,8 @@
-"""Data contracts for generic subprocess batch job pipelines."""
+"""通用子进程批处理流水线的数据契约。
+
+流水线中的队列统一流转 GeneralDataWrapper；父进程与子进程之间通过
+ResultBatch / JobProgress / JobSummary 传递结果与进度。
+"""
 
 from __future__ import annotations
 
@@ -19,10 +23,11 @@ def _validate_positive_integer(name: str, value: int) -> None:
 
 @dataclass(frozen=True, slots=True)
 class GeneralDataWrapper:
-    """A single pipeline item flowing through queues and result batches.
+    """队列与结果批次中流转的单条数据。
 
-    ``data`` holds the user payload. Failed wrappers additionally carry an
-    error string in ``"TypeName: message"`` format plus the failing stage name.
+    成功时 data 保存用户函数输出；失败时保存本步输入，并携带
+    "TypeName: message" 格式的错误串和出错 stage_name。失败 wrapper 会原样
+    穿过后续所有步骤，不再进入任何用户函数，保证每条输入恰好产生一个结果。
     """
 
     data: Any
@@ -52,11 +57,10 @@ class GeneralDataWrapper:
 
 
 def wrapper_input_identifier(wrapper: GeneralDataWrapper) -> Any:
-    """Return the original input identifier carried by a result wrapper.
+    """从结果 wrapper 中取回原始输入标识。
 
-    Stage data is expected to carry the input identifier (for example an image
-    path) either directly or as the first element of a tuple, so callers can
-    map results back even when the output is not the raw input.
+    各步骤约定把输入标识（例如图片路径）放在 data 本身或元组首元素，调用方
+    即使拿到的是转换后的数据，也能据此把结果映射回原始输入。
     """
 
     data = wrapper.data
@@ -67,7 +71,7 @@ def wrapper_input_identifier(wrapper: GeneralDataWrapper) -> Any:
 
 @dataclass(frozen=True, slots=True)
 class QueueSpec:
-    """One bounded pipeline queue used for backpressure and memory control."""
+    """一个有界流水线队列，用于背压和内存控制。"""
 
     name: str
     maxsize: int
@@ -80,7 +84,11 @@ class QueueSpec:
 
 @dataclass(frozen=True, slots=True)
 class StageSpec:
-    """One pipeline stage executed by ``pool_size`` worker threads."""
+    """一个由 pool_size 个线程并发执行的流水线步骤。
+
+    batch_size > 1 时，func 接收列表并返回等长列表；worker 会尽量凑满一批，
+    输入流末尾不足一批时按实际数量处理。
+    """
 
     name: str
     input_queue: str
@@ -100,7 +108,11 @@ class StageSpec:
 
 @dataclass(frozen=True, slots=True)
 class PipelineSpec:
-    """Complete pipeline definition shared with the worker process."""
+    """发给子进程的完整流水线定义。
+
+    setup_func 在子进程内只执行一次，用于加载模型等惰性单例；返回值随
+    INIT_OK 返回父进程，可作为启动信息展示。
+    """
 
     queues: tuple[QueueSpec, ...]
     stages: tuple[StageSpec, ...]
@@ -118,7 +130,7 @@ class PipelineSpec:
 
 
 def validate_pipeline_spec(spec: PipelineSpec) -> None:
-    """Validate queue uniqueness and stage chaining rules."""
+    """校验队列唯一性、stage 参数合法性以及队列首尾相接的链式结构。"""
 
     if not isinstance(spec, PipelineSpec):
         raise TypeError("spec must be a PipelineSpec")
@@ -161,7 +173,10 @@ def validate_pipeline_spec(spec: PipelineSpec) -> None:
 
 @dataclass(frozen=True, slots=True)
 class JobProgress:
-    """Monotonic item-level progress for a batch job."""
+    """单调递增的条数级任务进度。
+
+    completed 必须等于 succeeded + failed，且不超过 total，保证进度口径一致。
+    """
 
     completed: int
     total: int | None
@@ -182,7 +197,7 @@ class JobProgress:
 
 @dataclass(frozen=True, slots=True)
 class ResultBatch:
-    """One batch of final pipeline results plus monotonic progress."""
+    """一批最终流水线结果及其对应的单调进度。"""
 
     results: tuple[GeneralDataWrapper, ...]
     progress: JobProgress
@@ -203,7 +218,7 @@ class ResultBatch:
 
 @dataclass(frozen=True, slots=True)
 class JobSummary:
-    """Terminal statistics for a completed or cancelled batch job."""
+    """任务正常结束或取消后的统计摘要，包含全部结果与错误计数。"""
 
     results: tuple[GeneralDataWrapper, ...]
     completed: int
