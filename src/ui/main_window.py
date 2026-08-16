@@ -556,10 +556,11 @@ class MainWindow(QMainWindow):
             return
 
         self._set_write_actions_enabled(False)
+        self._library_import_cancelling = False
         dialog = LibraryImportProgressDialog(self)
         self._library_import_progress_dialog = dialog
         dialog.cancel_requested.connect(
-            self._library_import_service.cancel_import
+            self._on_import_cancel_requested
         )
         dialog.open()
         self.statusBar().showMessage("正在导入图库备份…")
@@ -593,10 +594,20 @@ class MainWindow(QMainWindow):
         if dialog is not None:
             dialog.update_progress(progress)
 
-        message = progress.status
+        message = (
+            "正在中止导入"
+            if getattr(self, "_library_import_cancelling", False)
+            else progress.status
+        )
         if progress.total:
             message += f"（{progress.completed}/{progress.total}）"
         self.statusBar().showMessage(message)
+
+    @pyqtSlot()
+    def _on_import_cancel_requested(self):
+        self._library_import_cancelling = True
+        self._library_import_service.cancel_import()
+        self.statusBar().showMessage("正在中止导入…")
 
     @staticmethod
     def _library_import_summary(result) -> str:
@@ -625,6 +636,7 @@ class MainWindow(QMainWindow):
     def _finish_library_import(self):
         self._close_library_import_progress_dialog()
         self._set_write_actions_enabled(True)
+        self._library_import_cancelling = False
 
     @pyqtSlot(object)
     def _on_import_library_finished(self, result):

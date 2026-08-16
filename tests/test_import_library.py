@@ -371,7 +371,13 @@ class ImportLibraryTests(unittest.TestCase):
             ],
         )
 
-        result = import_library(self.db, self.blob_storage, metadata_path)
+        progress_events = []
+        result = import_library(
+            self.db,
+            self.blob_storage,
+            metadata_path,
+            progress=progress_events.append,
+        )
 
         self.assertEqual(1, result.added_image_count)
         self.assertEqual(2, result.added_tag_count)
@@ -380,6 +386,17 @@ class ImportLibraryTests(unittest.TestCase):
         tags_by_name = {tag.name: tag for tag in self.db.list_tags()}
         self.assertEqual("#AAAAAA", tags_by_name["X"].color_rgb)
         self.assertEqual(1, tags_by_name["X"].order)
+
+        per_image_events = [
+            event
+            for event in progress_events
+            if event.status == "正在导入备份图片"
+        ]
+        self.assertTrue(per_image_events)
+        self.assertTrue(all(event.total == 1 for event in per_image_events))
+        self.assertEqual(1, progress_events[-1].completed)
+        self.assertEqual(1, progress_events[-1].total)
+        self.assertEqual(100, progress_events[-1].percent)
 
     def test_timezone_and_z_suffix_values_round_trip_to_naive_local_time(self):
         content = png_bytes("yellow")

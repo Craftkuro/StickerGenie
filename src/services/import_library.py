@@ -331,7 +331,8 @@ def import_library(
     if images and not (backup_root / "set_1").is_dir():
         raise LibraryImportError("备份包含图片，但缺少 set_1 目录。")
 
-    total = len(images)
+    planned_images = _dedupe_images(images)
+    total = len(planned_images)
     _report_progress(
         progress,
         0,
@@ -352,7 +353,6 @@ def import_library(
         cancellable=False,
     )
 
-    planned_images = _dedupe_images(images)
     existing_hashes = database.get_existing_sticker_hashes(
         image.hash for image in planned_images
     )

@@ -125,6 +125,7 @@ class MainWindowLibraryImportTests(unittest.TestCase):
             **actions,
             _confirm_library_import=Mock(return_value=True),
             _set_write_actions_enabled=Mock(),
+            _on_import_cancel_requested=Mock(),
         )
         with patch(
             "ui.main_window.QFileDialog.getOpenFileName",
@@ -137,7 +138,7 @@ class MainWindowLibraryImportTests(unittest.TestCase):
 
         window._set_write_actions_enabled.assert_called_once_with(False)
         dialog.cancel_requested.connect.assert_called_once_with(
-            service.cancel_import
+            window._on_import_cancel_requested
         )
         dialog.open.assert_called_once_with()
         self.assertIs(dialog, window._library_import_progress_dialog)
@@ -157,6 +158,7 @@ class MainWindowLibraryImportTests(unittest.TestCase):
             statusBar=Mock(return_value=Mock()),
             _confirm_library_import=Mock(return_value=True),
             _set_write_actions_enabled=Mock(),
+            _on_import_cancel_requested=Mock(),
         )
         with patch(
             "ui.main_window.QFileDialog.getOpenFileName",
@@ -191,6 +193,41 @@ class MainWindowLibraryImportTests(unittest.TestCase):
         status_bar.showMessage.assert_called_once_with(
             "正在导入备份图片（3/8）"
         )
+
+    def test_progress_shows_cancelling_status_in_the_status_bar(self):
+        dialog = Mock()
+        status_bar = Mock()
+        window = SimpleNamespace(
+            _library_import_progress_dialog=dialog,
+            statusBar=lambda: status_bar,
+            _library_import_cancelling=True,
+        )
+        progress = LibraryImportProgress(
+            percent=50,
+            status="正在导入备份图片",
+            completed=3,
+            total=8,
+            cancellable=True,
+        )
+
+        MainWindow._on_import_library_progress_changed(window, progress)
+
+        dialog.update_progress.assert_called_once_with(progress)
+        status_bar.showMessage.assert_called_once_with("正在中止导入（3/8）")
+
+    def test_cancel_request_forwards_to_service_and_updates_status_bar(self):
+        service = Mock()
+        status_bar = Mock()
+        window = SimpleNamespace(
+            _library_import_service=service,
+            statusBar=lambda: status_bar,
+        )
+
+        MainWindow._on_import_cancel_requested(window)
+
+        service.cancel_import.assert_called_once_with()
+        status_bar.showMessage.assert_called_once_with("正在中止导入…")
+        self.assertTrue(window._library_import_cancelling)
 
     def test_finished_restores_actions_refreshes_and_reports_summary(self):
         status_bar = Mock()
