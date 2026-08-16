@@ -15,6 +15,7 @@ from PyQt6.QtGui import QAction, QCloseEvent, QFont, QPainter, QStandardItemMode
 import apppath
 from commons.signal_objects import ImportImagesRequest, MainWindowNewTabRequest
 import services.export_library
+import services.import_library
 import services.global_instances
 import services.sticker_library_viewer_service
 import services.search
@@ -22,6 +23,7 @@ import services.search
 from .widgets.custom_tag_widget import CustomTagWidget
 from .dialog_image_import import ImageImportDialog
 from .dialog_image_import_progress import ImageImportProgressDialog
+from .dialog_library_import_progress import LibraryImportProgressDialog
 from .dialog_database_maintenance import DatabaseMaintenanceDialog
 from .dialog_settings import SettingsDialog
 from services.database_maintenance_service import DatabaseMaintenanceService
@@ -30,6 +32,12 @@ from services.settings import create_settings_manager
 from .dialog_tag_manager import TagManagerDialog
 
 logger = logging.getLogger(__name__)
+
+LIBRARY_IMPORT_CONFIRM_TEXT = (
+    "所选图库备份将和当前图库合并，现存的同名标签不会被修改。"
+    "如果希望完全覆盖当前图库，请先退出本程序并删除当前图库，"
+    "再启动本程序并重试导入。"
+)
 
 
 class MainWindow(QMainWindow):
@@ -83,6 +91,23 @@ class MainWindow(QMainWindow):
         self._library_export_service.export_progress_changed.connect(
             self._on_export_library_progress_changed
         )
+
+        self._library_import_service = services.import_library.LibraryImportService(
+            self
+        )
+        self._library_import_service.import_finished.connect(
+            self._on_import_library_finished
+        )
+        self._library_import_service.import_cancelled.connect(
+            self._on_import_library_cancelled
+        )
+        self._library_import_service.import_failed.connect(
+            self._on_import_library_failed
+        )
+        self._library_import_service.import_progress_changed.connect(
+            self._on_import_library_progress_changed
+        )
+        self._library_import_progress_dialog = None
 
         self._database_maintenance_service = DatabaseMaintenanceService(self)
         self._database_maintenance_service.maintenance_finished.connect(
@@ -138,6 +163,7 @@ class MainWindow(QMainWindow):
         self.pushButtonTagManager.clicked.connect(self.open_tag_manager)
         self.customSearchBox.searched.connect(self.on_search_triggered)
         self.actionImportImages.triggered.connect(self.basic_import_files)
+        self.actionImportRepoBackup.triggered.connect(self.import_library_backup)
         self.actionExportLibrary.triggered.connect(self.export_library)
         self.actionOpenSettings.triggered.connect(self.open_settings)
         self.actionOpenTagManager.triggered.connect(self.open_tag_manager)
@@ -509,6 +535,136 @@ class MainWindow(QMainWindow):
         self.actionExportLibrary.setEnabled(True)
         self.statusBar().clearMessage()
         QMessageBox.critical(self, "导出失败", error_message)
+
+    def import_library_backup(self):
+        metadata_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择图库备份文件",
+            "",
+            "metadata.json (metadata.json)",
+        )
+        if not metadata_path:
+            return
+
+        try:
+            services.import_library.preflight(metadata_path)
+        except services.import_library.LibraryImportError as exc:
+            QMessageBox.critical(self, "导入失败", str(exc))
+            return
+
+        if not self._confirm_library_import(metadata_path):
+            return
+
+        self._set_write_actions_enabled(False)
+        dialog = LibraryImportProgressDialog(self)
+        self._library_import_progress_dialog = dialog
+        dialog.cancel_requested.connect(
+            self._library_import_service.cancel_import
+        )
+        dialog.open()
+        self.statusBar().showMessage("正在导入图库备份…")
+        try:
+            self._library_import_service.start_import(metadata_path)
+        except Exception as exc:
+            self._on_import_library_failed(str(exc))
+
+    def _confirm_library_import(self, metadata_path: str) -> bool:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("导入图库备份")
+        box.setText(f"已选择备份文件：\n{metadata_path}")
+        box.setInformativeText(LIBRARY_IMPORT_CONFIRM_TEXT)
+        yes_button = box.addButton(QMessageBox.StandardButton.Yes)
+        no_button = box.addButton(QMessageBox.StandardButton.No)
+        box.setDefaultButton(no_button)
+        box.exec()
+        return box.clickedButton() is yes_button
+
+    def _set_write_actions_enabled(self, enabled: bool) -> None:
+        self.actionImportRepoBackup.setEnabled(enabled)
+        self.actionImportImages.setEnabled(enabled)
+        self.actionExportLibrary.setEnabled(enabled)
+        self.actionStartDatabaseMaintenance.setEnabled(enabled)
+        self.pushButtonAddSticker.setEnabled(enabled)
+
+    @pyqtSlot(object)
+    def _on_import_library_progress_changed(self, progress):
+        dialog = self._library_import_progress_dialog
+        if dialog is not None:
+            dialog.update_progress(progress)
+
+        message = progress.status
+        if progress.total:
+            message += f"（{progress.completed}/{progress.total}）"
+        self.statusBar().showMessage(message)
+
+    @staticmethod
+    def _library_import_summary(result) -> str:
+        parts = [
+            f"新增图片 {result.added_image_count} 张",
+            f"为 {result.merged_tag_image_count} 张已有图片合并标签",
+            f"新增标签 {result.added_tag_count} 个",
+        ]
+        if result.damaged_count:
+            parts.append(f"跳过 {result.damaged_count} 张损坏图片")
+        return "，".join(parts) + "。"
+
+    def _refresh_after_library_import(self, result) -> None:
+        if result.added_image_count or result.merged_tag_image_count:
+            services.sticker_library_viewer_service.wiring.slot_refresh_content()
+        if result.added_tag_count:
+            self.customSearchBox.refresh_suggestions()
+
+    def _close_library_import_progress_dialog(self):
+        dialog = self._library_import_progress_dialog
+        self._library_import_progress_dialog = None
+        if dialog is not None:
+            dialog.finish()
+            dialog.deleteLater()
+
+    def _finish_library_import(self):
+        self._close_library_import_progress_dialog()
+        self._set_write_actions_enabled(True)
+
+    @pyqtSlot(object)
+    def _on_import_library_finished(self, result):
+        self._finish_library_import()
+        self._refresh_after_library_import(result)
+
+        summary = self._library_import_summary(result)
+        message = f"导入完成，{summary}"
+        message += (
+            "\n\n为了实现完整的搜索功能，请在数据库维护功能里"
+            "按需重新进行OCR和生成图片特征索引。"
+        )
+        self.statusBar().showMessage(f"导入完成，{summary}", 8000)
+        QMessageBox.information(self, "导入完成", message)
+
+        if result.errors:
+            details = "\n".join(result.errors[:10])
+            remaining = len(result.errors) - 10
+            if remaining > 0:
+                details += f"\n另有 {remaining} 项未显示。"
+            QMessageBox.warning(self, "部分图片损坏", details)
+
+    @pyqtSlot(object)
+    def _on_import_library_cancelled(self, result):
+        self._finish_library_import()
+        self._refresh_after_library_import(result)
+
+        message = f"导入已中止，{self._library_import_summary(result)}"
+        message += (
+            "中止过程中可能留下未引用的Blob文件，可通过数据库维护功能清理；"
+            "已导入图片仍需在数据库维护里补做OCR和生成图片特征索引。"
+        )
+        self.statusBar().showMessage(message, 8000)
+        QMessageBox.information(self, "导入已中止", message)
+
+    @pyqtSlot(str)
+    def _on_import_library_failed(self, error_message: str):
+        self._finish_library_import()
+        self.statusBar().clearMessage()
+        QMessageBox.critical(self, "导入失败", error_message)
 
     def add_new_tab(self, request: MainWindowNewTabRequest):
         index = self.tabWidget.addTab(request.widget, request.title)

@@ -424,6 +424,54 @@ class StickerDBV1:
             session.commit()
             return [dto for dto, _ in inserted_pairs]
 
+    def add_missing_tags(self, tags: List[Tag]) -> int:
+        """只插入当前不存在的同名标签，返回实际新增数量；已有标签完全不改。"""
+        with self._write_lock, self._get_session() as session:
+            seen_names = set(
+                session.execute(select(DBTag.name)).scalars().all()
+            )
+            added = 0
+            for dto in tags:
+                if dto.name in seen_names:
+                    continue
+                seen_names.add(dto.name)
+                session.add(self._import_tag(dto))
+                added += 1
+            session.commit()
+            return added
+
+    def merge_sticker_tags(
+        self,
+        sticker_hash: str,
+        tags: List[Tag],
+    ) -> int:
+        """按 hash 合并图片的标签关联（并集去重），返回新增的关联数。"""
+        if not tags:
+            return 0
+
+        with self._write_lock, self._get_session() as session:
+            db_sticker = session.execute(
+                select(DBStickerImage).where(
+                    DBStickerImage.hash == sticker_hash
+                )
+            ).scalar_one_or_none()
+            if db_sticker is None:
+                return 0
+
+            existing_tag_ids = {tag.id for tag in db_sticker.tags}
+            added = 0
+            for dto in tags:
+                if dto.id is None or dto.id in existing_tag_ids:
+                    continue
+                db_tag = session.get(DBTag, dto.id)
+                if db_tag is None:
+                    continue
+                db_sticker.tags.append(db_tag)
+                existing_tag_ids.add(dto.id)
+                added += 1
+            session.commit()
+            return added
+
     def set_sticker_vector_ids(self, vector_ids_by_sticker_id: dict[int, str]) -> None:
         """批量回填图片关联的 Chroma UUID。"""
         if not vector_ids_by_sticker_id:
