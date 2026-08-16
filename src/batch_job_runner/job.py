@@ -6,10 +6,12 @@ BatchJobRunner 负责启动/回收子进程、维护 IPC 状态机，并把结�
 
 from __future__ import annotations
 
+import ctypes
 import logging
 import math
 import multiprocessing as mp
 import operator
+import sys
 import time
 from collections.abc import Callable, Iterable, Iterator, Sized
 from dataclasses import dataclass
@@ -51,6 +53,10 @@ _DEFAULT_SHUTDOWN_SECONDS = 1.0
 # 父进程每批最多下发 32 条输入；批量下发降低 IPC 次数，同时让管道和子进程
 # 首队列中的在途数据保持有界。
 _ITEMS_BATCH_SIZE = 32
+# Windows BELOW_NORMAL_PRIORITY_CLASS，避免批处理 worker 抢占 UI。
+_WIN32_BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+# SetPriorityClass 需要的最小进程访问权限。
+_PROCESS_SET_INFORMATION = 0x0200
 
 
 def _validate_positive_integer(name: str, value: int) -> int:
@@ -94,6 +100,60 @@ def _normalize_cancel_grace(seconds: float) -> float:
     if not math.isfinite(normalized) or normalized < 0:
         raise ValueError("cancel_grace_seconds cannot be negative")
     return normalized
+
+
+def _apply_worker_priority(process: mp.Process) -> None:
+    """Windows 下设置 worker 进程的优先级类；其他平台忽略。
+
+    优先级调整属于尽力而为：失败只记录日志，不让批处理任务本身报错。
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = (
+            ctypes.c_uint32,
+            ctypes.c_bool,
+            ctypes.c_uint32,
+        )
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.SetPriorityClass.argtypes = (
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+        )
+        kernel32.SetPriorityClass.restype = ctypes.c_bool
+        kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+        kernel32.CloseHandle.restype = ctypes.c_bool
+
+        handle = kernel32.OpenProcess(
+            _PROCESS_SET_INFORMATION,
+            False,
+            process.pid,
+        )
+        if not handle:
+            logger.warning(
+                "failed to open worker process %s for priority change: %s",
+                process.pid,
+                ctypes.WinError(),
+            )
+            return
+        try:
+            if not kernel32.SetPriorityClass(
+                handle,
+                _WIN32_BELOW_NORMAL_PRIORITY_CLASS,
+            ):
+                logger.warning(
+                    "failed to set worker %s to below-normal priority: %s",
+                    process.pid,
+                    ctypes.WinError(),
+                )
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        logger.warning(
+            "could not set worker process to below-normal priority",
+            exc_info=True,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +222,7 @@ class _BatchJob:
             # 子进程端连接只应由子进程持有；父进程立即关闭，避免两端同持一份
             # 句柄导致 EOF 判定失真。
             child_connection.close()
+        _apply_worker_priority(process)
 
     @property
     def is_terminal(self) -> bool:
