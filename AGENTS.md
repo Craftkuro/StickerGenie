@@ -1,10 +1,15 @@
 # 项目约定
 
-## 文本文件编码（Windows / PowerShell 7）
+## PowerShell 执行规范
 
-本仓库的源码文件统一使用 UTF-8（无 BOM）。开发任务优先使用 PowerShell 7（`pwsh`），其默认编码即为 UTF-8，读写文件无需额外参数。
+在执行任何脚本、命令或处理环境交互时，所有 CLI 命令和脚本执行必须严格遵守以下 PowerShell 规则：
 
-- 不要向仓库写入 GBK/GB2312 编码或带 BOM 的文本文件；新增或编辑的文本文件保持 UTF-8 无 BOM。
+1. 统一 Shell 环境：所有命令必须使用 PowerShell (推荐 pwsh 即 PowerShell 7 以上)。禁止使用 Windows 旧版 cmd.exe 或默认 powershell.exe。
+2. 转义字符约束：Bash 与 PowerShell 的转义规则不同，在编写跨平台脚本时，禁止混用 Shell 语法。
+3. 严格的错误处理：所有脚本首部必须包含 $ErrorActionPreference = 'Stop'，确保遇到错误时立即中断并报错，避免静默失败。
+4. 编码规范：脚本文件生成与读写必须强制指定 -Encoding UTF8，防止中文字符或特殊符号乱码。
+5. 管道与对象优先：在处理数据解析时，优先使用 PowerShell 的对象管道特性（如 Select-Object, Where-Object），避免过度依赖传统的文本截取。
+
 
 ## apply_patch 用法（PowerShell 7）
 
