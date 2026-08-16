@@ -39,11 +39,36 @@ class ImageImportProgressDialogTests(unittest.TestCase):
 
         self.assertEqual(51, self.dialog.progressBar.value())
         self.assertEqual("正在写入图库", self.dialog.labelStatus.text())
+        self.assertEqual("已处理 3/8", self.dialog.labelTaskProgress.text())
         self.assertEqual(
             "正在保存图片到图库",
             self.dialog.labelDetail.text(),
         )
         self.assertEqual("", self.dialog.labelDetail.toolTip())
+
+    def test_shows_ocr_progress_counts(self):
+        progress = ImportImagesProgress(
+            percent=30,
+            status="正在识别图片文字",
+            completed=4,
+            total=9,
+        )
+
+        self.dialog.update_progress(progress)
+
+        self.assertEqual(30, self.dialog.progressBar.value())
+        self.assertEqual("正在识别图片文字", self.dialog.labelStatus.text())
+        self.assertEqual("已处理 4/9", self.dialog.labelTaskProgress.text())
+
+    def test_clears_counts_when_total_is_unknown(self):
+        self.dialog.update_progress(
+            ImportImagesProgress(
+                percent=10,
+                status="正在准备",
+            )
+        )
+
+        self.assertEqual("", self.dialog.labelTaskProgress.text())
 
     def test_cannot_close_until_the_import_finishes(self):
         self.dialog.close()

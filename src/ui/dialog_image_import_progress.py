@@ -40,6 +40,12 @@ class ImageImportProgressDialog(QDialog):
         status = "正在中止" if self._cancel_requested else progress.status
         self.labelStatus.setText(status)
         self.progressBar.setValue(progress.percent)
+        if progress.total:
+            self.labelTaskProgress.setText(
+                f"已处理 {progress.completed}/{progress.total}"
+            )
+        else:
+            self.labelTaskProgress.setText("")
         if self._cancel_requested:
             self._detail_placeholder = "正在等待当前操作结束"
         elif progress.status == "正在预处理图片":

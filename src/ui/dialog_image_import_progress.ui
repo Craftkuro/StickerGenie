@@ -6,13 +6,13 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>460</width>
+    <width>520</width>
      <height>194</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>440</width>
+    <width>500</width>
      <height>194</height>
    </size>
   </property>
@@ -48,23 +48,43 @@
     </widget>
    </item>
    <item>
-    <widget class="QProgressBar" name="progressBar">
-     <property name="minimumSize">
-      <size>
-       <width>0</width>
-       <height>24</height>
-      </size>
-     </property>
-     <property name="maximum">
-      <number>100</number>
-     </property>
-     <property name="value">
-      <number>0</number>
-     </property>
-     <property name="format">
-      <string>%p%</string>
-     </property>
-    </widget>
+    <layout class="QHBoxLayout" name="horizontalLayoutProgress">
+     <item>
+      <widget class="QProgressBar" name="progressBar">
+       <property name="minimumSize">
+        <size>
+         <width>0</width>
+         <height>24</height>
+        </size>
+       </property>
+       <property name="maximum">
+        <number>100</number>
+       </property>
+       <property name="value">
+        <number>0</number>
+       </property>
+       <property name="format">
+        <string>%p%</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="labelTaskProgress">
+       <property name="minimumSize">
+        <size>
+         <width>150</width>
+         <height>24</height>
+        </size>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
     <item>
      <widget class="QLabel" name="labelDetail">
