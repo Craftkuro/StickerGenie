@@ -17,6 +17,7 @@ import services.sticker_library_viewer_service
 import services.search
 
 from .widgets.custom_tag_widget import CustomTagWidget
+from .dialog_about import AboutDialog
 from .dialog_settings import SettingsDialog
 from .dialog_tag_manager import TagManagerDialog
 from .operations.database_maintenance_controller import DatabaseMaintenanceController
@@ -128,6 +129,7 @@ class MainWindow(QMainWindow):
             self._library_export_controller.export_library
         )
         self.actionOpenSettings.triggered.connect(self.open_settings)
+        self.actionOpenAbout.triggered.connect(self.open_about)
         self.actionOpenTagManager.triggered.connect(self.open_tag_manager)
         self.actionStartDatabaseMaintenance.triggered.connect(
             self._database_maintenance_controller.open_database_maintenance
@@ -201,6 +203,9 @@ class MainWindow(QMainWindow):
             config_manager=self._settings_manager,
         ).exec()
         self.customSearchBox.refresh_suggestions()
+
+    def open_about(self):
+        AboutDialog(self).exec()
 
     def open_tag_manager(self):
         database = services.global_instances.current_library_db

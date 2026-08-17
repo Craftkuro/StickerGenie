@@ -101,6 +101,7 @@ class MainWindowMainMenuButtonTests(unittest.TestCase):
                 "导出备份",
             ],
             "选项": ["设置"],
+            "帮助": ["关于"],
             "开发工具": ["自定义调试操作"],
         }
 
