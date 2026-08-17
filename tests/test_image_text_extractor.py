@@ -36,8 +36,8 @@ class ComposeOcrTextTests(unittest.TestCase):
             "[OCR]keep",
             compose_ocr_text([("keep", 0.91)]),
         )
-        self.assertIsNone(compose_ocr_text([("drop", 0.9)]))
-        self.assertIsNone(compose_ocr_text([("drop", 0.89)]))
+        self.assertIsNone(compose_ocr_text([("drop", 0.85)]))
+        self.assertIsNone(compose_ocr_text([("drop", 0.80)]))
 
     def test_joins_cjk_without_space_and_other_text_with_space(self):
         self.assertEqual(

@@ -92,7 +92,7 @@ def compose_ocr_text(items) -> str | None:
     for text, score in _normalize_ocr_items(items):
         text = text.strip()
         # 只保留高置信度文本，避免模糊图片产生大量噪声。
-        if not text or score <= 0.9:
+        if not text or score <= 0.85:
             continue
         # CJK 字符之间不加空格；其他书写体系之间用空格分隔，提升可读性。
         if parts and not _is_cjk_like_last_char(last_char):
