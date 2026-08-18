@@ -33,6 +33,7 @@ import services.image_clipboard_service
 import services.sticker_library_viewer_service
 from utils.save_as_files import has_duplicate_original_file_names, save_as_files
 
+from ..dialog_batch_tag_edit import BatchTagEditDialog
 from ..dialog_image_viewer import ImageViewerDialog
 
 logger = logging.getLogger(__name__)
@@ -193,6 +194,12 @@ class StickerListPage(QWidget):
                     selected_indexes
                 )
             )
+            batch_tag_action = menu.addAction("批量编辑标签")
+            batch_tag_action.triggered.connect(
+                lambda _checked=False: self._batch_edit_tags_for_indexes(
+                    selected_indexes
+                )
+            )
         more_menu = menu.addMenu("更多")
         delete_action = more_menu.addAction("删除图片")
         if len(selected_indexes) == 1:
@@ -224,6 +231,46 @@ class StickerListPage(QWidget):
             }
         )
         return [model.index(row, 0) for row in rows]
+
+    def _batch_edit_tags_for_indexes(self, indexes: list[QModelIndex]) -> None:
+        stickers = [
+            index.data(ROLE_STICKER_IMAGE)
+            for index in indexes
+            if index.isValid() and index.data(ROLE_STICKER_IMAGE) is not None
+        ]
+        if len(stickers) < 2:
+            return
+
+        try:
+            dialog = BatchTagEditDialog(stickers, parent=self)
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "无法打开", str(exc))
+            return
+
+        dialog.tags_updated.connect(self._update_sticker_dtos)
+        dialog.exec()
+
+    def _update_sticker_dtos(self, updated_stickers: list) -> None:
+        """更新当前模型中 DTO 的标签，同时保留 DTO 对象引用。"""
+        updated_by_id = {
+            sticker.id: sticker
+            for sticker in updated_stickers
+            if getattr(sticker, "id", None) is not None
+        }
+        model = self.listViewStickerList.model()
+        if model is None or not updated_by_id:
+            return
+
+        for row in range(model.rowCount()):
+            index = model.index(row, 0)
+            sticker = index.data(ROLE_STICKER_IMAGE)
+            if sticker is None:
+                continue
+            updated = updated_by_id.get(getattr(sticker, "id", None))
+            if updated is None:
+                continue
+            sticker.tags = list(updated.tags)
+            model.dataChanged.emit(index, index, [ROLE_STICKER_IMAGE])
 
     def _is_gif_index(self, index: QModelIndex) -> bool:
         blob_entity = index.data(ROLE_BLOB_ENTITY)

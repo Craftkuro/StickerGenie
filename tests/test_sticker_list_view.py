@@ -41,7 +41,7 @@ from PyQt6.QtWidgets import (
 
 import apppath
 from blob_storage import BlobFileEntity
-from commons.dto import StickerImage
+from commons.dto import StickerImage, Tag
 from commons.roles import (
     ROLE_BLOB_ENTITY,
     ROLE_FILE_PATH,
@@ -250,8 +250,10 @@ class StickerListViewTests(unittest.TestCase):
 
         def fake_exec(menu, position):
             action_texts = [action.text() for action in menu.actions()]
-            self.assertEqual(["另存为", "更多"], action_texts)
-            more_menu = menu.actions()[1].menu()
+            self.assertEqual(["另存为", "批量编辑标签", "更多"], action_texts)
+            batch_action = menu.actions()[1]
+            batch_action.trigger()
+            more_menu = menu.actions()[2].menu()
             delete_action = more_menu.actions()[0]
             self.assertEqual("删除图片", delete_action.text())
             delete_action.trigger()
@@ -267,12 +269,43 @@ class StickerListViewTests(unittest.TestCase):
                     page,
                     "_delete_stickers_for_indexes",
                 ) as delete_mock:
-                    page._show_sticker_context_menu(QPoint(0, 0))
+                    with patch.object(
+                        page,
+                        "_batch_edit_tags_for_indexes",
+                    ) as batch_mock:
+                        page._show_sticker_context_menu(QPoint(0, 0))
 
         self.assertEqual(
             [0, 1],
             [index.row() for index in delete_mock.call_args.args[0]],
         )
+        self.assertEqual(
+            [0, 1],
+            [index.row() for index in batch_mock.call_args.args[0]],
+        )
+        page.close()
+
+    def test_batch_tag_update_preserves_model_dto_reference(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        current_sticker = make_sticker()
+        item = QStandardItem("")
+        item.setData(current_sticker, ROLE_STICKER_IMAGE)
+        model.appendRow(item)
+        page.refresh_content(model)
+
+        updated_sticker = make_sticker()
+        updated_sticker.tags = []
+        updated_tag = Tag()
+        updated_tag.id = 123
+        updated_tag.name = "Updated"
+        updated_sticker.tags = [updated_tag]
+
+        page._update_sticker_dtos([updated_sticker])
+
+        stored_sticker = model.index(0, 0).data(ROLE_STICKER_IMAGE)
+        self.assertIs(current_sticker, stored_sticker)
+        self.assertEqual(["Updated"], [tag.name for tag in stored_sticker.tags])
         page.close()
 
     def test_context_menu_image_properties_opens_viewer_for_single_selection(self):

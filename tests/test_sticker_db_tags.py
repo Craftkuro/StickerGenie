@@ -313,6 +313,74 @@ class StickerDBTagTests(unittest.TestCase):
 
         self.assertEqual([first.id], [tag.id for tag in self.db.list_stickers()[0].tags])
 
+    def test_batch_edit_sticker_tags_adds_missing_tags_and_returns_fresh_dtos(self):
+        first = self.db.add_or_modify_tag(make_tag("First"))
+        second = self.db.add_or_modify_tag(make_tag("Second"))
+        stickers = self.db.add_stickers(
+            [
+                make_sticker([first], hash_value="batch-one"),
+                make_sticker([first, second], hash_value="batch-two"),
+                make_sticker([], hash_value="batch-three"),
+            ]
+        )
+
+        modified_count, updated = self.db.batch_edit_sticker_tags(
+            [sticker.id for sticker in stickers],
+            [first.id, second.id],
+            add=True,
+        )
+
+        self.assertEqual(2, modified_count)
+        self.assertEqual(3, len(updated))
+        self.assertTrue(
+            all(
+                {tag.id for tag in sticker.tags} == {first.id, second.id}
+                for sticker in updated
+            )
+        )
+
+    def test_batch_edit_sticker_tags_removes_existing_tags_and_ignores_missing(self):
+        first = self.db.add_or_modify_tag(make_tag("First"))
+        second = self.db.add_or_modify_tag(make_tag("Second"))
+        stickers = self.db.add_stickers(
+            [
+                make_sticker([first], hash_value="remove-one"),
+                make_sticker([second], hash_value="remove-two"),
+                make_sticker([], hash_value="remove-three"),
+            ]
+        )
+
+        modified_count, updated = self.db.batch_edit_sticker_tags(
+            [sticker.id for sticker in stickers],
+            [first.id, second.id],
+            add=False,
+        )
+
+        self.assertEqual(2, modified_count)
+        self.assertEqual(3, len(updated))
+        self.assertEqual(
+            [[], [], []],
+            [[tag.id for tag in sticker.tags] for sticker in updated],
+        )
+
+    def test_batch_edit_sticker_tags_rejects_missing_tag_without_partial_update(self):
+        first = self.db.add_or_modify_tag(make_tag("First"))
+        stickers = self.db.add_stickers(
+            [make_sticker([first], hash_value="batch-missing-tag")]
+        )
+
+        with self.assertRaises(ValueError):
+            self.db.batch_edit_sticker_tags(
+                [stickers[0].id],
+                [first.id, 999999],
+                add=True,
+            )
+
+        self.assertEqual(
+            [first.id],
+            [tag.id for tag in self.db.list_stickers()[0].tags],
+        )
+
     def test_modify_stickers_can_clear_all_tags(self):
         first = self.db.add_or_modify_tag(make_tag("First"))
         self.db.add_stickers([make_sticker([first])])

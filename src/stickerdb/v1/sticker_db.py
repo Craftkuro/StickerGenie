@@ -659,6 +659,78 @@ class StickerDBV1:
             session.commit()
             return self._export_sticker(db_sticker)
 
+    def batch_edit_sticker_tags(
+        self,
+        sticker_ids: Iterable[int],
+        tag_ids: Iterable[int],
+        *,
+        add: bool,
+    ) -> tuple[int, list[StickerImage]]:
+        """批量增加或删除图片标签，并返回修改数量和最新图片 DTO。"""
+        unique_sticker_ids = list(dict.fromkeys(sticker_ids))
+        unique_tag_ids = list(dict.fromkeys(tag_ids))
+        if not unique_sticker_ids or not unique_tag_ids:
+            return 0, []
+
+        with self._write_lock, self._get_session() as session:
+            db_tags = session.execute(
+                select(DBTag).where(DBTag.id.in_(unique_tag_ids))
+            ).scalars().all()
+            tags_by_id = {tag.id: tag for tag in db_tags}
+            missing_tag_ids = [
+                tag_id
+                for tag_id in unique_tag_ids
+                if tag_id not in tags_by_id
+            ]
+            if missing_tag_ids:
+                raise ValueError(f"不存在的标签，id={missing_tag_ids}")
+
+            db_stickers = session.execute(
+                select(DBStickerImage)
+                .options(selectinload(DBStickerImage.tags))
+                .where(DBStickerImage.id.in_(unique_sticker_ids))
+            ).scalars().all()
+            stickers_by_id = {
+                sticker.id: sticker for sticker in db_stickers
+            }
+            selected_tag_ids = set(unique_tag_ids)
+            modified_count = 0
+
+            for sticker_id in unique_sticker_ids:
+                db_sticker = stickers_by_id.get(sticker_id)
+                if db_sticker is None:
+                    continue
+
+                current_tag_ids = {tag.id for tag in db_sticker.tags}
+                if add:
+                    updated_tags = list(db_sticker.tags)
+                    for tag_id in unique_tag_ids:
+                        if tag_id in current_tag_ids:
+                            continue
+                        updated_tags.append(tags_by_id[tag_id])
+                        current_tag_ids.add(tag_id)
+                else:
+                    updated_tags = [
+                        tag
+                        for tag in db_sticker.tags
+                        if tag.id not in selected_tag_ids
+                    ]
+
+                if len(updated_tags) == len(db_sticker.tags):
+                    continue
+
+                db_sticker.tags = updated_tags
+                modified_count += 1
+
+            session.commit()
+
+            updated_stickers = [
+                self._export_sticker(stickers_by_id[sticker_id])
+                for sticker_id in unique_sticker_ids
+                if sticker_id in stickers_by_id
+            ]
+            return modified_count, updated_stickers
+
     def _ensure_indexes(self) -> None:
         """为已存在的数据库补齐 ORM 中声明的索引，重复执行无副作用。"""
         with self.engine.begin() as connection:
