@@ -81,6 +81,9 @@
        </item>
        <item>
         <widget class="QPushButton" name="pushButtonStartExamine">
+         <property name="toolTip">
+          <string>图库审计</string>
+         </property>
          <property name="styleSheet">
           <string notr="true">QPushButton { padding: 3px; }</string>
          </property>
@@ -92,6 +95,9 @@
        </item>
        <item>
         <widget class="QPushButton" name="pushButtonTagManager">
+         <property name="toolTip">
+          <string>标签管理器</string>
+         </property>
          <property name="styleSheet">
           <string notr="true">QPushButton { padding: 3px; }</string>
          </property>
@@ -104,9 +110,6 @@
        <item>
         <widget class="QPushButton" name="pushButtonMainMenu">
          <property name="toolTip">
-          <string>菜单</string>
-         </property>
-         <property name="accessibleName">
           <string>菜单</string>
          </property>
          <property name="styleSheet">
@@ -146,7 +149,7 @@ QPushButton::menu-indicator { image: none; width: 0px; height: 0px; }</string>
      <x>0</x>
      <y>0</y>
      <width>879</width>
-     <height>22</height>
+     <height>33</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu">
