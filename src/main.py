@@ -32,18 +32,25 @@ def main() -> int:
     utils.win32._set_windows_app_user_model_id()
 
     import commons.constants
+    import services.single_instance
     import services.startup
     import ui.main_window
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtGui import QIcon, QPixmapCache
     from utils.resource_path import resolve_resource_path
 
-    services.startup.run_startup_tasks()
-
     # 方便使用IDE快捷终止进程
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     application = QApplication(sys.argv)
+
+    # 当同一目录的程序运行多个实例时，第二个及后续实例将退出，
+    # 因为目前配置文件是绑定在exe路径的，同一份配置多实例可能导致数据损坏
+    if not services.single_instance.ensure_single_instance(application):
+        return 0
+
+    services.startup.run_startup_tasks()
+
     # Qt 全局 QPixmapCache 默认容量太小，容纳不下 1000 张缩略图；与应用
     # 缩略图内存缓存规模对齐，避免 QIcon/Qt 内部绘制缓存过早淘汰。
     QPixmapCache.setCacheLimit(commons.constants.QPIXMAP_CACHE_LIMIT_KB)
@@ -54,6 +61,9 @@ def main() -> int:
     )
 
     main_window = ui.main_window.MainWindow()
+    services.single_instance.activationRequested.connect(
+        main_window.raise_and_activate
+    )
     main_window.show()
     return application.exec()
 

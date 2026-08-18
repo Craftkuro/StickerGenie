@@ -111,6 +111,18 @@ class MainWindowTabTests(unittest.TestCase):
         self.assertEqual(1, self.window.tabWidget.count())
         self.assertIs(library_page, self.window.tabWidget.widget(0))
 
+    def test_raise_and_activate_uses_qt_window_operations(self):
+        with patch.object(self.window, "show") as show, patch.object(
+            self.window, "raise_"
+        ) as raise_window, patch.object(
+            self.window, "activateWindow"
+        ) as activate_window:
+            self.window.raise_and_activate()
+
+        show.assert_called_once_with()
+        raise_window.assert_called_once_with()
+        activate_window.assert_called_once_with()
+
 class TabRequestPolicyTests(unittest.TestCase):
     def test_search_result_tabs_are_closable(self):
         emit = Mock()

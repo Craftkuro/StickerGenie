@@ -2,7 +2,7 @@ import logging
 import sys
 from typing import Optional
 
-from PyQt6.QtCore import pyqtSignal, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QWidget, QVBoxLayout, \
     QComboBox, QSizePolicy, QTabBar, QMenu
 from PyQt6 import uic
@@ -138,6 +138,14 @@ class MainWindow(QMainWindow):
 
         self.signal_add_new_tab.connect(self.add_new_tab)
         self.tabWidget.tabCloseRequested.connect(self._on_tab_close_requested)
+
+    def raise_and_activate(self) -> None:
+        """Restore this window and bring it to the foreground."""
+        if self.windowState() & Qt.WindowState.WindowMinimized:
+            self.setWindowState(Qt.WindowState.WindowNoState)
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
     def _init_search_controls(self):
         self.searchTypeComboBox = QComboBox(self.widgetUnifiedBar)
