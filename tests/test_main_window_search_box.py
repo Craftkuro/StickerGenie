@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QObject
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QPushButton
 
 import apppath
 import services.global_instances
@@ -81,6 +81,14 @@ class MainWindowSearchBoxTests(unittest.TestCase):
             "test query",
         )
         self.assertEqual(["test query"], self.window._search_history.values())
+
+    def test_search_button_matches_main_menu_button_dimensions(self):
+        search_button = self.window.customSearchBox.search_button
+        main_menu_button = self.window.pushButtonMainMenu
+
+        self.assertIsInstance(search_button, QPushButton)
+        self.assertEqual(main_menu_button.iconSize(), search_button.iconSize())
+        self.assertEqual(main_menu_button.sizeHint(), search_button.sizeHint())
 
     def test_text_search_routes_with_text_type(self):
         self.window.searchTypeComboBox.setCurrentIndex(1)

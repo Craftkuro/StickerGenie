@@ -36,7 +36,6 @@ from PyQt6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
-    QToolButton,
     QWidget,
 )
 
@@ -179,18 +178,6 @@ class RichCompleter(QCompleter):
             popup_height = min(popup_height, screen.availableGeometry().height())
         if popup_height > 0:
             popup.resize(completion_rect.width(), popup_height)
-
-
-class SearchToolButton(QToolButton):
-    """Icon button that keeps its style-derived height and horizontal padding."""
-
-    def sizeHint(self) -> QSize:
-        size = super().sizeHint()
-        return QSize(max(size.width(), size.height()), size.height())
-
-    def minimumSizeHint(self) -> QSize:
-        size = super().minimumSizeHint()
-        return QSize(max(size.width(), size.height()), size.height())
 
 
 class RichSearchCompleterItemDelegate(QStyledItemDelegate):
@@ -378,11 +365,13 @@ class CustomSearchBox(QWidget):
             QSizePolicy.Policy.Fixed,
         )
 
-        self.search_button = SearchToolButton(self)
+        self.search_button = QPushButton(self)
         self.search_button.setObjectName("searchButton")
         self.search_button.setToolTip("搜索")
         self.search_button.setAccessibleName("搜索")
         self.search_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.search_button.setStyleSheet("QPushButton { padding: 3px; }")
+        self.search_button.setIconSize(QSize(16, 16))
         self.search_button.setSizePolicy(
             QSizePolicy.Policy.Fixed,
             QSizePolicy.Policy.Fixed,
@@ -393,13 +382,7 @@ class CustomSearchBox(QWidget):
         else:
             self.search_button.setIcon(search_icon)
 
-        # QLineEdit/QToolButton are naturally shorter than sibling QPushButtons,
-        # so use a same-style push button as the height reference for the bar.
-        reference_button = QPushButton()
-        reference_button.setIcon(search_icon)
-        reference_button.setIconSize(self.search_button.iconSize())
-        #reference_button.setStyleSheet("QPushButton { padding: 3px; }")
-        sibling_button_height = reference_button.sizeHint().height()
+        sibling_button_height = self.search_button.sizeHint().height()
         self.line_edit.setMinimumHeight(sibling_button_height)
         self.search_button.setMinimumHeight(sibling_button_height)
 
