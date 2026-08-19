@@ -55,7 +55,7 @@ class MainWindowSearchBoxTests(unittest.TestCase):
         )
         self.assertEqual("tag", self.window.searchTypeComboBox.currentData())
         self.assertEqual(
-            ["tag", "text", "filename"],
+            ["tag", "text", "filename", "advanced"],
             [
                 self.window.searchTypeComboBox.itemData(index)
                 for index in range(self.window.searchTypeComboBox.count())
@@ -129,6 +129,30 @@ class MainWindowSearchBoxTests(unittest.TestCase):
             self.window.customSearchBox.searched.emit("cat.png")
 
         self.assertEqual("filename", open_results.call_args.args[0].value)
+
+    def test_advanced_search_uses_expression_placeholder_and_no_suggestions(self):
+        self.window.searchTypeComboBox.setCurrentIndex(3)
+
+        self.assertEqual(
+            "advanced",
+            self.window.searchTypeComboBox.currentData(),
+        )
+        self.assertFalse(
+            self.window.customSearchBox
+            ._submit_first_suggestion_when_unselected
+        )
+        self.assertEqual(
+            "搜索高级表达式...",
+            self.window.customSearchBox.line_edit.placeholderText(),
+        )
+
+        with patch(
+            "ui.main_window.services.search.open_search_results",
+            return_value=0,
+        ) as open_results:
+            self.window.customSearchBox.searched.emit("A AND B")
+
+        self.assertEqual("advanced", open_results.call_args.args[0].value)
 
     def test_close_persists_recent_searches_latest_first(self):
         with patch(

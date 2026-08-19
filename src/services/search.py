@@ -18,6 +18,7 @@ class SearchType(str, Enum):
     TAG = "tag"
     TEXT = "text"
     FILENAME = "filename"
+    ADVANCED = "advanced"
 
 
 class SearchHistory:
@@ -155,6 +156,13 @@ def open_search_results(search_type: SearchType | str, query: str) -> int:
     if search_type is SearchType.TAG:
         images = database.search_stickers_by_tag(query)
         title = f"标签搜索[{query}]"
+    elif search_type is SearchType.ADVANCED:
+        images = database.search_stickers_by_tag_expression(query)
+        services.sticker_library_viewer_service.open_advanced_search_results_tab(
+            query,
+            images,
+        )
+        return len(images)
     elif search_type is SearchType.FILENAME:
         images = database.search_stickers_by_file_name(query)
         title = f"文件名搜索[{query}]"

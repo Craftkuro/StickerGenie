@@ -21,10 +21,6 @@ from commons.roles import (
 from commons.signal_objects import MainWindowNewTabRequest
 from stickerdb.vectordb.models import SearchResult
 
-from ui.page_search_result import SearchResultPage
-from ui.page_similar_images import SimilarImagesPage
-from ui.page_infinite_sticker_collection import InfiniteStickerCollectionPage
-
 logger = logging.getLogger(__name__)
 
 
@@ -206,9 +202,26 @@ def open_search_results_tab(
     title: str,
 ) -> None:
     """在独立标签页中展示标签/文本/文件名搜索结果。"""
+    from ui.page_search_result import SearchResultPage
+
     page = SearchResultPage(auto_refresh=False)
     page.refresh_content(build_sticker_model(images))
     _open_result_tab(page, title)
+
+
+def open_advanced_search_results_tab(
+    expression: str,
+    images: Iterable[StickerImage],
+) -> None:
+    """打开高级标签表达式结果页。"""
+    from ui.page_advanced_search_result import AdvancedSearchResultPage
+
+    page = AdvancedSearchResultPage(
+        expression,
+        images,
+        auto_refresh=False,
+    )
+    _open_result_tab(page, "高级搜索[表达式]")
 
 
 def open_similar_stickers_tab(
@@ -217,6 +230,8 @@ def open_similar_stickers_tab(
     top_k: int = commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT,
     result_filter: similarity_filter.SimilarityResultFilter | None = None,
 ) -> None:
+    from ui.page_similar_images import SimilarImagesPage
+
     search_results, sticker_map = fetch_similar_candidates(
         sticker, top_k=top_k
     )
@@ -283,6 +298,7 @@ def delete_sticker(sticker: StickerImage) -> tuple[str, ...]:
     return delete_stickers([sticker])
 
 def open_sticker_library_view_tab():
+    from ui.page_infinite_sticker_collection import InfiniteStickerCollectionPage
 
     page = InfiniteStickerCollectionPage()
     main_window = services.global_instances.main_window

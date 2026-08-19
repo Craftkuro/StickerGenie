@@ -5,13 +5,112 @@ import threading
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
-from sqlalchemy import create_engine, select, func, text
+import boolean
+from boolean.boolean import PARSE_UNKNOWN_TOKEN
+from sqlalchemy import and_, create_engine, func, not_, or_, select, text
 from sqlalchemy.orm import sessionmaker, Session, selectinload
 
 from commons.dto import StickerImage, Tag
 from .db_classes import DBStickerImage, DBTag, association_table, Base
 
 logger = logging.getLogger(__name__)
+
+
+class TagSearchExpressionError(ValueError):
+    """高级标签表达式无法解析或编译时抛出的错误。"""
+
+
+class _QuotedTagSearchAlgebra(boolean.BooleanAlgebra):
+    """在 boolean.py 标准 tokenizer 上增加双引号标签字面量。"""
+
+    def tokenize(self, expr):
+        if not isinstance(expr, str):
+            raise TypeError(f"expr must be string but it is {type(expr)}.")
+
+        tokens = {
+            "*": boolean.TOKEN_AND,
+            "&": boolean.TOKEN_AND,
+            "and": boolean.TOKEN_AND,
+            "+": boolean.TOKEN_OR,
+            "|": boolean.TOKEN_OR,
+            "or": boolean.TOKEN_OR,
+            "~": boolean.TOKEN_NOT,
+            "!": boolean.TOKEN_NOT,
+            "not": boolean.TOKEN_NOT,
+            "(": boolean.TOKEN_LPAR,
+            ")": boolean.TOKEN_RPAR,
+            "[": boolean.TOKEN_LPAR,
+            "]": boolean.TOKEN_RPAR,
+            "true": boolean.TOKEN_TRUE,
+            "1": boolean.TOKEN_TRUE,
+            "false": boolean.TOKEN_FALSE,
+            "0": boolean.TOKEN_FALSE,
+            "none": boolean.TOKEN_FALSE,
+        }
+
+        position = 0
+        length = len(expr)
+        while position < length:
+            char = expr[position]
+
+            if char == '"':
+                start = position
+                position += 1
+                parts = []
+                while position < length:
+                    char = expr[position]
+                    if char != '"':
+                        parts.append(char)
+                        position += 1
+                        continue
+
+                    if position + 1 < length and expr[position + 1] == '"':
+                        parts.append('"')
+                        position += 2
+                        continue
+
+                    position += 1
+                    yield boolean.TOKEN_SYMBOL, "".join(parts), start
+                    break
+                else:
+                    raise boolean.ParseError(
+                        token_string=expr[start:],
+                        position=start,
+                        error_code=PARSE_UNKNOWN_TOKEN,
+                    )
+                continue
+
+            if char.isalnum() or char == "_":
+                start = position
+                position += 1
+                while position < length:
+                    next_char = expr[position]
+                    if next_char.isalnum() or next_char in self.allowed_in_token:
+                        position += 1
+                        continue
+                    break
+
+                token = expr[start:position]
+                token_type = tokens.get(token.lower(), boolean.TOKEN_SYMBOL)
+                yield token_type, token, start
+                continue
+
+            if char in " \t\r\n":
+                position += 1
+                continue
+
+            token_type = tokens.get(char)
+            if token_type is None:
+                raise boolean.ParseError(
+                    token_string=char,
+                    position=position,
+                    error_code=PARSE_UNKNOWN_TOKEN,
+                )
+            yield token_type, char, position
+            position += 1
+
+
+_TAG_SEARCH_ALGEBRA = _QuotedTagSearchAlgebra()
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +139,41 @@ def _existing_hashes_in_session(
             ).scalars().all()
         )
     return existing_hashes
+
+
+def _compile_tag_search_condition(expression):
+    algebra = _TAG_SEARCH_ALGEBRA
+
+    if expression is algebra.TRUE or expression is algebra.FALSE:
+        raise TagSearchExpressionError(
+            "高级搜索表达式不允许使用 TRUE、FALSE、None 或数字常量，"
+            "请使用双引号包裹标签名。"
+        )
+
+    if isinstance(expression, algebra.Symbol):
+        return DBStickerImage.tags.any(
+            and_(
+                DBTag.enabled.is_(True),
+                DBTag.name == expression.obj,
+            )
+        )
+
+    if isinstance(expression, algebra.NOT):
+        return not_(_compile_tag_search_condition(expression.args[0]))
+
+    if isinstance(expression, algebra.AND):
+        return and_(*(
+            _compile_tag_search_condition(argument)
+            for argument in expression.args
+        ))
+
+    if isinstance(expression, algebra.OR):
+        return or_(*(
+            _compile_tag_search_condition(argument)
+            for argument in expression.args
+        ))
+
+    raise TagSearchExpressionError("高级搜索表达式包含不支持的节点。")
 
 
 class StickerDBV1:
@@ -323,6 +457,41 @@ class StickerDBV1:
                     DBTag.name.contains(query, autoescape=True),
                 )
                 .distinct()
+                .order_by(
+                    DBStickerImage.modification_date.desc(),
+                    DBStickerImage.id.desc(),
+                )
+            )
+            db_stickers = session.execute(stmt).scalars().all()
+            return [self._export_sticker(sticker) for sticker in db_stickers]
+
+    def search_stickers_by_tag_expression(
+        self,
+        expression: str,
+    ) -> List[StickerImage]:
+        """按布尔标签表达式查询图片，标签叶子节点使用严格相等匹配。"""
+        if not isinstance(expression, str):
+            raise TagSearchExpressionError("高级搜索表达式必须是文本。")
+
+        expression = expression.strip()
+        if not expression:
+            return []
+
+        try:
+            parsed_expression = _TAG_SEARCH_ALGEBRA.parse(expression)
+            condition = _compile_tag_search_condition(parsed_expression)
+        except TagSearchExpressionError:
+            raise
+        except boolean.ParseError as exc:
+            raise TagSearchExpressionError(
+                f"高级搜索表达式语法错误：{exc}"
+            ) from exc
+
+        with self._get_session() as session:
+            stmt = (
+                select(DBStickerImage)
+                .options(selectinload(DBStickerImage.tags))
+                .where(condition)
                 .order_by(
                     DBStickerImage.modification_date.desc(),
                     DBStickerImage.id.desc(),

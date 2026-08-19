@@ -16,6 +16,10 @@ import services.global_instances
 import services.sticker_library_viewer_service as library_viewer_service
 from commons.signal_objects import MainWindowNewTabRequest
 from services.settings import create_settings_manager
+import ui.page_advanced_search_result as advanced_search_result_page
+import ui.page_infinite_sticker_collection as infinite_sticker_collection_page
+import ui.page_search_result as search_result_page
+import ui.page_similar_images as similar_images_page
 from ui.main_window import MainWindow
 
 
@@ -136,7 +140,7 @@ class TabRequestPolicyTests(unittest.TestCase):
             "main_window",
             main_window,
         ), patch.object(
-            library_viewer_service,
+            search_result_page,
             "SearchResultPage",
             return_value=page,
         ), patch.object(
@@ -148,6 +152,32 @@ class TabRequestPolicyTests(unittest.TestCase):
 
         request = emit.call_args.args[0]
         self.assertTrue(request.closable)
+        self.assertIs(page, request.widget)
+
+    def test_advanced_search_result_tab_uses_fixed_title(self):
+        emit = Mock()
+        page = Mock()
+        main_window = SimpleNamespace(
+            signal_add_new_tab=SimpleNamespace(emit=emit),
+        )
+
+        with patch.object(
+            services.global_instances,
+            "main_window",
+            main_window,
+        ), patch.object(
+            advanced_search_result_page,
+            "AdvancedSearchResultPage",
+            return_value=page,
+        ):
+            library_viewer_service.open_advanced_search_results_tab(
+                "A AND B",
+                [],
+            )
+
+        request = emit.call_args.args[0]
+        self.assertTrue(request.closable)
+        self.assertEqual("高级搜索[表达式]", request.title)
         self.assertIs(page, request.widget)
 
     def test_similar_images_tabs_are_closable(self):
@@ -167,7 +197,7 @@ class TabRequestPolicyTests(unittest.TestCase):
             "fetch_similar_candidates",
             return_value=([], {}),
         ), patch.object(
-            library_viewer_service,
+            similar_images_page,
             "SimilarImagesPage",
             return_value=page,
         ):
@@ -189,7 +219,7 @@ class TabRequestPolicyTests(unittest.TestCase):
             "main_window",
             main_window,
         ), patch.object(
-            library_viewer_service,
+            infinite_sticker_collection_page,
             "InfiniteStickerCollectionPage",
             return_value=page,
         ):

@@ -155,6 +155,31 @@ class SearchServiceTests(unittest.TestCase):
         self.assertEqual(1, count)
         open_tab.assert_called_once_with(["Meme"], "文件名搜索[Meme]")
 
+    def test_open_search_results_routes_advanced_search_to_expression_page(self):
+        expression_search = lambda query: [query]
+        database = SimpleNamespace(
+            search_stickers_by_tag=lambda query: [],
+            search_stickers_by_text=lambda query: [],
+            search_stickers_by_file_name=lambda query: [],
+            search_stickers_by_tag_expression=expression_search,
+        )
+        previous_database = services.global_instances.current_library_db
+        services.global_instances.current_library_db = database
+        try:
+            with patch(
+                "services.search.services.sticker_library_viewer_service."
+                "open_advanced_search_results_tab"
+            ) as open_tab:
+                count = search_service.open_search_results("advanced", "A AND B")
+        finally:
+            services.global_instances.current_library_db = previous_database
+
+        self.assertEqual(1, count)
+        open_tab.assert_called_once_with(
+            "A AND B",
+            ["A AND B"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

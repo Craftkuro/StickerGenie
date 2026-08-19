@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from commons.dto import StickerImage, Tag
-from stickerdb.v1.sticker_db import StickerDBV1
+from stickerdb.v1.sticker_db import StickerDBV1, TagSearchExpressionError
 
 
 def make_tag(name: str, *, enabled: bool = True, color: str = "#2196F3") -> Tag:
@@ -178,6 +178,160 @@ class StickerDBTagTests(unittest.TestCase):
             ["newer.png", "older.png"],
             [sticker.original_file_name for sticker in results],
         )
+
+    def test_search_stickers_by_tag_expression_uses_exact_enabled_tags(self):
+        alpha = self.db.add_or_modify_tag(make_tag("Alpha"))
+        alphabet = self.db.add_or_modify_tag(make_tag("Alphabet"))
+        self.db.add_stickers(
+            [
+                make_sticker([alpha], hash_value="alpha-hash", file_name="alpha.png"),
+                make_sticker(
+                    [alphabet],
+                    hash_value="alphabet-hash",
+                    file_name="alphabet.png",
+                ),
+            ]
+        )
+
+        results = self.db.search_stickers_by_tag_expression("Alpha")
+
+        self.assertEqual(["alpha.png"], [sticker.original_file_name for sticker in results])
+
+    def test_search_stickers_by_tag_expression_compiles_boolean_logic(self):
+        a = self.db.add_or_modify_tag(make_tag("A"))
+        b = self.db.add_or_modify_tag(make_tag("B"))
+        c = self.db.add_or_modify_tag(make_tag("C"))
+        self.db.add_stickers(
+            [
+                make_sticker([a], hash_value="only-a", file_name="only-a.png"),
+                make_sticker(
+                    [a, b],
+                    hash_value="a-b",
+                    file_name="a-b.png",
+                ),
+                make_sticker([b], hash_value="only-b", file_name="only-b.png"),
+                make_sticker(
+                    [a, c],
+                    hash_value="a-c",
+                    file_name="a-c.png",
+                ),
+                make_sticker([], hash_value="no-tags", file_name="no-tags.png"),
+            ]
+        )
+
+        names = lambda expression: {
+            sticker.original_file_name
+            for sticker in self.db.search_stickers_by_tag_expression(expression)
+        }
+
+        self.assertEqual({"a-b.png"}, names("A AND B"))
+        self.assertEqual(
+            {"only-a.png", "a-b.png", "only-b.png", "a-c.png"},
+            names("A OR B"),
+        )
+        self.assertEqual(
+            {"only-a.png", "a-b.png", "only-b.png", "no-tags.png"},
+            names("NOT C"),
+        )
+        self.assertEqual(
+            {"only-a.png", "a-b.png", "only-b.png"},
+            names("(A OR B) AND NOT C"),
+        )
+        self.assertEqual({"no-tags.png"}, names("NOT (A OR B)"))
+
+    def test_search_stickers_by_tag_expression_ignores_disabled_tags(self):
+        disabled = self.db.add_or_modify_tag(make_tag("Hidden", enabled=False))
+        self.db.add_stickers(
+            [make_sticker([disabled], hash_value="hidden-hash", file_name="hidden.png")]
+        )
+
+        self.assertEqual([], self.db.search_stickers_by_tag_expression("Hidden"))
+        self.assertEqual(
+            ["hidden.png"],
+            [
+                sticker.original_file_name
+                for sticker in self.db.search_stickers_by_tag_expression("NOT Hidden")
+            ],
+        )
+
+    def test_search_stickers_by_tag_expression_handles_unknown_and_empty_queries(self):
+        self.assertEqual([], self.db.search_stickers_by_tag_expression("Unknown"))
+        self.assertEqual([], self.db.search_stickers_by_tag_expression(""))
+        self.assertEqual(
+            [],
+            self.db.search_stickers_by_tag_expression("Unknown AND NOT Unknown"),
+        )
+
+        self.db.add_stickers(
+            [make_sticker([], hash_value="empty-query-negative", file_name="empty.png")]
+        )
+        self.assertEqual(
+            ["empty.png"],
+            [
+                sticker.original_file_name
+                for sticker in self.db.search_stickers_by_tag_expression(
+                    "NOT Unknown"
+                )
+            ],
+        )
+
+    def test_search_stickers_by_tag_expression_supports_quoted_tag_literals(self):
+        parenthesized = self.db.add_or_modify_tag(make_tag("角色(作品)"))
+        ampersand = self.db.add_or_modify_tag(make_tag("动作&喜剧"))
+        quoted = self.db.add_or_modify_tag(make_tag('他说"好"'))
+        self.db.add_stickers(
+            [
+                make_sticker(
+                    [parenthesized],
+                    hash_value="parenthesized-hash",
+                    file_name="parenthesized.png",
+                ),
+                make_sticker(
+                    [ampersand],
+                    hash_value="ampersand-hash",
+                    file_name="ampersand.png",
+                ),
+                make_sticker(
+                    [quoted],
+                    hash_value="quoted-hash",
+                    file_name="quoted.png",
+                ),
+            ]
+        )
+
+        self.assertEqual(
+            ["parenthesized.png"],
+            [
+                sticker.original_file_name
+                for sticker in self.db.search_stickers_by_tag_expression(
+                    '"角色(作品)"'
+                )
+            ],
+        )
+        self.assertEqual(
+            ["ampersand.png"],
+            [
+                sticker.original_file_name
+                for sticker in self.db.search_stickers_by_tag_expression(
+                    '"动作&喜剧"'
+                )
+            ],
+        )
+        self.assertEqual(
+            ["quoted.png"],
+            [
+                sticker.original_file_name
+                for sticker in self.db.search_stickers_by_tag_expression(
+                    '"他说""好"""'
+                )
+            ],
+        )
+
+    def test_search_stickers_by_tag_expression_rejects_syntax_errors_and_constants(self):
+        for expression in ("A AND", "(A OR B", "A AND OR B", "TRUE", "None", "1"):
+            with self.subTest(expression=expression):
+                with self.assertRaises(TagSearchExpressionError):
+                    self.db.search_stickers_by_tag_expression(expression)
 
     def test_search_stickers_by_text_uses_literal_substring(self):
         matching = make_sticker(

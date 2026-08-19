@@ -154,6 +154,10 @@ class MainWindow(QMainWindow):
         self.searchTypeComboBox.addItem("标签", services.search.SearchType.TAG.value)
         self.searchTypeComboBox.addItem("文本", services.search.SearchType.TEXT.value)
         self.searchTypeComboBox.addItem("原名", services.search.SearchType.FILENAME.value)
+        self.searchTypeComboBox.addItem(
+            "高级",
+            services.search.SearchType.ADVANCED.value,
+        )
         self.searchTypeComboBox.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents
         )
@@ -200,6 +204,8 @@ class MainWindow(QMainWindow):
             placeholder = "搜索标签..."
         elif current_search_type is services.search.SearchType.FILENAME:
             placeholder = "搜索图片文件名..."
+        elif current_search_type is services.search.SearchType.ADVANCED:
+            placeholder = "搜索高级表达式..."
         else:
             placeholder = "搜索图片文本..."
         self.customSearchBox.line_edit.setPlaceholderText(placeholder)

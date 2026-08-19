@@ -26,6 +26,9 @@ chromadb==1.5.9
 # SQLAlchemy ORM（用于 StickerDB V1）
 SQLAlchemy==2.0.50
 
+# 布尔表达式解析（用于高级标签搜索）
+boolean.py==5.0
+
 # TOML 配置文件解析（保持注释）
 tomlkit==0.15.0
 
