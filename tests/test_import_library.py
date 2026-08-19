@@ -209,6 +209,26 @@ class ImportLibraryTests(unittest.TestCase):
             self.blob_storage.exists(BlobFileEntity(file_hash, ".png"))
         )
 
+    def test_imports_mismatched_backup_extension_using_detected_format(self):
+        content = png_bytes("red")
+        file_hash = hashlib.sha1(content).hexdigest()
+        metadata_path = self._write_backup(
+            [self._image_record("示例.jpg", content)],
+            [],
+        )
+
+        result = import_library(self.db, self.blob_storage, metadata_path)
+
+        self.assertEqual(1, result.added_image_count)
+        sticker = self.db.list_stickers(count=None)[0]
+        self.assertEqual(".png", sticker.extension)
+        self.assertTrue(
+            self.blob_storage.exists(BlobFileEntity(file_hash, ".png"))
+        )
+        self.assertFalse(
+            self.blob_storage.exists(BlobFileEntity(file_hash, ".jpg"))
+        )
+
     def test_existing_hash_merges_tags_without_changing_the_image(self):
         content = png_bytes("green")
         existing = make_sticker("原文件.png", content)
@@ -478,8 +498,8 @@ class ImportLibraryTests(unittest.TestCase):
         cancel_event = threading.Event()
         original_store_file = self.blob_storage.store_file
 
-        def store_file_and_cancel(file_path, file_hash):
-            entity = original_store_file(file_path, file_hash)
+        def store_file_and_cancel(file_path, file_hash, **kwargs):
+            entity = original_store_file(file_path, file_hash, **kwargs)
             cancel_event.set()
             return entity
 

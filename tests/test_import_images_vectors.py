@@ -16,7 +16,7 @@ from batch_job_runner.models import (
     JobProgress,
     ResultBatch,
 )
-from blob_storage import BlobStorage
+from blob_storage import BlobFileEntity, BlobStorage
 from commons.signal_objects import ImportImagesRequest
 from image_features_extractor import DEFAULT_MODEL_FILENAME, normalize_image_path
 from services.image_import_service import ImageImportService
@@ -270,6 +270,27 @@ class ImportImagesVectorTests(unittest.TestCase):
 
         self.assertEqual(1, len(result.imported_stickers))
         self.assertEqual(1, len(self.db.list_stickers()))
+
+    def test_mismatched_source_extension_uses_detected_format_for_storage(self):
+        mismatched_path = self.root / "source.jpg"
+        Image.new("RGB", (12, 8), "purple").save(mismatched_path, format="PNG")
+
+        result = import_images_with_result([str(mismatched_path)])
+
+        self.assertEqual(1, len(result.imported_stickers))
+        sticker = result.imported_stickers[0]
+        self.assertEqual(".png", sticker.extension)
+        self.assertEqual("source.jpg", sticker.original_file_name)
+        self.assertTrue(
+            self.blob_storage.exists(BlobFileEntity(sticker.hash, ".png"))
+        )
+        self.assertFalse(
+            self.blob_storage.exists(BlobFileEntity(sticker.hash, ".jpg"))
+        )
+        blob_path = Path(
+            self.blob_storage.read_file(BlobFileEntity(sticker.hash, ".png"))
+        )
+        self.assertEqual(f"{sticker.hash}.png", blob_path.name)
 
     def test_multiple_import_batches_share_one_extraction_job(self):
         second_path = self.root / "second.png"

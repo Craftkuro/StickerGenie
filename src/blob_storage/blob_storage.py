@@ -61,6 +61,21 @@ class BlobStorage:
                 sha1_hash.update(chunk)
         
         return sha1_hash.hexdigest()
+
+    @staticmethod
+    def _normalize_extension_override(extension: str) -> str:
+        """规范化并校验调用方提供的扩展名。"""
+        if not isinstance(extension, str):
+            raise TypeError("extension_override must be a string")
+
+        normalized = extension.strip().lower()
+        if (
+            not normalized.startswith(".")
+            or len(normalized) == 1
+            or not normalized[1:].replace("-", "").replace("_", "").isalnum()
+        ):
+            raise ValueError(f"invalid extension_override: {extension!r}")
+        return normalized
     
     def _get_extension(self, file_path: Path) -> str:
         """
@@ -103,7 +118,13 @@ class BlobStorage:
         filename = f"{file_hash}{extension}"
         return subdir / filename
     
-    def store_file(self, source_file_path: str, file_hash: str | None = None) -> BlobFileEntity:
+    def store_file(
+        self,
+        source_file_path: str,
+        file_hash: str | None = None,
+        *,
+        extension_override: str | None = None,
+    ) -> BlobFileEntity:
         """
         存储文件到Blob存储中。
         
@@ -112,6 +133,7 @@ class BlobStorage:
         Args:
             source_file_path: 源文件的路径
             file_hash：源文件的SHA1 hash（可选）
+            extension_override：覆盖源文件名的扩展名（可选）
             
         Returns:
             BlobFileEntity实例，包含文件的哈希值和扩展名
@@ -130,8 +152,12 @@ class BlobStorage:
         elif len(file_hash) != 40:
             file_hash = self._calculate_sha1(source_path)
         
-        # 获取文件扩展名
-        extension = self._get_extension(source_path)
+        # 默认使用源路径扩展名；导入流程可以传入按内容识别的扩展名。
+        extension = (
+            self._normalize_extension_override(extension_override)
+            if extension_override is not None
+            else self._get_extension(source_path)
+        )
         
         # 获取目标文件路径
         target_path = self._get_file_path(file_hash, extension)

@@ -13,6 +13,30 @@ if str(project_root) not in sys.path:
 from commons.image_metadata import StickerImageMetadata
 
 
+_FORMAT_TO_EXTENSION = {
+    "JPEG": ".jpg",
+    "PNG": ".png",
+    "GIF": ".gif",
+    "BMP": ".bmp",
+    "WEBP": ".webp",
+    "TIFF": ".tif",
+    "AVIF": ".avif",
+    "HEIF": ".heif",
+    "HEIC": ".heic",
+    "JPEG2000": ".jp2",
+}
+
+
+def _extension_from_format(image_format: str | None) -> str:
+    format_name = image_format.upper() if isinstance(image_format, str) else ""
+    try:
+        return _FORMAT_TO_EXTENSION[format_name]
+    except KeyError as exc:
+        raise ValueError(
+            f"无法识别图片实际格式：{image_format or '未知'}"
+        ) from exc
+
+
 def get_image_metadata(file_path: str | Path) -> StickerImageMetadata:
     """
     获取指定图片文件的元数据。
@@ -38,9 +62,6 @@ def get_image_metadata(file_path: str | Path) -> StickerImageMetadata:
     # 获取文件大小
     file_size = file_path.stat().st_size
     
-    # 获取文件扩展名
-    extension = file_path.suffix.lower()
-    
     # 计算 SHA1 哈希值
     sha1_hash = hashlib.sha1()
     with open(file_path, 'rb') as f:
@@ -51,9 +72,11 @@ def get_image_metadata(file_path: str | Path) -> StickerImageMetadata:
     # 获取图片尺寸
     try:
         with Image.open(file_path) as img:
+            image_format = img.format
             size_width, size_height = img.size
     except Exception as e:
         raise ValueError(f"无法读取图片尺寸：{e}")
+    extension = _extension_from_format(image_format)
     
     return StickerImageMetadata(
         original_file_name=original_file_name,

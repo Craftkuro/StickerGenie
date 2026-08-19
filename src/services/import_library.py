@@ -412,7 +412,11 @@ def import_library(
             continue
 
         # 先复制 blob、后写 SQLite：任意时刻中断最多留下未引用 blob。
-        blob_storage.store_file(str(source), file_metadata.hash)
+        blob_storage.store_file(
+            str(source),
+            file_metadata.hash,
+            extension_override=file_metadata.extension,
+        )
         if _is_cancelled(cancel_event):
             return make_result(cancelled=True)
 

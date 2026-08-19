@@ -148,8 +148,8 @@ class ImageImportCancellationTests(unittest.TestCase):
         cancel_event = threading.Event()
         original_store_file = self.blob_storage.store_file
 
-        def store_file_and_cancel(file_path, file_hash):
-            entity = original_store_file(file_path, file_hash)
+        def store_file_and_cancel(file_path, file_hash, **kwargs):
+            entity = original_store_file(file_path, file_hash, **kwargs)
             cancel_event.set()
             return entity
 

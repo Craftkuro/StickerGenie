@@ -478,6 +478,7 @@ def _commit_candidates(
             blob_entity = current_blob_storage.store_file(
                 candidate.file_path,
                 candidate.file_hash,
+                extension_override=candidate.sticker.extension,
             )
             if _is_cancelled(cancel_event):
                 return (
