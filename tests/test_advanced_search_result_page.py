@@ -5,9 +5,8 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QStandardItem
-from PyQt6.QtWidgets import QApplication, QTextEdit
+from PyQt6.QtWidgets import QApplication, QLineEdit, QSizePolicy
 
 import apppath
 from ui.page_advanced_search_result import AdvancedSearchResultPage
@@ -24,16 +23,12 @@ class AdvancedSearchResultPageTests(unittest.TestCase):
         page = AdvancedSearchResultPage("A AND B", [])
 
         self.assertIsInstance(page, FiniteStickerCollectionPage)
-        self.assertIsInstance(page.expression_text_edit, QTextEdit)
-        self.assertEqual("A AND B", page.expression_text_edit.toPlainText())
+        self.assertIsInstance(page.expression_text_edit, QLineEdit)
+        self.assertEqual("A AND B", page.expression_text_edit.text())
         self.assertTrue(page.expression_text_edit.isReadOnly())
-        interaction_flags = page.expression_text_edit.textInteractionFlags()
-        self.assertTrue(
-            interaction_flags & Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        self.assertTrue(
-            interaction_flags
-            & Qt.TextInteractionFlag.TextSelectableByKeyboard
+        self.assertEqual(
+            QSizePolicy.Policy.Expanding,
+            page.expression_text_edit.sizePolicy().horizontalPolicy(),
         )
         self.assertEqual("表达式", page.expression_label.text())
         self.assertEqual("复制", page.copy_button.text())

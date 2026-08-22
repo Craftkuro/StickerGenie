@@ -1,8 +1,13 @@
 # coding=utf-8
 from collections.abc import Iterable
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QTextEdit
+from PyQt6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSizePolicy,
+)
 
 from commons.dto import StickerImage
 
@@ -23,16 +28,13 @@ class AdvancedSearchResultPage(FiniteStickerCollectionPage):
 
         self.expression_label = QLabel("表达式", self)
         self.expression_label.setObjectName("expressionLabel")
-        self.expression_text_edit = QTextEdit(self)
+        self.expression_text_edit = QLineEdit(self)
         self.expression_text_edit.setObjectName("expressionTextEdit")
-        self.expression_text_edit.setPlainText(expression)
+        self.expression_text_edit.setText(expression)
         self.expression_text_edit.setReadOnly(True)
-        self.expression_text_edit.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard
-        )
-        self.expression_text_edit.setLineWrapMode(
-            QTextEdit.LineWrapMode.WidgetWidth
+        self.expression_text_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
         )
         self.expression_text_edit.setMinimumWidth(280)
         self.copy_button = QPushButton("复制", self)
@@ -50,6 +52,16 @@ class AdvancedSearchResultPage(FiniteStickerCollectionPage):
         if not hasattr(self, "_expression_toolbar_anchor"):
             actions = self.toolbar.actions()
             self._expression_toolbar_anchor = actions[0] if actions else None
+            if self._expression_toolbar_anchor is not None:
+                spacer = self.toolbar.widgetForAction(
+                    self._expression_toolbar_anchor
+                )
+                if spacer is not None:
+                    # 让表达式输入框独占工具栏的可伸展空间。
+                    spacer.setSizePolicy(
+                        QSizePolicy.Policy.Fixed,
+                        QSizePolicy.Policy.Preferred,
+                    )
 
         if self._expression_toolbar_anchor is not None:
             return self.toolbar.insertWidget(
@@ -67,5 +79,5 @@ class AdvancedSearchResultPage(FiniteStickerCollectionPage):
 
     def _copy_expression(self) -> None:
         QApplication.clipboard().setText(
-            self.expression_text_edit.toPlainText()
+            self.expression_text_edit.text()
         )
