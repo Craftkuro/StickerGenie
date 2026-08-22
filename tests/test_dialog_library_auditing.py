@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QRect
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QDialogButtonBox
 
 import apppath
 import services.global_instances
@@ -417,6 +417,22 @@ class LibraryAuditingDialogTests(unittest.TestCase):
             self.assertGreaterEqual(dialog.x(), available.left())
             _, right = dialog.splitterLeftRight.sizes()
             self.assertGreater(right, 0)
+
+    def test_close_button_rejects_dialog(self):
+        dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
+        dialog.show()
+        self.app.processEvents()
+
+        self.assertEqual(
+            QDialogButtonBox.StandardButton.Close,
+            dialog.buttonBox.standardButtons(),
+        )
+
+        close_button = dialog.buttonBox.button(
+            QDialogButtonBox.StandardButton.Close
+        )
+        close_button.click()
+        self.assertFalse(dialog.isVisible())
 
     def test_missing_vector_clears_list_without_crashing(self):
         dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
