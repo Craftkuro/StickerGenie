@@ -193,6 +193,21 @@ class LibraryAuditingDialogTests(unittest.TestCase):
             dialog.label.text(),
         )
 
+    def test_navigation_buttons_show_icons_with_tooltips(self):
+        dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
+
+        expectations = {
+            "pushButtonPrev": "上一个",
+            "pushButtonRand": "随机选择",
+            "pushButtonNext": "下一个",
+        }
+        for name, tooltip in expectations.items():
+            button = getattr(dialog, name)
+            self.assertEqual(tooltip, button.toolTip())
+            self.assertEqual("", button.text())
+            self.assertFalse(button.icon().isNull())
+            self.assertEqual(24, button.iconSize().width())
+
     def test_back_walks_history_reverse_without_pushing(self):
         self.db.random_queue.extend([self.png_a.id])
         self.db.next_results = {
@@ -319,6 +334,22 @@ class LibraryAuditingDialogTests(unittest.TestCase):
             SIMILAR_BUTTON_SHOW_TEXT,
             dialog.pushButtonShowHideSimilarImages.text(),
         )
+
+    def test_showing_similar_pane_doubles_window_and_splits_space(self):
+        dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
+        dialog.show()
+        self.app.processEvents()
+        original_width = dialog.width()
+
+        dialog.pushButtonShowHideSimilarImages.click()
+
+        self.assertEqual(original_width * 2, dialog.width())
+        left, right = dialog.splitterLeftRight.sizes()
+        self.assertGreater(right, 0)
+        self.assertAlmostEqual(0.5, right / (left + right), delta=0.05)
+
+        dialog.pushButtonShowHideSimilarImages.click()
+        self.assertEqual(original_width, dialog.width())
 
     def test_missing_vector_clears_list_without_crashing(self):
         dialog = self._create_dialog(initial_random_queue=[self.png_a.id])

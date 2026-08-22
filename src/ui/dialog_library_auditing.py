@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 WINDOW_TITLE = "图库审阅"
 TAG_DATA_ROLE = Qt.ItemDataRole.UserRole
 SIMILAR_BUTTON_SHOW_TEXT = "查看相似图片>>"
-SIMILAR_BUTTON_HIDE_TEXT = "隐藏相似图片"
+SIMILAR_BUTTON_HIDE_TEXT = "<<隐藏相似图片"
 
 
 class LibraryAuditingDialog(QDialog):
@@ -199,8 +199,16 @@ class LibraryAuditingDialog(QDialog):
         self.pushButtonShowHideSimilarImages.setText(
             SIMILAR_BUTTON_HIDE_TEXT if visible else SIMILAR_BUTTON_SHOW_TEXT
         )
-        if visible and self._similar_stale:
-            self._refresh_similar_images()
+        if visible:
+            # 向右扩展一倍窗口，并让相似窗格占据右半边，避免它只分到窄窄一条。
+            self.resize(self.width() * 2, self.height())
+            splitter_width = max(self.splitterLeftRight.width(), 2)
+            half = splitter_width // 2
+            self.splitterLeftRight.setSizes([half, splitter_width - half])
+            if self._similar_stale:
+                self._refresh_similar_images()
+        else:
+            self.resize(max(self.width() // 2, 1), self.height())
 
     def _ensure_similar_page(self) -> SimilarImagesPage:
         if self._similar_page is None:
