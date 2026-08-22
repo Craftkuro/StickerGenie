@@ -1,21 +1,74 @@
 # coding=utf-8
+"""设置对话框：由 SETTINGS_SCHEMA 自动装配。
+
+页面、分组与控件全部来自配置 schema（单一事实来源）：
+- 带 `ui.page` 的字段按出现顺序装配进对应页面；
+- 无 `ui` 或 `page=None` 的字段只存在于配置文件，不进入界面与保存流程；
+- 特殊页面通过 CUSTOM_PAGES 静态注册表接入，自行管理内容，
+  仅通过 changed / reload_settings / save_settings 参与脏标记与保存。
+
+保存只操作 ConfigManager 与配置文件；失败时回滚管理器并重载特殊页面。
+"""
+
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from PyQt6 import uic
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QLabel,
+    QListWidgetItem,
     QMessageBox,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 
 import apppath
-from config_manager import ConfigManager
-from services.settings import create_settings_manager
+from config_manager import ConfigField, ConfigManager
+from services.settings import PAGE_TITLES, create_settings_manager
+from ui.settings_field_bindings import (
+    build_field_widget,
+    connect_field_signal,
+    field_label_text,
+    read_field_value,
+    write_field_value,
+)
 from ui.settings_page_color_preset_manager import ColorPresetManagerWidget
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PageSpec:
+    """自定义页面的静态注册信息。
+
+    factory 契约：构造参数为 ``(parent, config_manager=...)``，暴露
+    ``changed`` 信号并提供 ``reload_settings()`` / ``save_settings()``。
+    attribute 可选；给出时实例会以该名称挂到对话框上。
+    """
+
+    page_id: str
+    title: str
+    factory: Callable[..., QWidget]
+    attribute: str | None = None
+
+
+CUSTOM_PAGES: tuple[PageSpec, ...] = (
+    PageSpec(
+        page_id="color_presets",
+        title="颜色预设",
+        factory=ColorPresetManagerWidget,
+        attribute="colorPresetManager",
+    ),
+)
 
 
 class SettingsDialog(QDialog):
@@ -35,10 +88,11 @@ class SettingsDialog(QDialog):
         self._apply_button = self.buttonBox.button(
             QDialogButtonBox.StandardButton.Apply
         )
-        self.colorPresetManager = ColorPresetManagerWidget(
-            self.pageColorPresets, config_manager=self._config_manager
-        )
-        self.pageColorPresets.layout().addWidget(self.colorPresetManager)
+        self._visible_fields: list[tuple[ConfigField, QWidget]] = []
+        self._field_widgets: dict[str, QWidget] = {}
+        self._custom_widgets: list[Any] = []
+
+        self._assemble_pages()
 
         self._load_settings()
         self._connect_signals()
@@ -50,31 +104,134 @@ class SettingsDialog(QDialog):
         self.splitter.setSizes([180, 600])
         self._apply_button.setEnabled(False)
 
+    # --- 装配 ---
+
+    def _assemble_pages(self) -> None:
+        """按 schema 与 CUSTOM_PAGES 生成列表项、页面和控件。"""
+        for page_id, fields in self._group_fields_by_page().items():
+            self._add_list_entry(PAGE_TITLES.get(page_id, page_id))
+            self.stackedWidget.addWidget(self._create_schema_page(fields))
+
+        for spec in CUSTOM_PAGES:
+            self._add_list_entry(spec.title)
+            self.stackedWidget.addWidget(self._create_custom_page(spec))
+
+    def _group_fields_by_page(self) -> dict[str, list[ConfigField]]:
+        """收集可见字段并按 page 分组，保持 schema 首次出现顺序。"""
+        pages: dict[str, list[ConfigField]] = {}
+        for field in self._config_manager.schema.fields:
+            ui = field.ui
+            if ui is None or ui.page is None:
+                continue
+            pages.setdefault(ui.page, []).append(field)
+        return pages
+
+    def _add_list_entry(self, title: str) -> None:
+        self.listWidget.addItem(QListWidgetItem(title))
+
+    def _create_schema_page(
+        self, fields: list[ConfigField]
+    ) -> QWidget:
+        page = QWidget(self)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll_area = QScrollArea(page)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setWidgetResizable(True)
+
+        content = QWidget(scroll_area)
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(16)
+
+        first_field = fields[0]
+        content_layout.addWidget(
+            QLabel(self._page_heading(first_field), content)
+        )
+
+        forms: dict[str, QFormLayout] = {}
+        page_form: QFormLayout | None = None
+
+        for field in fields:
+            widget = build_field_widget(field)
+            self._register_field(field, widget)
+
+            group = field.ui.group
+            if not group:
+                if page_form is None:
+                    page_form = self._make_form()
+                    content_layout.addLayout(page_form)
+                self._add_form_row(page_form, field, widget)
+                continue
+
+            form = forms.get(group)
+            if form is None:
+                box = QGroupBox(group, content)
+                form = self._make_form()
+                box.setLayout(form)
+                content_layout.addWidget(box)
+                forms[group] = form
+            self._add_form_row(form, field, widget)
+
+        content_layout.addStretch(1)
+        scroll_area.setWidget(content)
+        page_layout.addWidget(scroll_area)
+        return page
+
+    @staticmethod
+    def _page_heading(field: ConfigField) -> str:
+        ui = field.ui
+        page = ui.page if ui else None
+        if page is None:
+            return ""
+        return PAGE_TITLES.get(page, page)
+
+    @staticmethod
+    def _make_form() -> QFormLayout:
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
+        form.setVerticalSpacing(12)
+        return form
+
+    def _add_form_row(
+        self, form: QFormLayout, field: ConfigField, widget: QWidget
+    ) -> None:
+        form.addRow(field_label_text(field), widget)
+
+    def _register_field(self, field: ConfigField, widget: QWidget) -> None:
+        self._visible_fields.append((field, widget))
+        self._field_widgets[field.key] = widget
+
+    def _create_custom_page(self, spec: PageSpec) -> QWidget:
+        page = QWidget(self)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        widget = spec.factory(page, config_manager=self._config_manager)
+        page_layout.addWidget(widget)
+        self._custom_widgets.append(widget)
+        if spec.attribute:
+            setattr(self, spec.attribute, widget)
+        widget.changed.connect(self._mark_dirty)
+        return page
+
+    def field_widget(self, key: str) -> QWidget:
+        """按配置键访问自动生成的控件（供测试与调试使用）。"""
+        try:
+            return self._field_widgets[key]
+        except KeyError:
+            raise KeyError(f"设置界面没有配置项 {key} 对应的控件") from None
+
+    # --- 加载 / 保存 ---
+
     def _load_settings(self) -> None:
-        self.spinBoxThumbnailMemoryCacheSize.setValue(
-            self._config_manager.get("thumbnail_memory_cache_size")
-        )
-        self.spinBoxRecentSearchLimit.setValue(
-            self._config_manager.get("recent_search_limit")
-        )
-        self.spinBoxTagSuggestionLimit.setValue(
-            self._config_manager.get("tag_suggestion_limit")
-        )
-        self.doubleSpinBoxSimilarImageTargetDropRatio.setValue(
-            float(self._config_manager.get("similar_image_target_drop_ratio"))
-        )
-        self.spinBoxSimilarImageMinKeep.setValue(
-            self._config_manager.get("similar_image_min_keep")
-        )
-        self.doubleSpinBoxSimilarImageMinSimilarity.setValue(
-            float(self._config_manager.get("similar_image_min_similarity"))
-        )
-        self.spinBoxSimilarImageMaxResults.setValue(
-            self._config_manager.get("similar_image_max_results")
-        )
-        self.spinBoxSimilarImageCandidateCount.setValue(
-            self._config_manager.get("similar_image_candidate_count")
-        )
+        for field, widget in self._visible_fields:
+            write_field_value(
+                field, widget, self._config_manager.get(field.key)
+            )
 
     def _connect_signals(self) -> None:
         self.listWidget.currentRowChanged.connect(
@@ -84,58 +241,27 @@ class SettingsDialog(QDialog):
         self.buttonBox.rejected.connect(self.reject)
         self._apply_button.clicked.connect(self.apply_settings)
 
-        self.spinBoxThumbnailMemoryCacheSize.valueChanged.connect(
-            self._mark_dirty
-        )
-        self.spinBoxRecentSearchLimit.valueChanged.connect(self._mark_dirty)
-        self.spinBoxTagSuggestionLimit.valueChanged.connect(self._mark_dirty)
-        self.doubleSpinBoxSimilarImageTargetDropRatio.valueChanged.connect(
-            self._mark_dirty
-        )
-        self.spinBoxSimilarImageMinKeep.valueChanged.connect(self._mark_dirty)
-        self.doubleSpinBoxSimilarImageMinSimilarity.valueChanged.connect(
-            self._mark_dirty
-        )
-        self.spinBoxSimilarImageMaxResults.valueChanged.connect(self._mark_dirty)
-        self.spinBoxSimilarImageCandidateCount.valueChanged.connect(
-            self._mark_dirty
-        )
-        self.colorPresetManager.changed.connect(self._mark_dirty)
+        for field, widget in self._visible_fields:
+            connect_field_signal(field, widget, self._mark_dirty)
 
     def _mark_dirty(self, _value=None) -> None:
         self._apply_button.setEnabled(True)
 
-    def _values_from_controls(self) -> dict[str, int | str]:
-        return {
-            "thumbnail_memory_cache_size": (
-                self.spinBoxThumbnailMemoryCacheSize.value()
-            ),
-            "recent_search_limit": self.spinBoxRecentSearchLimit.value(),
-            "tag_suggestion_limit": self.spinBoxTagSuggestionLimit.value(),
-            "similar_image_target_drop_ratio": (
-                f"{self.doubleSpinBoxSimilarImageTargetDropRatio.value():.2f}"
-            ),
-            "similar_image_min_keep": self.spinBoxSimilarImageMinKeep.value(),
-            "similar_image_min_similarity": (
-                f"{self.doubleSpinBoxSimilarImageMinSimilarity.value():.2f}"
-            ),
-            "similar_image_max_results": self.spinBoxSimilarImageMaxResults.value(),
-            "similar_image_candidate_count": (
-                self.spinBoxSimilarImageCandidateCount.value()
-            ),
-        }
-
     def apply_settings(self) -> bool:
         previous_values = self._config_manager.get_all()
         try:
-            for key, value in self._values_from_controls().items():
-                self._config_manager.set(key, value)
-            self.colorPresetManager.save_settings()
+            for field, widget in self._visible_fields:
+                self._config_manager.set(
+                    field.key, read_field_value(field, widget)
+                )
+            for widget in self._custom_widgets:
+                widget.save_settings()
             self._config_manager.save()
         except Exception as exc:
             logger.exception("保存设置失败")
             self._restore_manager(previous_values)
-            self.colorPresetManager.reload_presets()
+            for widget in self._custom_widgets:
+                widget.reload_settings()
             QMessageBox.critical(self, "保存设置失败", str(exc))
             return False
 

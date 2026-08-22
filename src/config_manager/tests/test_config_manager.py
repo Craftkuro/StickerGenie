@@ -17,6 +17,8 @@ from src.config_manager import (
     ConfigType,
     ConfigTypeError,
     ConfigValidationError,
+    FieldUI,
+    WidgetKind,
 )
 
 
@@ -63,6 +65,49 @@ class ConfigFieldTests(unittest.TestCase):
         returned.append(2)
 
         self.assertEqual([1], field.get_default())
+
+    def test_ui_defaults_to_none(self) -> None:
+        field = ConfigField("count", ConfigType.INT, 1)
+
+        self.assertIsNone(field.ui)
+
+    def test_ui_accepts_fieldui(self) -> None:
+        ui = FieldUI(
+            page="general",
+            label="数量",
+            group="分组",
+            suffix=" 张",
+            minimum=1,
+            maximum=10,
+            step=2,
+            choices=(("甲", "a"), ("乙", "b")),
+        )
+        field = ConfigField("count", ConfigType.INT, 1, "注释", ui=ui)
+
+        self.assertEqual(ui, field.ui)
+        self.assertEqual("general", field.ui.page)
+
+    def test_ui_rejects_non_fieldui(self) -> None:
+        with self.assertRaises(TypeError):
+            ConfigField("count", ConfigType.INT, 1, ui={"page": "general"})
+
+    def test_field_with_ui_survives_schema_deepcopy(self) -> None:
+        schema = ConfigSchema(
+            [
+                ConfigField(
+                    "ratio",
+                    ConfigType.STRING,
+                    "0.50",
+                    "注释",
+                    ui=FieldUI(page="search", label="比例"),
+                ),
+            ]
+        )
+
+        copied = schema.get_field("ratio")
+
+        self.assertEqual(FieldUI(page="search", label="比例"), copied.ui)
+        self.assertIsNot(copied.ui, schema.fields[0].ui)
 
 
 class ConfigManagerTests(unittest.TestCase):

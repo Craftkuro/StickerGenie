@@ -22,7 +22,7 @@
     'MyApp'
 """
 
-from .schema import ConfigType, ConfigField, ConfigSchema
+from .schema import ConfigType, ConfigField, ConfigSchema, FieldUI, WidgetKind
 from .config_manager import ConfigManager
 from .exceptions import (
     ConfigManagerError,
@@ -38,6 +38,8 @@ __all__ = [
     "ConfigType",
     "ConfigField", 
     "ConfigSchema",
+    "FieldUI",
+    "WidgetKind",
     "ConfigManager",
     "ConfigManagerError",
     "ConfigValidationError",

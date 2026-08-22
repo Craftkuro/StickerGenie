@@ -230,12 +230,12 @@ class ColorPresetManagerWidgetTests(unittest.TestCase):
         reloaded = create_settings_manager(self.config_path)
         self.assertEqual([], reloaded.get("color_presets"))
 
-    def test_reload_presets_discards_pending_changes(self):
+    def test_reload_settings_discards_pending_changes(self):
         with self._stub_input_dialog():
             self.widget.toolButtonAddPreset.click()
         self.assertEqual(1, self.widget.listWidgetPresets.count())
 
-        self.widget.reload_presets()
+        self.widget.reload_settings()
         self.assertEqual(0, self.widget.listWidgetPresets.count())
 
     def test_toolbar_buttons_have_icons(self):

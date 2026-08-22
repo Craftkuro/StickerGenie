@@ -27,6 +27,48 @@ class ConfigType(Enum):
     LIST_TABLE = "list[table]"
 
 
+class WidgetKind(Enum):
+    """设置界面控件类型。
+
+    SPIN_BOX_2P（spinbox_2_digit_fractions）：两位小数的数值微调框，
+    底层为 QDoubleSpinBox(decimals=2)；用于以字符串形式存储的
+    数值配置（如 "0.50"），读取时转 float，写回时格式化为
+    两位小数字符串。
+    """
+    HIDDEN = "hidden"                       # 不在界面展示
+    SPIN_BOX = "spin_box"                   # QSpinBox，整数
+    SPIN_BOX_2P = "spinbox_2_digit_fractions"  # 两位小数数值框，见类注释
+    COMBO_BOX = "combo_box"                 # QComboBox，choices 提供 (文本, 存储值)
+    CHECK_BOX = "check_box"                 # QCheckBox，布尔
+
+
+@dataclass(frozen=True)
+class FieldUI:
+    """
+    配置项的界面展示描述；全部字段可选，缺省即最简外观。
+
+    Attributes:
+        kind: 控件类型；缺省按整数微调框处理
+        page: 页面常量；None 表示不在任何页面展示
+        label: 表单行标签；空则回退使用 key
+        group: GroupBox 标题；空则不加组，行直接进页级表单
+        suffix: 数值控件的后缀（如 “ 张”）
+        minimum: 数值下限；None 用 Qt 默认
+        maximum: 数值上限；None 用 Qt 默认
+        step: singleStep；None 用 Qt 默认
+        choices: COMBO_BOX 必填，元素为 (显示文本, 存储值)
+    """
+    kind: WidgetKind = WidgetKind.SPIN_BOX
+    page: str | None = None
+    label: str = ""
+    group: str = ""
+    suffix: str = ""
+    minimum: float | None = None
+    maximum: float | None = None
+    step: float | None = None
+    choices: tuple[tuple[str, Any], ...] = ()
+
+
 @dataclass(frozen=True)
 class ConfigField:
     """
@@ -36,12 +78,14 @@ class ConfigField:
         key: 配置键名
         type: 配置类型
         default: 默认值
-        comment: 注释说明
+        comment: 注释说明（TOML 注释，同时作为界面 tooltip）
+        ui: 界面展示描述；None 表示仅在配置文件中存在，不出现在界面
     """
     key: str
     type: ConfigType
     default: Union[str, int, bool, List[str], List[int], List[Dict[str, Any]]]
     comment: str = ""
+    ui: FieldUI | None = None
     
     def __post_init__(self):
         """验证配置字段定义的合法性"""
@@ -53,6 +97,9 @@ class ConfigField:
 
         if not isinstance(self.comment, str):
             raise TypeError(f"ConfigField comment must be str, got {type(self.comment)}")
+
+        if self.ui is not None and not isinstance(self.ui, FieldUI):
+            raise TypeError(f"ConfigField ui must be FieldUI or None, got {type(self.ui)}")
         
         # 验证默认值类型与声明类型一致
         self._validate_default_type()

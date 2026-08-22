@@ -156,7 +156,7 @@ class ColorPresetManagerWidget(QWidget):
 
         self._build_ui()
         self._connect_signals()
-        self.reload_presets()
+        self.reload_settings()
 
     # --- UI 构建 ---
 
@@ -216,7 +216,7 @@ class ColorPresetManagerWidget(QWidget):
 
     # --- 预设读写 ---
 
-    def reload_presets(self) -> None:
+    def reload_settings(self) -> None:
         """从配置管理器重新载入预设（丢弃未保存的修改）。"""
         self._pending_presets = self._load_presets()
         self._reload_list()
