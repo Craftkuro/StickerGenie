@@ -68,9 +68,11 @@ class LibraryAuditingDialog(QDialog):
         # 强制激活第1个标签，以免编辑ui文件的时候存入其他激活的标签影响程序运行时行为
         self.tabWidgetBottom.setCurrentIndex(0)
 
-        # 相似图片窗格默认隐藏；pushButtonEditProperties 为未来文件属性编辑预留，暂不连接。
-        self.widgetSimilarImages.setVisible(False)
-        self.pushButtonShowHideSimilarImages.setText(SIMILAR_BUTTON_SHOW_TEXT)
+        # 相似图片窗格默认展开，窗口按双倍宽度打开；
+        # pushButtonEditProperties 为未来文件属性编辑预留，暂不连接。
+        self.widgetSimilarImages.setVisible(True)
+        self.pushButtonShowHideSimilarImages.setText(SIMILAR_BUTTON_HIDE_TEXT)
+        self.resize(self.width() * 2, self.height())
 
         self.pushButtonPrev.clicked.connect(self._go_back)
         self.pushButtonRand.clicked.connect(self._go_random)
@@ -86,6 +88,9 @@ class LibraryAuditingDialog(QDialog):
         initial_id = self._database.random_sticker_id()
         if initial_id is not None:
             self._navigate_to(initial_id)
+            # 构造期对话框尚未显示，_show_sticker 只会标记 stale；
+            # 窗格默认展开，这里显式补上首次相似图片加载。
+            self._refresh_similar_images()
 
     # ==================== 导航 ====================
 
@@ -185,8 +190,18 @@ class LibraryAuditingDialog(QDialog):
 
     def showEvent(self, event):
         super().showEvent(event)
-        # 平台会在显示之后才自行摆放窗口，因此延迟到事件循环里再平移。
-        QTimer.singleShot(0, self._fit_geometry_into_screen)
+        # 平台会在显示之后才自行摆放窗口，因此延迟到事件循环里再调整。
+        QTimer.singleShot(0, self._after_shown)
+
+    def _after_shown(self):
+        self._fit_geometry_into_screen()
+        if self.widgetSimilarImages.isVisible():
+            self._split_similar_pane_evenly()
+
+    def _split_similar_pane_evenly(self):
+        splitter_width = max(self.splitterLeftRight.width(), 2)
+        half = splitter_width // 2
+        self.splitterLeftRight.setSizes([half, splitter_width - half])
 
     def _fit_geometry_into_screen(self):
         """把窗口平移回当前屏幕的可用区域，避免右半边超出屏幕。
@@ -224,9 +239,7 @@ class LibraryAuditingDialog(QDialog):
             # 向右扩展一倍窗口，并让相似窗格占据右半边，避免它只分到窄窄一条。
             self.resize(self.width() * 2, self.height())
             self._fit_geometry_into_screen()
-            splitter_width = max(self.splitterLeftRight.width(), 2)
-            half = splitter_width // 2
-            self.splitterLeftRight.setSizes([half, splitter_width - half])
+            self._split_similar_pane_evenly()
             if self._similar_stale:
                 self._refresh_similar_images()
         else:

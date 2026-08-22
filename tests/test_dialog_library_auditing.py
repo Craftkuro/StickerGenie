@@ -154,7 +154,10 @@ class LibraryAuditingDialogTests(unittest.TestCase):
         db = database if database is not None else self.db
         db.random_queue.extend(initial_random_queue)
         dialog = LibraryAuditingDialog(database=db)
+        # 先触发 closeEvent 停掉 QMovie（Windows 上文件句柄会锁住临时目录），
+        # 再安排销毁。
         self.addCleanup(dialog.deleteLater)
+        self.addCleanup(dialog.close)
         return dialog
 
     def test_initial_load_uses_random_without_exclusion(self):
@@ -270,7 +273,7 @@ class LibraryAuditingDialogTests(unittest.TestCase):
         self.assertEqual(f"#{self.png_a.id} a.png", dialog.label.text())
         self.assertEqual([None, self.png_a.id], self.db.random_calls)
 
-    def test_similar_pane_fetches_lazily(self):
+    def test_similar_pane_refresh_timing(self):
         png_d = make_sticker(44, "d.png")
         self._store_blob_file(png_d, PNG_BYTES)
         self.db.stickers[png_d.id] = png_d
@@ -280,26 +283,20 @@ class LibraryAuditingDialogTests(unittest.TestCase):
             self.png_b.id: png_d.id,
             png_d.id: self.png_a.id,
         }
-        dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
-        dialog.show()
-        self.app.processEvents()
-        self.assertFalse(dialog.widgetSimilarImages.isVisible())
-        self.assertIsNone(dialog._similar_page)
 
         fetch = MagicMock(return_value=([], {}))
         with patch(
             "services.sticker_library_viewer_service.fetch_similar_candidates",
             fetch,
         ):
-            # 窗格隐藏：连续导航不触发向量查询。
-            dialog.pushButtonNext.click()
-            dialog.pushButtonNext.click()
-            self.assertEqual(0, fetch.call_count)
+            dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
+            dialog.show()
+            self.app.processEvents()
 
-            # 首次展开：恰好刷新 1 次。
-            dialog.pushButtonShowHideSimilarImages.click()
-            self.assertEqual(1, fetch.call_count)
+            # 默认展开：初始加载恰好查询一次。
+            self.assertTrue(dialog.widgetSimilarImages.isVisible())
             self.assertIsNotNone(dialog._similar_page)
+            self.assertEqual(1, fetch.call_count)
 
             # 可见状态下每次导航都刷新。
             dialog.pushButtonNext.click()
@@ -313,21 +310,12 @@ class LibraryAuditingDialogTests(unittest.TestCase):
             dialog.pushButtonShowHideSimilarImages.click()
             self.assertEqual(4, fetch.call_count)
 
-        self.assertTrue(
-            dialog.widgetSimilarImages.isVisibleTo(dialog.widgetImageViewer)
-        )
-
     def test_similar_button_text_follows_visibility(self):
         dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
         dialog.show()
         self.app.processEvents()
 
-        self.assertEqual(
-            SIMILAR_BUTTON_SHOW_TEXT,
-            dialog.pushButtonShowHideSimilarImages.text(),
-        )
-
-        dialog.pushButtonShowHideSimilarImages.click()
+        # 默认展开，按钮显示“隐藏”文案。
         self.assertTrue(dialog.widgetSimilarImages.isVisible())
         self.assertEqual(
             SIMILAR_BUTTON_HIDE_TEXT,
@@ -341,22 +329,28 @@ class LibraryAuditingDialogTests(unittest.TestCase):
             dialog.pushButtonShowHideSimilarImages.text(),
         )
 
-    def test_showing_similar_pane_doubles_window_and_splits_space(self):
+        dialog.pushButtonShowHideSimilarImages.click()
+        self.assertTrue(dialog.widgetSimilarImages.isVisible())
+        self.assertEqual(
+            SIMILAR_BUTTON_HIDE_TEXT,
+            dialog.pushButtonShowHideSimilarImages.text(),
+        )
+
+    def test_hiding_and_showing_similar_pane_resizes_window(self):
         dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
         dialog.show()
         self.app.processEvents()
-        original_width = dialog.width()
+        expanded_width = dialog.width()  # 初始即按双倍宽度打开
 
         with self._patch_dialog_screen(dialog, QRect(0, 0, 4096, 2160)):
-            dialog.pushButtonShowHideSimilarImages.click()
+            dialog.pushButtonShowHideSimilarImages.click()  # 隐藏：缩回一半
+            self.assertEqual(expanded_width // 2, dialog.width())
 
-            self.assertEqual(original_width * 2, dialog.width())
+            dialog.pushButtonShowHideSimilarImages.click()  # 展开：恢复双倍
+            self.assertEqual(expanded_width, dialog.width())
             left, right = dialog.splitterLeftRight.sizes()
             self.assertGreater(right, 0)
             self.assertAlmostEqual(0.5, right / (left + right), delta=0.05)
-
-            dialog.pushButtonShowHideSimilarImages.click()
-            self.assertEqual(original_width, dialog.width())
 
     def test_fit_only_moves_window_back_onto_positive_origin_screen(self):
         dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
@@ -387,29 +381,34 @@ class LibraryAuditingDialogTests(unittest.TestCase):
 
         with self._patch_dialog_screen(dialog, QRect(0, 0, 1600, 1200)):
             dialog.show()
-            # 平台摆放窗口发生在 show 之后；showEvent 里安排的零延时平移
+            # 平台摆放窗口发生在 show 之后；showEvent 里安排的零延时调整
             # 会在事件循环中把它拉回屏幕内。
             self.app.processEvents()
             self.app.processEvents()
 
-        self.assertEqual(892, dialog.x())  # 1599 - 708 + 1，右缘贴住屏幕
-        self.assertEqual(372, dialog.y())  # 1199 - 828 + 1
-        self.assertLessEqual(dialog.x() + dialog.width() - 1, 1599)
-        self.assertLessEqual(dialog.y() + dialog.height() - 1, 1199)
+        available = QRect(0, 0, 1600, 1200)
+        self.assertEqual(available.right() - dialog.width() + 1, dialog.x())
+        self.assertEqual(available.bottom() - dialog.height() + 1, dialog.y())
+        self.assertLessEqual(dialog.x() + dialog.width() - 1, available.right())
+        self.assertLessEqual(
+            dialog.y() + dialog.height() - 1, available.bottom()
+        )
 
     def test_expanding_similar_pane_shifts_window_back_on_screen(self):
         dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
         dialog.show()
         self.app.processEvents()
-        original_width = dialog.width()
 
         with self._patch_dialog_screen(dialog, QRect(0, 0, 1600, 600)):
+            dialog.pushButtonShowHideSimilarImages.click()  # 先隐藏：缩回一半
+            base_width = dialog.width()
+
             dialog.move(1000, 0)
-            dialog.pushButtonShowHideSimilarImages.click()
+            dialog.pushButtonShowHideSimilarImages.click()  # 再展开
 
             doubled_width = dialog.width()
             available = QRect(0, 0, 1600, 600)
-            self.assertEqual(original_width * 2, doubled_width)
+            self.assertEqual(base_width * 2, doubled_width)
             # 窗口被平移回屏幕内，右缘恰好贴住可用区域右边界。
             self.assertEqual(
                 available.right() - doubled_width + 1, dialog.x()
@@ -435,23 +434,24 @@ class LibraryAuditingDialogTests(unittest.TestCase):
         self.assertFalse(dialog.isVisible())
 
     def test_missing_vector_clears_list_without_crashing(self):
-        dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
-        dialog.show()
-        self.app.processEvents()
-
         with patch(
             "services.sticker_library_viewer_service.fetch_similar_candidates",
             MagicMock(side_effect=ValueError("该图片还没有特征向量。")),
         ):
-            dialog.pushButtonShowHideSimilarImages.click()
+            # 默认展开：构造期的首次加载就会触发查询并失败。
+            dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
+            self.db.random_queue.append(self.gif.id)
+            dialog.show()
+            self.app.processEvents()
 
         page = dialog._similar_page
         self.assertIsNotNone(page)
         self.assertEqual(0, page.listViewStickerList.model().rowCount())
 
-        # 对话框仍可正常导航。
+        # 对话框仍可正常导航；可见状态下再次刷新依旧只清空列表。
         dialog.pushButtonRand.click()
-        self.assertIn("#", dialog.label.text())
+        self.assertEqual(f"#{self.gif.id} {self.gif.original_file_name}", dialog.label.text())
+        self.assertEqual(0, page.listViewStickerList.model().rowCount())
 
 
 if __name__ == "__main__":
