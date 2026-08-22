@@ -48,6 +48,8 @@ from commons.roles import (
     ROLE_SIMILARITY,
     ROLE_STICKER_IMAGE,
 )
+import services.global_instances
+from services.settings import create_settings_manager
 from services.sticker_library_viewer_service import (
     build_sticker_model,
     load_library_page,
@@ -579,7 +581,16 @@ class StickerListViewTests(unittest.TestCase):
         page.close()
 
     def test_similar_images_page_inherits_finite_page(self):
-        page = SimilarImagesPage(auto_refresh=False)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_manager = create_settings_manager(
+                Path(temp_dir) / "settings.toml"
+            )
+            with patch.object(
+                services.global_instances,
+                "current_settings_manager",
+                settings_manager,
+            ):
+                page = SimilarImagesPage(auto_refresh=False)
 
         self.assertIsInstance(page, FiniteStickerCollectionPage)
         self.assertEqual(

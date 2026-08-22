@@ -26,7 +26,6 @@ from .operations.library_export_controller import LibraryExportController
 from .operations.library_import_controller import LibraryImportController
 from services.database_maintenance_service import DatabaseMaintenanceService
 from services.image_import_service import ImageImportService
-from services.settings import create_settings_manager
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,10 @@ class MainWindow(QMainWindow):
         self._setup_developer_tools()
         self._setup_main_menu_button()
 
-        self._settings_manager = settings_manager or create_settings_manager()
+        self._settings_manager = (
+            settings_manager
+            or services.global_instances.current_settings_manager
+        )
         self._search_history = services.search.SearchHistory(
             self._settings_manager.get("recent_searches")
         )

@@ -200,26 +200,6 @@ class ThumbnailCacheSizeTests(unittest.TestCase):
             max_cache_size=1234,
         )
 
-    def test_init_thumbnail_cache_falls_back_to_default_size(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            library_path = Path(tmp) / "lib"
-
-            with mock.patch.object(
-                services.global_instances,
-                "current_settings_manager",
-                None,
-            ), mock.patch.object(
-                startup.thumbnail_disk_storage, "ThumbnailDiskStorage"
-            ) as disk_storage_cls, mock.patch.object(
-                startup.services.thumbnail_provider, "ThumbnailProvider"
-            ) as provider_cls:
-                startup.init_thumbnail_cache(library_path)
-
-        provider_cls.assert_called_once_with(
-            disk_storage=disk_storage_cls.return_value,
-            max_cache_size=commons.constants.THUMBNAIL_CACHE_MAX_COUNT,
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

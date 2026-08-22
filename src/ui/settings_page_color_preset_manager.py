@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from config_manager import ConfigManager
-from services.settings import create_settings_manager
+import services.global_instances
 from utils.resource_path import resolve_resource_path
 
 logger = logging.getLogger(__name__)
@@ -151,7 +151,10 @@ class ColorPresetManagerWidget(QWidget):
 
     def __init__(self, parent=None, config_manager: ConfigManager | None = None):
         super().__init__(parent)
-        self._config_manager = config_manager or create_settings_manager()
+        self._config_manager = (
+            config_manager
+            or services.global_instances.current_settings_manager
+        )
         self._pending_presets: List[Dict[str, str]] = []
 
         self._build_ui()

@@ -82,13 +82,9 @@ class SimilarImagesPage(FiniteStickerCollectionPage):
         self.refresh_content(model)
 
     def _setup_filter_popup(self) -> None:
-        settings_manager = services.global_instances.current_settings_manager
-        if settings_manager is None:
-            initial_config = SimilarityFilterConfig()
-        else:
-            initial_config = similarity_filter.create_filter_from_settings(
-                settings_manager
-            ).config
+        initial_config = similarity_filter.create_filter_from_settings(
+            services.global_instances.current_settings_manager
+        ).config
 
         self._filter_enabled = True
         self._filter_config = initial_config

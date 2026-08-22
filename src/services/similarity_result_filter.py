@@ -122,40 +122,17 @@ class SimilarityResultFilter:
 
 
 def create_filter_from_settings(
-    settings_manager: ConfigManager | None = None,
+    settings_manager: ConfigManager,
 ) -> SimilarityResultFilter:
-    """Create a filter using the current application settings.
-
-    If no settings manager is provided, a new one is created from the default
-    application config path. This keeps the filter usable from contexts that do
-    not already hold a settings manager instance.
-    """
-    if settings_manager is None:
-        from services.settings import create_settings_manager
-
-        settings_manager = create_settings_manager()
-
-    def _float(key: str, default: float) -> float:
-        value = settings_manager.get(key)
-        if value is None:
-            return default
-        return float(value)
-
-    def _int(key: str, default: int) -> int:
-        value = settings_manager.get(key)
-        if value is None:
-            return default
-        return int(value)
-
+    """Create a filter using the current application settings."""
     config = SimilarityFilterConfig(
-        target_drop_ratio=_float(
-            "similar_image_target_drop_ratio", 0.5
+        target_drop_ratio=float(
+            settings_manager.get("similar_image_target_drop_ratio")
         ),
-        min_keep=_int("similar_image_min_keep", 5),
-        min_similarity=_float("similar_image_min_similarity", 0.50),
-        max_results=_int(
-            "similar_image_max_results",
-            commons.constants.SIMILAR_IMAGE_MAX_RESULTS,
+        min_keep=int(settings_manager.get("similar_image_min_keep")),
+        min_similarity=float(
+            settings_manager.get("similar_image_min_similarity")
         ),
+        max_results=int(settings_manager.get("similar_image_max_results")),
     )
     return SimilarityResultFilter(config)

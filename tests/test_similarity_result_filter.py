@@ -78,14 +78,6 @@ class CreateFilterFromSettingsTests(unittest.TestCase):
             filt.config,
         )
 
-    def test_uses_defaults_when_settings_are_missing(self):
-        settings_manager = Mock()
-        settings_manager.get.return_value = None
-
-        filt = create_filter_from_settings(settings_manager)
-
-        self.assertEqual(SimilarityFilterConfig(), filt.config)
-
 
 class SimilarityResultFilterTests(unittest.TestCase):
     def test_empty_results_return_empty(self):

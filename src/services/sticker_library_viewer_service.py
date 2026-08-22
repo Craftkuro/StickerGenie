@@ -8,8 +8,7 @@ from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
 
 import services.global_instances
-import commons.constants
-import services.similarity_result_filter as similarity_filter
+import services.similarity_result_filter
 from blob_storage import BlobFileEntity
 from commons.dto import StickerImage
 from commons.roles import (
@@ -58,13 +57,6 @@ class Wiring(QObject):
 wiring = Wiring()
 
 ######################################
-
-def default_candidate_count() -> int:
-    """相似图片候选总数：优先读取设置，设置不可用时回退到常量默认值。"""
-    settings_manager = services.global_instances.current_settings_manager
-    if settings_manager is None:
-        return commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT
-    return int(settings_manager.get("similar_image_candidate_count"))
 
 def build_sticker_items(
     images: Iterable[StickerImage],
@@ -127,34 +119,6 @@ def load_library_page(
     )
 
 
-def find_similar_stickers(
-    sticker: StickerImage,
-    *,
-    top_k: int | None = None,
-    result_filter: similarity_filter.SimilarityResultFilter | None = None,
-) -> list[tuple[StickerImage, float]]:
-    if top_k is None:
-        top_k = default_candidate_count()
-    search_results, sticker_map = fetch_similar_candidates(
-        sticker, top_k=top_k
-    )
-    if result_filter is None:
-        settings_manager = (
-            services.global_instances.current_settings_manager
-        )
-        if settings_manager is None:
-            result_filter = similarity_filter.SimilarityResultFilter()
-        else:
-            result_filter = (
-                similarity_filter.create_filter_from_settings(
-                    settings_manager
-                )
-            )
-    return build_similar_matches(
-        search_results, sticker_map, result_filter=result_filter
-    )
-
-
 def fetch_similar_candidates(
     sticker: StickerImage,
     *,
@@ -162,12 +126,18 @@ def fetch_similar_candidates(
 ) -> tuple[list, dict[int, StickerImage]]:
     """查询向量库并取回完整候选集，不过滤。
 
+    top_k 缺省时读取设置项 similar_image_candidate_count。
+
     Returns:
         (search_results, sticker_map) — search_results 是原始 SearchResult
         列表（按相似度降序），sticker_map 以 sqlite_id 为键。
     """
     if top_k is None:
-        top_k = default_candidate_count()
+        top_k = int(
+            services.global_instances.current_settings_manager.get(
+                "similar_image_candidate_count"
+            )
+        )
     db = services.global_instances.current_library_db
     vector_store = services.global_instances.current_vector_store
     if db is None or vector_store is None:
@@ -193,7 +163,7 @@ def build_similar_matches(
     search_results: Sequence,
     sticker_map: dict[int, StickerImage],
     *,
-    result_filter: similarity_filter.SimilarityResultFilter | None = None,
+    result_filter: services.similarity_result_filter.SimilarityResultFilter | None = None,
 ) -> list[tuple[StickerImage, float]]:
     """把向量查询结果映射为 (StickerImage, similarity) 列表，可选用过滤。
 
@@ -239,7 +209,6 @@ def open_similar_stickers_tab(
     sticker: StickerImage,
     *,
     top_k: int | None = None,
-    result_filter: similarity_filter.SimilarityResultFilter | None = None,
 ) -> None:
     from ui.page_similar_images import SimilarImagesPage
 
@@ -248,8 +217,6 @@ def open_similar_stickers_tab(
     )
     page = SimilarImagesPage(auto_refresh=False)
     page.set_similar_data(search_results, sticker_map)
-    if result_filter is not None:
-        page.set_filter_config(True, result_filter.config)
     page.apply_filter_and_refresh()
     _open_result_tab(page, f"相似图片[{sticker.original_file_name}]")
 

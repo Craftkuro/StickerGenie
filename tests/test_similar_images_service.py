@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import services.global_instances
+import services.settings
 import services.sticker_library_viewer_service as viewer_service
 import services.similarity_result_filter as similarity_filter
 from blob_storage import BlobFileEntity, BlobStorage
@@ -100,9 +101,16 @@ class SimilarImagesServiceTests(unittest.TestCase):
         self._old_settings = (
             services.global_instances.current_settings_manager
         )
+        self._settings_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._settings_dir.cleanup)
+        self.settings_manager = services.settings.create_settings_manager(
+            Path(self._settings_dir.name) / "settings.toml"
+        )
         services.global_instances.current_library_db = self.db
         services.global_instances.current_vector_store = self.vector_store
-        services.global_instances.current_settings_manager = None
+        services.global_instances.current_settings_manager = (
+            self.settings_manager
+        )
 
     def tearDown(self):
         services.global_instances.current_library_db = self._old_db
@@ -150,7 +158,12 @@ class SimilarImagesServiceTests(unittest.TestCase):
         self.assertEqual([3, 2], [s.id for s, _ in matches])
 
     def test_similarity_results_keep_vector_ranking_and_skip_stale_rows(self):
-        matches = viewer_service.find_similar_stickers(self.source)
+        results, sticker_map = viewer_service.fetch_similar_candidates(
+            self.source
+        )
+        matches = viewer_service.build_similar_matches(
+            results, sticker_map
+        )
 
         self.assertEqual([3, 2], [sticker.id for sticker, _ in matches])
         self.assertEqual([0.95, 0.90], [similarity for _, similarity in matches])
@@ -159,37 +172,24 @@ class SimilarImagesServiceTests(unittest.TestCase):
             self.vector_store.calls,
         )
 
-    def test_candidate_count_reads_from_settings_manager(self):
-        services.global_instances.current_settings_manager = (
-            SimpleNamespace(get=lambda key: 42 if key == "similar_image_candidate_count" else None)
-        )
-        self.addCleanup(
-            setattr,
-            services.global_instances,
-            "current_settings_manager",
-            None,
-        )
+    def test_fetch_reads_candidate_count_from_settings_manager(self):
+        self.settings_manager.set("similar_image_candidate_count", 42)
 
-        viewer_service.find_similar_stickers(self.source)
+        viewer_service.fetch_similar_candidates(self.source)
 
         self.assertEqual([42], self.vector_store.calls)
 
     def test_explicit_top_k_overrides_settings_value(self):
-        services.global_instances.current_settings_manager = (
-            SimpleNamespace(get=lambda key: 42 if key == "similar_image_candidate_count" else None)
-        )
-        self.addCleanup(
-            setattr,
-            services.global_instances,
-            "current_settings_manager",
-            None,
-        )
+        self.settings_manager.set("similar_image_candidate_count", 42)
 
-        viewer_service.find_similar_stickers(self.source, top_k=7)
+        viewer_service.fetch_similar_candidates(self.source, top_k=7)
 
         self.assertEqual([7], self.vector_store.calls)
 
     def test_similarity_results_use_custom_filter(self):
+        results, sticker_map = viewer_service.fetch_similar_candidates(
+            self.source
+        )
         custom_filter = similarity_filter.SimilarityResultFilter(
             similarity_filter.SimilarityFilterConfig(
                 target_drop_ratio=0.5,
@@ -198,9 +198,8 @@ class SimilarImagesServiceTests(unittest.TestCase):
                 max_results=100,
             )
         )
-        matches = viewer_service.find_similar_stickers(
-            self.source,
-            result_filter=custom_filter,
+        matches = viewer_service.build_similar_matches(
+            results, sticker_map, result_filter=custom_filter
         )
 
         # With min_keep=1, the steep drop after the second candidate cuts
@@ -215,7 +214,12 @@ class SimilarImagesServiceTests(unittest.TestCase):
             SimpleNamespace(sqlite_id=999, similarity=0.80),
         ]
 
-        matches = viewer_service.find_similar_stickers(self.source)
+        results, sticker_map = viewer_service.fetch_similar_candidates(
+            self.source
+        )
+        matches = viewer_service.build_similar_matches(
+            results, sticker_map
+        )
 
         self.assertEqual(
             [1, 3, 2],
@@ -230,7 +234,7 @@ class SimilarImagesServiceTests(unittest.TestCase):
         sticker = make_sticker(4, "missing.png")
 
         with self.assertRaisesRegex(ValueError, "还没有特征向量"):
-            viewer_service.find_similar_stickers(sticker)
+            viewer_service.fetch_similar_candidates(sticker)
 
     def test_delete_cleans_vector_and_blob_after_sqlite_row(self):
         with tempfile.TemporaryDirectory() as temp_dir:

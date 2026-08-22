@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import apppath
+import commons.constants
 from config_manager import ConfigField, ConfigManager, ConfigType, FieldUI, WidgetKind
 
 
@@ -130,7 +131,7 @@ SETTINGS_SCHEMA = [
     ConfigField(
         "similar_image_max_results",
         ConfigType.INT,
-        100,
+        commons.constants.SIMILAR_IMAGE_MAX_RESULTS,
         "相似图片：最多返回结果数（硬上限）。",
         ui=FieldUI(
             kind=WidgetKind.SPIN_BOX,
@@ -144,7 +145,7 @@ SETTINGS_SCHEMA = [
     ConfigField(
         "similar_image_candidate_count",
         ConfigType.INT,
-        200,
+        commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT,
         "执行相似图片查找时，从向量数据库查询获得的图片总数",
         ui=FieldUI(
             kind=WidgetKind.SPIN_BOX,

@@ -34,7 +34,8 @@ from PyQt6.QtWidgets import (
 
 import apppath
 from config_manager import ConfigField, ConfigManager
-from services.settings import PAGE_TITLES, create_settings_manager
+import services.global_instances
+from services.settings import PAGE_TITLES
 from ui.settings_field_bindings import (
     build_field_widget,
     connect_field_signal,
@@ -88,7 +89,10 @@ class SettingsDialog(QDialog):
         ui_file_path = apppath.app_path / "ui" / "dialog_settings.ui"
         uic.loadUi(ui_file_path, self)
 
-        self._config_manager = config_manager or create_settings_manager()
+        self._config_manager = (
+            config_manager
+            or services.global_instances.current_settings_manager
+        )
         self._apply_button = self.buttonBox.button(
             QDialogButtonBox.StandardButton.Apply
         )

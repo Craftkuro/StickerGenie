@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 from config_manager import ConfigManager
-from services.settings import create_settings_manager
+import services.global_instances
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,10 @@ class ColorPresetDialog(QDialog):
         config_manager: Optional[ConfigManager] = None,
     ) -> None:
         super().__init__(parent)
-        self._config_manager = config_manager or create_settings_manager()
+        self._config_manager = (
+            config_manager
+            or services.global_instances.current_settings_manager
+        )
         self._current_color = QColor(DEFAULT_PRESET_COLOR)
         self._custom_color = QColor(DEFAULT_PRESET_COLOR)
 
