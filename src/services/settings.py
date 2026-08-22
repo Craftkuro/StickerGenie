@@ -40,6 +40,7 @@ SETTINGS_SCHEMA = [
         2000,
         "应用程序内部缓存的缩略图数量，默认2000，调小可节约内存但可能显著影响性能。重启后应用。",
         ui=FieldUI(
+            kind=WidgetKind.SPIN_BOX,
             page=PAGE_GENERAL,
             label="缩略图内存缓存大小",
             group="缩略图缓存",
@@ -55,6 +56,7 @@ SETTINGS_SCHEMA = [
         3,
         "搜索框中最多显示的最近搜索数量；设为 0 可关闭。",
         ui=FieldUI(
+            kind=WidgetKind.SPIN_BOX,
             page=PAGE_SEARCH,
             label="最近搜索候选",
             group="搜索候选",
@@ -68,6 +70,7 @@ SETTINGS_SCHEMA = [
         10,
         "标签搜索时最多显示的匹配标签数量；设为 0 可关闭。",
         ui=FieldUI(
+            kind=WidgetKind.SPIN_BOX,
             page=PAGE_SEARCH,
             label="标签搜索候选",
             group="搜索候选",
@@ -102,6 +105,7 @@ SETTINGS_SCHEMA = [
         5,
         "相似图片：最少保留结果数，即使曲线下降很快也至少保留这么多结果，避免只显示一张重复图。",
         ui=FieldUI(
+            kind=WidgetKind.SPIN_BOX,
             page=PAGE_SEARCH,
             label="最少保留数",
             group="相似图片",
@@ -129,6 +133,7 @@ SETTINGS_SCHEMA = [
         100,
         "相似图片：最多返回结果数（硬上限）。",
         ui=FieldUI(
+            kind=WidgetKind.SPIN_BOX,
             page=PAGE_SEARCH,
             label="最多返回数",
             group="相似图片",
@@ -142,6 +147,7 @@ SETTINGS_SCHEMA = [
         200,
         "执行相似图片查找时，从向量数据库查询获得的图片总数",
         ui=FieldUI(
+            kind=WidgetKind.SPIN_BOX,
             page=PAGE_SEARCH,
             label="候选总数",
             group="相似图片",

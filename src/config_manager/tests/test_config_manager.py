@@ -73,6 +73,7 @@ class ConfigFieldTests(unittest.TestCase):
 
     def test_ui_accepts_fieldui(self) -> None:
         ui = FieldUI(
+            kind=WidgetKind.SPIN_BOX,
             page="general",
             label="数量",
             group="分组",
@@ -87,6 +88,10 @@ class ConfigFieldTests(unittest.TestCase):
         self.assertEqual(ui, field.ui)
         self.assertEqual("general", field.ui.page)
 
+    def test_ui_requires_explicit_kind(self) -> None:
+        with self.assertRaises(TypeError):
+            FieldUI(page="general")
+
     def test_ui_rejects_non_fieldui(self) -> None:
         with self.assertRaises(TypeError):
             ConfigField("count", ConfigType.INT, 1, ui={"page": "general"})
@@ -99,14 +104,25 @@ class ConfigFieldTests(unittest.TestCase):
                     ConfigType.STRING,
                     "0.50",
                     "注释",
-                    ui=FieldUI(page="search", label="比例"),
+                    ui=FieldUI(
+                        kind=WidgetKind.SPIN_BOX_2P,
+                        page="search",
+                        label="比例",
+                    ),
                 ),
             ]
         )
 
         copied = schema.get_field("ratio")
 
-        self.assertEqual(FieldUI(page="search", label="比例"), copied.ui)
+        self.assertEqual(
+            FieldUI(
+                kind=WidgetKind.SPIN_BOX_2P,
+                page="search",
+                label="比例",
+            ),
+            copied.ui,
+        )
         self.assertIsNot(copied.ui, schema.fields[0].ui)
 
 

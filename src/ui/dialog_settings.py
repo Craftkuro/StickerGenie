@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from PyQt6 import uic
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -44,6 +45,9 @@ from ui.settings_field_bindings import (
 from ui.settings_page_color_preset_manager import ColorPresetManagerWidget
 
 logger = logging.getLogger(__name__)
+
+PAGE_HEADING_POINT_SIZE = 13
+GROUP_TITLE_POINT_SIZE = 11
 
 
 @dataclass(frozen=True)
@@ -146,10 +150,18 @@ class SettingsDialog(QDialog):
         content_layout.setSpacing(16)
 
         first_field = fields[0]
-        content_layout.addWidget(
-            QLabel(self._page_heading(first_field), content)
-        )
+        heading = QLabel(self._page_heading(first_field), content)
+        heading_font = heading.font()
+        heading_font.setPointSize(PAGE_HEADING_POINT_SIZE)
+        heading_font.setBold(True)
+        heading.setFont(heading_font)
+        content_layout.addWidget(heading)
 
+        # 基准字体需带显式属性（resolve mask），否则 setFont 对子控件
+        # 不生效，行控件会继续继承分组标题的 11pt 粗体
+        base_font = self.font()
+        base_font.setPointSize(self.font().pointSize())
+        base_font.setBold(False)
         forms: dict[str, QFormLayout] = {}
         page_form: QFormLayout | None = None
 
@@ -162,17 +174,17 @@ class SettingsDialog(QDialog):
                 if page_form is None:
                     page_form = self._make_form()
                     content_layout.addLayout(page_form)
-                self._add_form_row(page_form, field, widget)
+                self._add_form_row(page_form, field, widget, base_font)
                 continue
 
             form = forms.get(group)
             if form is None:
-                box = QGroupBox(group, content)
+                box = self._make_group_box(group, content)
                 form = self._make_form()
                 box.setLayout(form)
                 content_layout.addWidget(box)
                 forms[group] = form
-            self._add_form_row(form, field, widget)
+            self._add_form_row(form, field, widget, base_font)
 
         content_layout.addStretch(1)
         scroll_area.setWidget(content)
@@ -196,10 +208,34 @@ class SettingsDialog(QDialog):
         form.setVerticalSpacing(12)
         return form
 
+    @staticmethod
+    def _make_group_box(title: str, parent: QWidget) -> QGroupBox:
+        """分组框；标题的加大加粗通过控件自身字体实现。
+
+        原生样式（如 Windows 的 windowsvista/windows11）绘制标题时忽略
+        样式表里 ::title 子控件的字体属性，但始终使用控件字体，因此这里
+        直接改控件字体，组内行控件则显式重置为基准字体避免连带加粗。
+        """
+        box = QGroupBox(title, parent)
+        font = box.font()
+        font.setPointSize(GROUP_TITLE_POINT_SIZE)
+        font.setBold(True)
+        box.setFont(font)
+        return box
+
     def _add_form_row(
-        self, form: QFormLayout, field: ConfigField, widget: QWidget
+        self,
+        form: QFormLayout,
+        field: ConfigField,
+        widget: QWidget,
+        base_font: QFont,
     ) -> None:
-        form.addRow(field_label_text(field), widget)
+        """添加一行表单；显式指定基准字体，避免继承分组标题的加粗。"""
+        label = QLabel(field_label_text(field))
+        label.setBuddy(widget)
+        label.setFont(base_font)
+        widget.setFont(base_font)
+        form.addRow(label, widget)
 
     def _register_field(self, field: ConfigField, widget: QWidget) -> None:
         self._visible_fields.append((field, widget))

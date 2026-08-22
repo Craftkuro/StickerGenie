@@ -24,6 +24,7 @@ from ui.settings_field_bindings import (
 
 
 def make_field(**ui_kwargs) -> ConfigField:
+    ui_kwargs.setdefault("kind", WidgetKind.SPIN_BOX)
     return ConfigField(
         "demo_key", ConfigType.INT, 7, "演示用配置项", ui=FieldUI(**ui_kwargs)
     )

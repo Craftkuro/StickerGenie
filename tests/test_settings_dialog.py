@@ -212,6 +212,32 @@ class SettingsDialogTests(unittest.TestCase):
         preset_managers = custom_page.findChildren(ColorPresetManagerWidget)
         self.assertIn(dialog.colorPresetManager, preset_managers)
 
+    def test_font_hierarchy_heading_group_and_rows(self):
+        dialog = SettingsDialog(config_manager=self.manager)
+
+        general_page = dialog.stackedWidget.widget(0)
+        heading = general_page.findChildren(QLabel)[0]
+        self.assertTrue(heading.font().bold())
+        self.assertEqual(13, heading.font().pointSize())
+
+        group = general_page.findChildren(QGroupBox)[0]
+        self.assertTrue(group.font().bold())
+        self.assertEqual(11, group.font().pointSize())
+
+        row_labels = group.findChildren(QLabel)
+        self.assertTrue(row_labels)
+        for label in row_labels:
+            self.assertFalse(label.font().bold())
+            self.assertEqual(
+                dialog.font().pointSize(), label.font().pointSize()
+            )
+
+        spin_box = group.findChildren(QSpinBox)[0]
+        self.assertFalse(spin_box.font().bold())
+        self.assertEqual(
+            dialog.font().pointSize(), spin_box.font().pointSize()
+        )
+
     def test_apply_saves_values_without_closing_dialog(self):
         dialog = SettingsDialog(config_manager=self.manager)
         dialog.show()

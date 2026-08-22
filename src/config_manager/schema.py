@@ -45,10 +45,10 @@ class WidgetKind(Enum):
 @dataclass(frozen=True)
 class FieldUI:
     """
-    配置项的界面展示描述；全部字段可选，缺省即最简外观。
+    配置项的界面展示描述；除 kind 外全部可选，缺省即最简外观。
 
     Attributes:
-        kind: 控件类型；缺省按整数微调框处理
+        kind: 控件类型；必填，必须显式声明，漏写会在定义 schema 时直接报错
         page: 页面常量；None 表示不在任何页面展示
         label: 表单行标签；空则回退使用 key
         group: GroupBox 标题；空则不加组，行直接进页级表单
@@ -58,7 +58,7 @@ class FieldUI:
         step: singleStep；None 用 Qt 默认
         choices: COMBO_BOX 必填，元素为 (显示文本, 存储值)
     """
-    kind: WidgetKind = WidgetKind.SPIN_BOX
+    kind: WidgetKind
     page: str | None = None
     label: str = ""
     group: str = ""
