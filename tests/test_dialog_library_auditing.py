@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import QApplication
 
 import apppath
@@ -138,6 +139,11 @@ class LibraryAuditingDialogTests(unittest.TestCase):
         )
         source.write_bytes(content)
         self.blob_storage.store_file(str(source), sticker.hash)
+
+    def _patch_dialog_screen(self, dialog, rect: QRect):
+        fake_screen = MagicMock()
+        fake_screen.availableGeometry.return_value = rect
+        return patch.object(dialog, "screen", return_value=fake_screen)
 
     def _create_dialog(
         self,
@@ -341,15 +347,76 @@ class LibraryAuditingDialogTests(unittest.TestCase):
         self.app.processEvents()
         original_width = dialog.width()
 
-        dialog.pushButtonShowHideSimilarImages.click()
+        with self._patch_dialog_screen(dialog, QRect(0, 0, 4096, 2160)):
+            dialog.pushButtonShowHideSimilarImages.click()
 
-        self.assertEqual(original_width * 2, dialog.width())
-        left, right = dialog.splitterLeftRight.sizes()
-        self.assertGreater(right, 0)
-        self.assertAlmostEqual(0.5, right / (left + right), delta=0.05)
+            self.assertEqual(original_width * 2, dialog.width())
+            left, right = dialog.splitterLeftRight.sizes()
+            self.assertGreater(right, 0)
+            self.assertAlmostEqual(0.5, right / (left + right), delta=0.05)
 
-        dialog.pushButtonShowHideSimilarImages.click()
-        self.assertEqual(original_width, dialog.width())
+            dialog.pushButtonShowHideSimilarImages.click()
+            self.assertEqual(original_width, dialog.width())
+
+    def test_fit_only_moves_window_back_onto_positive_origin_screen(self):
+        dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
+        dialog.setGeometry(700, 500, 300, 200)
+
+        with self._patch_dialog_screen(dialog, QRect(0, 0, 800, 600)):
+            dialog._fit_geometry_into_screen()
+
+        self.assertEqual((500, 400), (dialog.x(), dialog.y()))
+        # 只移动不缩放：尺寸保持原样。
+        self.assertEqual((300, 200), (dialog.width(), dialog.height()))
+
+    def test_fit_handles_negative_multi_monitor_coordinates(self):
+        dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
+        # 左侧副屏可用区域 x ∈ [-1920, -1]；窗口右缘 -300+708-1 == 407 超出。
+        dialog.setGeometry(-300, 100, 708, 584)
+
+        with self._patch_dialog_screen(dialog, QRect(-1920, 0, 1920, 1080)):
+            dialog._fit_geometry_into_screen()
+
+        self.assertEqual(-708, dialog.x())  # 右缘平移回 -1 恰好贴边
+        self.assertEqual(100, dialog.y())  # 纵向本来就放得下，保持不动
+        self.assertEqual((708, 584), (dialog.width(), dialog.height()))
+
+    def test_show_defers_screen_fit_until_after_placement(self):
+        dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
+        dialog.move(5000, 5000)
+
+        with self._patch_dialog_screen(dialog, QRect(0, 0, 1600, 1200)):
+            dialog.show()
+            # 平台摆放窗口发生在 show 之后；showEvent 里安排的零延时平移
+            # 会在事件循环中把它拉回屏幕内。
+            self.app.processEvents()
+            self.app.processEvents()
+
+        self.assertEqual(892, dialog.x())  # 1599 - 708 + 1，右缘贴住屏幕
+        self.assertEqual(372, dialog.y())  # 1199 - 828 + 1
+        self.assertLessEqual(dialog.x() + dialog.width() - 1, 1599)
+        self.assertLessEqual(dialog.y() + dialog.height() - 1, 1199)
+
+    def test_expanding_similar_pane_shifts_window_back_on_screen(self):
+        dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
+        dialog.show()
+        self.app.processEvents()
+        original_width = dialog.width()
+
+        with self._patch_dialog_screen(dialog, QRect(0, 0, 1600, 600)):
+            dialog.move(1000, 0)
+            dialog.pushButtonShowHideSimilarImages.click()
+
+            doubled_width = dialog.width()
+            available = QRect(0, 0, 1600, 600)
+            self.assertEqual(original_width * 2, doubled_width)
+            # 窗口被平移回屏幕内，右缘恰好贴住可用区域右边界。
+            self.assertEqual(
+                available.right() - doubled_width + 1, dialog.x()
+            )
+            self.assertGreaterEqual(dialog.x(), available.left())
+            _, right = dialog.splitterLeftRight.sizes()
+            self.assertGreater(right, 0)
 
     def test_missing_vector_clears_list_without_crashing(self):
         dialog = self._create_dialog(initial_random_queue=[self.png_a.id])

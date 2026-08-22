@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6 import uic
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QMovie, QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -183,6 +183,27 @@ class LibraryAuditingDialog(QDialog):
         self._stop_movie()
         super().closeEvent(event)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 平台会在显示之后才自行摆放窗口，因此延迟到事件循环里再平移。
+        QTimer.singleShot(0, self._fit_geometry_into_screen)
+
+    def _fit_geometry_into_screen(self):
+        """把窗口平移回当前屏幕的可用区域，避免右半边超出屏幕。
+
+        只移动不缩放：Qt 已把顶层窗口最大尺寸限制到屏幕尺寸。
+        多显示器下屏幕原点可能是负值，因此一律以屏幕可用几何计算边界。
+        """
+        if self.isMaximized():
+            return
+        screen = self.screen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        x = min(self.x(), available.right() - self.width() + 1)
+        y = min(self.y(), available.bottom() - self.height() + 1)
+        self.move(max(x, available.left()), max(y, available.top()))
+
     def _stop_movie(self) -> None:
         movie = self._movie
         if movie is not None:
@@ -202,6 +223,7 @@ class LibraryAuditingDialog(QDialog):
         if visible:
             # 向右扩展一倍窗口，并让相似窗格占据右半边，避免它只分到窄窄一条。
             self.resize(self.width() * 2, self.height())
+            self._fit_geometry_into_screen()
             splitter_width = max(self.splitterLeftRight.width(), 2)
             half = splitter_width // 2
             self.splitterLeftRight.setSizes([half, splitter_width - half])
