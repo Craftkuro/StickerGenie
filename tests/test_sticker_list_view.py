@@ -61,6 +61,7 @@ from ui.widgets.sticker_list_view_widget import (
     StickerItemDelegate,
     StickerListView,
 )
+from ui.widgets.toolbar_spacer import ToolbarSpacer
 
 
 class FakeBlobStorage:
@@ -643,6 +644,31 @@ class StickerListViewTests(unittest.TestCase):
             slider,
             page.toolbarStickerList.widgetForAction(action),
         )
+        page.close()
+
+    def test_insert_toolbar_widgets_around_spacer(self):
+        page = FiniteStickerCollectionPage(auto_refresh=False)
+        left_button = QToolButton()
+        right_button = QToolButton()
+
+        page.insert_toolbar_widget_left_of_spacer(left_button)
+        page.insert_toolbar_widget_right_of_spacer(right_button)
+
+        widgets = [
+            page.toolbarStickerList.widgetForAction(action)
+            for action in page.toolbarStickerList.actions()
+        ]
+        self.assertEqual(
+            [
+                left_button,
+                page.toolbar_spacer,
+                right_button,
+                page.display_size_slider,
+            ],
+            widgets,
+        )
+        self.assertIsInstance(page.toolbar_spacer, ToolbarSpacer)
+        self.assertEqual("toolbarSpacer", page.toolbar_spacer.objectName())
         page.close()
 
     def test_infinite_page_toolbar_has_refresh_button_leftmost(self):

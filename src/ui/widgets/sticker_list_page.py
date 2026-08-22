@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QMenu,
     QMessageBox,
-    QSizePolicy,
     QSlider,
     QWidget,
 )
@@ -35,6 +34,7 @@ from utils.save_as_files import has_duplicate_original_file_names, save_as_files
 
 from ..dialog_batch_tag_edit import BatchTagEditDialog
 from ..dialog_image_viewer import ImageViewerDialog
+from .toolbar_spacer import ToolbarSpacer
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,11 @@ class StickerListPage(QWidget):
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.toolbar.setIconSize(QSize(16, 16))
 
+        # 弹性 spacer 由 _ensure_toolbar_spacer 懒创建，
+        # 创建前工具栏内容保持左对齐（例如全库页的刷新按钮）。
+        self.toolbar_spacer: ToolbarSpacer | None = None
+        self._toolbar_spacer_action: QAction | None = None
+
         # 双击图片时打开图片查看器
         self.listViewStickerList.doubleClicked.connect(self._on_sticker_double_clicked)
         self.listViewStickerList.setContextMenuPolicy(
@@ -69,20 +74,38 @@ class StickerListPage(QWidget):
         )
 
     def add_toolbar_widget(self, widget: QWidget) -> QAction:
-        """把任意自定义 widget（例如滑块）加入标签页工具栏。"""
+        """把任意自定义 widget（例如滑块）加入标签页工具栏末尾。"""
         return self.toolbar.addWidget(widget)
 
     def add_toolbar_action(self, action: QAction) -> QAction:
         return self.toolbar.addAction(action)
 
+    def _ensure_toolbar_spacer(self) -> QAction:
+        """确保工具栏存在一个弹性 spacer（初始状态在末尾），返回其 action。"""
+        if self._toolbar_spacer_action is not None:
+            return self._toolbar_spacer_action
+        spacer = ToolbarSpacer(self)
+        self.toolbar_spacer = spacer
+        self._toolbar_spacer_action = self.toolbar.addWidget(spacer)
+        return self._toolbar_spacer_action
+
+    def insert_toolbar_widget_left_of_spacer(self, widget: QWidget) -> QAction:
+        """在弹性 spacer 左侧插入自定义 widget（与工具栏左侧内容相邻）。"""
+        spacer_action = self._ensure_toolbar_spacer()
+        return self.toolbar.insertWidget(spacer_action, widget)
+
+    def insert_toolbar_widget_right_of_spacer(self, widget: QWidget) -> QAction:
+        """在弹性 spacer 右侧插入自定义 widget（位于滑块等右端控件之前）。"""
+        spacer_action = self._ensure_toolbar_spacer()
+        actions = self.toolbar.actions()
+        index = actions.index(spacer_action)
+        if index + 1 < len(actions):
+            return self.toolbar.insertWidget(actions[index + 1], widget)
+        return self.add_toolbar_widget(widget)
+
     def _setup_display_size_slider(self) -> None:
         """在工具栏右侧加入显示大小滑块（类似 Windows 7 资源管理器）。"""
-        spacer = QWidget(self)
-        spacer.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Preferred,
-        )
-        self.add_toolbar_widget(spacer)
+        self._ensure_toolbar_spacer()
 
         slider = QSlider(Qt.Orientation.Horizontal, self)
         slider.setObjectName("displaySizeSlider")

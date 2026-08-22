@@ -119,8 +119,7 @@ class SimilarImagesPage(FiniteStickerCollectionPage):
             Qt.ToolButtonStyle.ToolButtonIconOnly
         )
 
-        spacer_action = self.toolbar.actions()[0]
-        self.toolbar.insertWidget(spacer_action, self._filter_button)
+        self.insert_toolbar_widget_left_of_spacer(self._filter_button)
 
         self._filter_popup.filter_applied.connect(self._on_filter_applied)
 

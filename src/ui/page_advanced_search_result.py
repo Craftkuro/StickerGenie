@@ -40,35 +40,15 @@ class AdvancedSearchResultPage(FiniteStickerCollectionPage):
         self.copy_button = QPushButton("复制", self)
         self.copy_button.setObjectName("copyButton")
 
-        self._insert_toolbar_widget(self.expression_label)
-        self._insert_toolbar_widget(self.expression_text_edit)
-        self._insert_toolbar_widget(self.copy_button)
+        # 表达式输入框独占工具栏剩余空间，因此关闭 spacer 的伸展。
+        self.toolbar_spacer.set_expanding(False)
+        self.insert_toolbar_widget_left_of_spacer(self.expression_label)
+        self.insert_toolbar_widget_left_of_spacer(self.expression_text_edit)
+        self.insert_toolbar_widget_left_of_spacer(self.copy_button)
 
         self.copy_button.clicked.connect(self._copy_expression)
 
         self.refresh_content(self._build_sticker_model(initial_images))
-
-    def _insert_toolbar_widget(self, widget):
-        if not hasattr(self, "_expression_toolbar_anchor"):
-            actions = self.toolbar.actions()
-            self._expression_toolbar_anchor = actions[0] if actions else None
-            if self._expression_toolbar_anchor is not None:
-                spacer = self.toolbar.widgetForAction(
-                    self._expression_toolbar_anchor
-                )
-                if spacer is not None:
-                    # 让表达式输入框独占工具栏的可伸展空间。
-                    spacer.setSizePolicy(
-                        QSizePolicy.Policy.Fixed,
-                        QSizePolicy.Policy.Preferred,
-                    )
-
-        if self._expression_toolbar_anchor is not None:
-            return self.toolbar.insertWidget(
-                self._expression_toolbar_anchor,
-                widget,
-            )
-        return self.add_toolbar_widget(widget)
 
     @staticmethod
     def _build_sticker_model(images: Iterable[StickerImage]):

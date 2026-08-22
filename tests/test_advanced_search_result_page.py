@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication, QLineEdit, QSizePolicy
 import apppath
 from ui.page_advanced_search_result import AdvancedSearchResultPage
 from ui.page_finite_sticker_collection import FiniteStickerCollectionPage
+from ui.widgets.toolbar_spacer import ToolbarSpacer
 
 
 class AdvancedSearchResultPageTests(unittest.TestCase):
@@ -44,6 +45,13 @@ class AdvancedSearchResultPageTests(unittest.TestCase):
                 page.copy_button,
             ],
             toolbar_widgets[:3],
+        )
+        self.assertIs(page.toolbar_spacer, toolbar_widgets[3])
+        self.assertIsInstance(toolbar_widgets[3], ToolbarSpacer)
+        # spacer 不伸展，剩余宽度全部交给表达式输入框。
+        self.assertEqual(
+            QSizePolicy.Policy.Fixed,
+            page.toolbar_spacer.sizePolicy().horizontalPolicy(),
         )
         self.assertIs(page.display_size_slider, toolbar_widgets[-1])
         page.close()
