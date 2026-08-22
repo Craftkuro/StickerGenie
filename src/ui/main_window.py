@@ -18,6 +18,7 @@ import services.search
 
 from .widgets.custom_tag_widget import CustomTagWidget
 from .dialog_about import AboutDialog
+from .dialog_library_auditing import LibraryAuditingDialog
 from .dialog_settings import SettingsDialog
 from .dialog_tag_manager import TagManagerDialog
 from .operations.database_maintenance_controller import DatabaseMaintenanceController
@@ -133,6 +134,8 @@ class MainWindow(QMainWindow):
         self.actionOpenSettings.triggered.connect(self.open_settings)
         self.actionOpenAbout.triggered.connect(self.open_about)
         self.actionOpenTagManager.triggered.connect(self.open_tag_manager)
+        self.actionStartLibraryAuditing.triggered.connect(self.open_library_auditing)
+        self.pushButtonStartLibraryAuditing.clicked.connect(self.open_library_auditing)
         self.actionStartDatabaseMaintenance.triggered.connect(
             self._database_maintenance_controller.open_database_maintenance
         )
@@ -231,6 +234,17 @@ class MainWindow(QMainWindow):
 
         TagManagerDialog(self, database=database).exec()
         self.customSearchBox.refresh_suggestions()
+
+    def open_library_auditing(self):
+        database = services.global_instances.current_library_db
+        if database is None:
+            QMessageBox.warning(self, "无法打开", "仓库数据库尚未初始化。")
+            return
+        if database.random_sticker_id() is None:
+            QMessageBox.warning(self, "无法打开", "图库中没有图片。")
+            return
+
+        LibraryAuditingDialog(self, database=database).exec()
 
     def set_write_actions_enabled(self, enabled: bool) -> None:
         self.actionImportRepoBackup.setEnabled(enabled)

@@ -94,7 +94,7 @@ class MainWindowMainMenuButtonTests(unittest.TestCase):
             "文件": ["导入图片", None, "退出"],
             "图库": [
                 "标签管理器",
-                "开始图库审计",
+                "开始图库审阅",
                 "开始数据库维护",
                 None,
                 "导入备份",

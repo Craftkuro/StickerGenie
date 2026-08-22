@@ -7,7 +7,7 @@ from typing import Iterable, List, Optional
 
 import boolean
 from boolean.boolean import PARSE_UNKNOWN_TOKEN
-from sqlalchemy import and_, create_engine, func, not_, or_, select, text
+from sqlalchemy import and_, case, create_engine, func, not_, or_, select, text
 from sqlalchemy.orm import sessionmaker, Session, selectinload
 
 from commons.dto import StickerImage, Tag
@@ -378,6 +378,31 @@ class StickerDBV1:
                 for sticker_id in unique_ids
                 if sticker_id in stickers_by_id
             ]
+
+    def random_sticker_id(self, *, excluding: Optional[int] = None) -> Optional[int]:
+        """随机返回一个存在的图片 id；可指定排除某个 id。
+
+        在真实存在的行上均匀采样（ORDER BY RANDOM()），天然无视删除造成的 id 空洞。
+        空库、或排除后无剩余图片时返回 None。
+        """
+        stmt = select(DBStickerImage.id)
+        if excluding is not None:
+            stmt = stmt.where(DBStickerImage.id != excluding)
+        stmt = stmt.order_by(func.random()).limit(1)
+
+        with self._get_session() as session:
+            return session.execute(stmt).scalar_one_or_none()
+
+    def next_sticker_id(self, after_id: int) -> Optional[int]:
+        """返回 after_id 之后的下一个存在 id；已是最大 id 时回绕到最小 id。空库返回 None。"""
+        with self._get_session() as session:
+            next_id, min_id = session.execute(
+                select(
+                    func.min(case((DBStickerImage.id > after_id, DBStickerImage.id))),
+                    func.min(DBStickerImage.id),
+                )
+            ).one()
+        return next_id if next_id is not None else min_id
 
     def get_existing_sticker_hashes(self, hashes: Iterable[str]) -> set[str]:
         """返回已存在于图库中的图片 hash。"""
