@@ -59,6 +59,13 @@ wiring = Wiring()
 
 ######################################
 
+def default_candidate_count() -> int:
+    """相似图片候选总数：优先读取设置，设置不可用时回退到常量默认值。"""
+    settings_manager = services.global_instances.current_settings_manager
+    if settings_manager is None:
+        return commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT
+    return int(settings_manager.get("similar_image_candidate_count"))
+
 def build_sticker_items(
     images: Iterable[StickerImage],
     similarities: dict[int, float] | None = None,
@@ -123,9 +130,11 @@ def load_library_page(
 def find_similar_stickers(
     sticker: StickerImage,
     *,
-    top_k: int = commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT,
+    top_k: int | None = None,
     result_filter: similarity_filter.SimilarityResultFilter | None = None,
 ) -> list[tuple[StickerImage, float]]:
+    if top_k is None:
+        top_k = default_candidate_count()
     search_results, sticker_map = fetch_similar_candidates(
         sticker, top_k=top_k
     )
@@ -149,7 +158,7 @@ def find_similar_stickers(
 def fetch_similar_candidates(
     sticker: StickerImage,
     *,
-    top_k: int = commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT,
+    top_k: int | None = None,
 ) -> tuple[list, dict[int, StickerImage]]:
     """查询向量库并取回完整候选集，不过滤。
 
@@ -157,6 +166,8 @@ def fetch_similar_candidates(
         (search_results, sticker_map) — search_results 是原始 SearchResult
         列表（按相似度降序），sticker_map 以 sqlite_id 为键。
     """
+    if top_k is None:
+        top_k = default_candidate_count()
     db = services.global_instances.current_library_db
     vector_store = services.global_instances.current_vector_store
     if db is None or vector_store is None:
@@ -227,7 +238,7 @@ def open_advanced_search_results_tab(
 def open_similar_stickers_tab(
     sticker: StickerImage,
     *,
-    top_k: int = commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT,
+    top_k: int | None = None,
     result_filter: similarity_filter.SimilarityResultFilter | None = None,
 ) -> None:
     from ui.page_similar_images import SimilarImagesPage

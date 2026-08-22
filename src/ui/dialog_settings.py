@@ -51,6 +51,9 @@ class SettingsDialog(QDialog):
         self._apply_button.setEnabled(False)
 
     def _load_settings(self) -> None:
+        self.spinBoxThumbnailMemoryCacheSize.setValue(
+            self._config_manager.get("thumbnail_memory_cache_size")
+        )
         self.spinBoxRecentSearchLimit.setValue(
             self._config_manager.get("recent_search_limit")
         )
@@ -69,6 +72,9 @@ class SettingsDialog(QDialog):
         self.spinBoxSimilarImageMaxResults.setValue(
             self._config_manager.get("similar_image_max_results")
         )
+        self.spinBoxSimilarImageCandidateCount.setValue(
+            self._config_manager.get("similar_image_candidate_count")
+        )
 
     def _connect_signals(self) -> None:
         self.listWidget.currentRowChanged.connect(
@@ -78,6 +84,9 @@ class SettingsDialog(QDialog):
         self.buttonBox.rejected.connect(self.reject)
         self._apply_button.clicked.connect(self.apply_settings)
 
+        self.spinBoxThumbnailMemoryCacheSize.valueChanged.connect(
+            self._mark_dirty
+        )
         self.spinBoxRecentSearchLimit.valueChanged.connect(self._mark_dirty)
         self.spinBoxTagSuggestionLimit.valueChanged.connect(self._mark_dirty)
         self.doubleSpinBoxSimilarImageTargetDropRatio.valueChanged.connect(
@@ -88,6 +97,9 @@ class SettingsDialog(QDialog):
             self._mark_dirty
         )
         self.spinBoxSimilarImageMaxResults.valueChanged.connect(self._mark_dirty)
+        self.spinBoxSimilarImageCandidateCount.valueChanged.connect(
+            self._mark_dirty
+        )
         self.colorPresetManager.changed.connect(self._mark_dirty)
 
     def _mark_dirty(self, _value=None) -> None:
@@ -95,6 +107,9 @@ class SettingsDialog(QDialog):
 
     def _values_from_controls(self) -> dict[str, int | str]:
         return {
+            "thumbnail_memory_cache_size": (
+                self.spinBoxThumbnailMemoryCacheSize.value()
+            ),
             "recent_search_limit": self.spinBoxRecentSearchLimit.value(),
             "tag_suggestion_limit": self.spinBoxTagSuggestionLimit.value(),
             "similar_image_target_drop_ratio": (
@@ -105,6 +120,9 @@ class SettingsDialog(QDialog):
                 f"{self.doubleSpinBoxSimilarImageMinSimilarity.value():.2f}"
             ),
             "similar_image_max_results": self.spinBoxSimilarImageMaxResults.value(),
+            "similar_image_candidate_count": (
+                self.spinBoxSimilarImageCandidateCount.value()
+            ),
         }
 
     def apply_settings(self) -> bool:

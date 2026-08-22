@@ -40,6 +40,11 @@
       </property>
       <item>
        <property name="text">
+        <string>常规</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
         <string>搜索</string>
        </property>
       </item>
@@ -53,6 +58,120 @@
       <property name="currentIndex">
        <number>0</number>
       </property>
+      <widget class="QWidget" name="pageGeneral">
+       <layout class="QVBoxLayout" name="verticalLayoutGeneralPage">
+        <item>
+         <widget class="QScrollArea" name="scrollAreaGeneral">
+          <property name="frameShape">
+           <enum>QFrame::Shape::NoFrame</enum>
+          </property>
+          <property name="widgetResizable">
+           <bool>true</bool>
+          </property>
+          <widget class="QWidget" name="scrollAreaWidgetContentsGeneral">
+           <property name="geometry">
+            <rect>
+             <x>0</x>
+             <y>0</y>
+             <width>568</width>
+             <height>505</height>
+            </rect>
+           </property>
+           <layout class="QVBoxLayout" name="verticalLayoutGeneralSettings">
+            <property name="leftMargin">
+             <number>16</number>
+            </property>
+            <property name="topMargin">
+             <number>16</number>
+            </property>
+            <property name="rightMargin">
+             <number>16</number>
+            </property>
+            <property name="bottomMargin">
+             <number>16</number>
+            </property>
+            <property name="spacing">
+             <number>16</number>
+            </property>
+            <item>
+             <widget class="QLabel" name="labelGeneralHeading">
+              <property name="font">
+               <font>
+                <pointsize>13</pointsize>
+                <bold>true</bold>
+               </font>
+              </property>
+              <property name="text">
+               <string>常规</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="groupBoxThumbnailCache">
+              <property name="title">
+               <string>缩略图缓存</string>
+              </property>
+              <layout class="QFormLayout" name="formLayoutThumbnailCache">
+               <property name="fieldGrowthPolicy">
+                <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
+               </property>
+               <property name="verticalSpacing">
+                <number>12</number>
+               </property>
+               <item row="0" column="0">
+                <widget class="QLabel" name="labelThumbnailMemoryCacheSize">
+                 <property name="text">
+                  <string>缩略图内存缓存大小</string>
+                 </property>
+                 <property name="buddy">
+                  <cstring>spinBoxThumbnailMemoryCacheSize</cstring>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QSpinBox" name="spinBoxThumbnailMemoryCacheSize">
+                 <property name="toolTip">
+                  <string>应用程序内部缓存的缩略图数量，默认2000，调小可节约内存但可能显著影响性能。重启后应用。</string>
+                 </property>
+                 <property name="suffix">
+                  <string> 张</string>
+                 </property>
+                 <property name="minimum">
+                  <number>100</number>
+                 </property>
+                 <property name="maximum">
+                  <number>100000</number>
+                 </property>
+                 <property name="singleStep">
+                  <number>100</number>
+                 </property>
+                 <property name="value">
+                  <number>2000</number>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <spacer name="verticalSpacerGeneralSettings">
+              <property name="orientation">
+               <enum>Qt::Orientation::Vertical</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>40</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </widget>
+         </widget>
+        </item>
+       </layout>
+      </widget>
       <widget class="QWidget" name="pageSearch">
        <layout class="QVBoxLayout" name="verticalLayoutSearchPage">
         <item>
@@ -293,13 +412,45 @@
                 </property>
                </widget>
               </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="labelSimilarImageCandidateCount">
+                <property name="text">
+                 <string>候选总数</string>
+                </property>
+                <property name="buddy">
+                 <cstring>spinBoxSimilarImageCandidateCount</cstring>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QSpinBox" name="spinBoxSimilarImageCandidateCount">
+                <property name="toolTip">
+                 <string>执行相似图片查找时，从向量数据库查询获得的图片总数</string>
+                </property>
+                <property name="suffix">
+                 <string> 张</string>
+                </property>
+                <property name="minimum">
+                 <number>1</number>
+                </property>
+                <property name="maximum">
+                 <number>10000</number>
+                </property>
+                <property name="singleStep">
+                 <number>50</number>
+                </property>
+                <property name="value">
+                 <number>200</number>
+                </property>
+               </widget>
+              </item>
              </layout>
-            </widget>
-           </item>
-           <item>
-            <spacer name="verticalSpacerSearchSettings">
-             <property name="orientation">
-              <enum>Qt::Orientation::Vertical</enum>
+             </widget>
+             </item>
+            <item>
+             <spacer name="verticalSpacerSearchSettings">
+              <property name="orientation">
+               <enum>Qt::Orientation::Vertical</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>

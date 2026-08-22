@@ -32,20 +32,26 @@ class SettingsDialogTests(unittest.TestCase):
         self.temporary_directory.cleanup()
 
     def test_loads_saved_values_and_switches_categories(self):
+        self.manager.set("thumbnail_memory_cache_size", 1500)
         self.manager.set("recent_search_limit", 8)
         self.manager.set("tag_suggestion_limit", 12)
         self.manager.set("similar_image_target_drop_ratio", "0.42")
         self.manager.set("similar_image_min_keep", 7)
         self.manager.set("similar_image_min_similarity", "0.63")
         self.manager.set("similar_image_max_results", 60)
+        self.manager.set("similar_image_candidate_count", 300)
         self.manager.save()
 
         dialog = SettingsDialog(config_manager=self.manager)
 
-        self.assertEqual(2, dialog.listWidget.count())
-        self.assertEqual("搜索", dialog.listWidget.item(0).text())
-        self.assertEqual("颜色预设", dialog.listWidget.item(1).text())
+        self.assertEqual(3, dialog.listWidget.count())
+        self.assertEqual("常规", dialog.listWidget.item(0).text())
+        self.assertEqual("搜索", dialog.listWidget.item(1).text())
+        self.assertEqual("颜色预设", dialog.listWidget.item(2).text())
         self.assertEqual(0, dialog.stackedWidget.currentIndex())
+        self.assertEqual(
+            1500, dialog.spinBoxThumbnailMemoryCacheSize.value()
+        )
         self.assertEqual(8, dialog.spinBoxRecentSearchLimit.value())
         self.assertEqual(12, dialog.spinBoxTagSuggestionLimit.value())
         self.assertEqual(
@@ -58,6 +64,9 @@ class SettingsDialogTests(unittest.TestCase):
             dialog.doubleSpinBoxSimilarImageMinSimilarity.value(),
         )
         self.assertEqual(60, dialog.spinBoxSimilarImageMaxResults.value())
+        self.assertEqual(
+            300, dialog.spinBoxSimilarImageCandidateCount.value()
+        )
 
         dialog.listWidget.setCurrentRow(0)
 
@@ -67,9 +76,11 @@ class SettingsDialogTests(unittest.TestCase):
         self.assertEqual(
             [
                 "library_base_path",
+                "thumbnail_memory_cache_size",
                 "recent_search_limit",
                 "tag_suggestion_limit",
                 "recent_searches",
+                "similar_image_candidate_count",
                 "similar_image_target_drop_ratio",
                 "similar_image_min_keep",
                 "similar_image_min_similarity",
@@ -90,12 +101,14 @@ class SettingsDialogTests(unittest.TestCase):
 
         self.assertTrue(
             {
+                "spinBoxThumbnailMemoryCacheSize",
                 "spinBoxRecentSearchLimit",
                 "spinBoxTagSuggestionLimit",
                 "doubleSpinBoxSimilarImageTargetDropRatio",
                 "spinBoxSimilarImageMinKeep",
                 "doubleSpinBoxSimilarImageMinSimilarity",
                 "spinBoxSimilarImageMaxResults",
+                "spinBoxSimilarImageCandidateCount",
             }.issubset(widget_names)
         )
         self.assertTrue(
@@ -112,12 +125,14 @@ class SettingsDialogTests(unittest.TestCase):
     def test_apply_saves_values_without_closing_dialog(self):
         dialog = SettingsDialog(config_manager=self.manager)
         dialog.show()
+        dialog.spinBoxThumbnailMemoryCacheSize.setValue(1500)
         dialog.spinBoxRecentSearchLimit.setValue(24)
         dialog.spinBoxTagSuggestionLimit.setValue(7)
         dialog.doubleSpinBoxSimilarImageTargetDropRatio.setValue(0.33)
         dialog.spinBoxSimilarImageMinKeep.setValue(4)
         dialog.doubleSpinBoxSimilarImageMinSimilarity.setValue(0.71)
         dialog.spinBoxSimilarImageMaxResults.setValue(40)
+        dialog.spinBoxSimilarImageCandidateCount.setValue(250)
 
         apply_button = dialog.buttonBox.button(
             QDialogButtonBox.StandardButton.Apply
@@ -126,6 +141,9 @@ class SettingsDialogTests(unittest.TestCase):
         apply_button.click()
 
         saved_manager = create_settings_manager(self.config_path)
+        self.assertEqual(
+            1500, saved_manager.get("thumbnail_memory_cache_size")
+        )
         self.assertEqual(24, saved_manager.get("recent_search_limit"))
         self.assertEqual(7, saved_manager.get("tag_suggestion_limit"))
         self.assertEqual(
@@ -138,6 +156,9 @@ class SettingsDialogTests(unittest.TestCase):
             saved_manager.get("similar_image_min_similarity"),
         )
         self.assertEqual(40, saved_manager.get("similar_image_max_results"))
+        self.assertEqual(
+            250, saved_manager.get("similar_image_candidate_count")
+        )
         self.assertFalse(apply_button.isEnabled())
         self.assertTrue(dialog.isVisible())
         dialog.close()

@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 import apppath
+import commons.constants
 import services.global_instances
 import services.startup as startup
 from services.settings import SETTINGS_SCHEMA, SETTINGS_VERSION, create_settings_manager
@@ -159,6 +160,65 @@ class StartupLibraryPathsTests(unittest.TestCase):
         init_blob.assert_called_once_with(library_path)
         init_thumb.assert_called_once_with(library_path)
         init_vector.assert_called_once_with(library_path)
+
+
+class ThumbnailCacheSizeTests(unittest.TestCase):
+    def setUp(self):
+        self._old_disk_storage = (
+            services.global_instances.current_thumbnail_disk_storage
+        )
+        self._old_provider = (
+            services.global_instances.current_thumbnail_provider
+        )
+
+    def tearDown(self):
+        services.global_instances.current_thumbnail_disk_storage = (
+            self._old_disk_storage
+        )
+        services.global_instances.current_thumbnail_provider = (
+            self._old_provider
+        )
+
+    def test_init_thumbnail_cache_uses_configured_cache_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            library_path = Path(tmp) / "lib"
+
+            with mock.patch.object(
+                services.global_instances,
+                "current_settings_manager",
+                _FakeSettings(1234),
+            ), mock.patch.object(
+                startup.thumbnail_disk_storage, "ThumbnailDiskStorage"
+            ) as disk_storage_cls, mock.patch.object(
+                startup.services.thumbnail_provider, "ThumbnailProvider"
+            ) as provider_cls:
+                startup.init_thumbnail_cache(library_path)
+
+        disk_storage_cls.assert_called_once_with(str(library_path / "thumbnails"))
+        provider_cls.assert_called_once_with(
+            disk_storage=disk_storage_cls.return_value,
+            max_cache_size=1234,
+        )
+
+    def test_init_thumbnail_cache_falls_back_to_default_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            library_path = Path(tmp) / "lib"
+
+            with mock.patch.object(
+                services.global_instances,
+                "current_settings_manager",
+                None,
+            ), mock.patch.object(
+                startup.thumbnail_disk_storage, "ThumbnailDiskStorage"
+            ) as disk_storage_cls, mock.patch.object(
+                startup.services.thumbnail_provider, "ThumbnailProvider"
+            ) as provider_cls:
+                startup.init_thumbnail_cache(library_path)
+
+        provider_cls.assert_called_once_with(
+            disk_storage=disk_storage_cls.return_value,
+            max_cache_size=commons.constants.THUMBNAIL_CACHE_MAX_COUNT,
+        )
 
 
 if __name__ == "__main__":

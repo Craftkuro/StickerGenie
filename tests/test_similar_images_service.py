@@ -97,13 +97,20 @@ class SimilarImagesServiceTests(unittest.TestCase):
         self._old_db = services.global_instances.current_library_db
         self._old_blob = services.global_instances.current_blob_storage
         self._old_vectors = services.global_instances.current_vector_store
+        self._old_settings = (
+            services.global_instances.current_settings_manager
+        )
         services.global_instances.current_library_db = self.db
         services.global_instances.current_vector_store = self.vector_store
+        services.global_instances.current_settings_manager = None
 
     def tearDown(self):
         services.global_instances.current_library_db = self._old_db
         services.global_instances.current_blob_storage = self._old_blob
         services.global_instances.current_vector_store = self._old_vectors
+        services.global_instances.current_settings_manager = (
+            self._old_settings
+        )
 
     def test_fetch_similar_candidates_returns_unfiltered_results(self):
         results, sticker_map = viewer_service.fetch_similar_candidates(
@@ -151,6 +158,36 @@ class SimilarImagesServiceTests(unittest.TestCase):
             [commons.constants.SIMILAR_IMAGE_CANDIDATE_COUNT],
             self.vector_store.calls,
         )
+
+    def test_candidate_count_reads_from_settings_manager(self):
+        services.global_instances.current_settings_manager = (
+            SimpleNamespace(get=lambda key: 42 if key == "similar_image_candidate_count" else None)
+        )
+        self.addCleanup(
+            setattr,
+            services.global_instances,
+            "current_settings_manager",
+            None,
+        )
+
+        viewer_service.find_similar_stickers(self.source)
+
+        self.assertEqual([42], self.vector_store.calls)
+
+    def test_explicit_top_k_overrides_settings_value(self):
+        services.global_instances.current_settings_manager = (
+            SimpleNamespace(get=lambda key: 42 if key == "similar_image_candidate_count" else None)
+        )
+        self.addCleanup(
+            setattr,
+            services.global_instances,
+            "current_settings_manager",
+            None,
+        )
+
+        viewer_service.find_similar_stickers(self.source, top_k=7)
+
+        self.assertEqual([7], self.vector_store.calls)
 
     def test_similarity_results_use_custom_filter(self):
         custom_filter = similarity_filter.SimilarityResultFilter(

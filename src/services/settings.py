@@ -13,7 +13,7 @@ import apppath
 from config_manager import ConfigField, ConfigManager, ConfigType
 
 
-SETTINGS_VERSION = "1.4.0"
+SETTINGS_VERSION = "1.5.0"
 
 SETTINGS_SCHEMA = [
     ConfigField(
@@ -21,6 +21,12 @@ SETTINGS_SCHEMA = [
         ConfigType.STRING,
         "StickerGenie Library/Default Library",
         "图库路径；可以是相对数据目录的路径，也可以是绝对路径",
+    ),
+    ConfigField(
+        "thumbnail_memory_cache_size",
+        ConfigType.INT,
+        2000,
+        "应用程序内部缓存的缩略图数量，默认2000，调小可节约内存但可能显著影响性能。重启后应用。",
     ),
     ConfigField(
         "recent_search_limit",
@@ -39,6 +45,12 @@ SETTINGS_SCHEMA = [
         ConfigType.LIST_STR,
         [],
         "最近搜索，最新的项目在前",
+    ),
+    ConfigField(
+        "similar_image_candidate_count",
+        ConfigType.INT,
+        200,
+        "执行相似图片查找时，从向量数据库查询获得的图片总数",
     ),
     ConfigField(
         "similar_image_target_drop_ratio",

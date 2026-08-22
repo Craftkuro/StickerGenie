@@ -3,6 +3,7 @@ import logging
 import pathlib
 import apppath
 import blob_storage
+import commons.constants
 import thumbnail_disk_storage
 import services.global_instances
 import services.thumbnail_provider
@@ -77,6 +78,14 @@ def init_blob_storage(library_path):
     services.global_instances.current_blob_storage = current_blob_storage
 
 
+def resolve_thumbnail_cache_size() -> int:
+    """读取缩略图内存缓存大小设置；设置不可用时回退到常量默认值。"""
+    settings_manager = services.global_instances.current_settings_manager
+    if settings_manager is None:
+        return commons.constants.THUMBNAIL_CACHE_MAX_COUNT
+    return int(settings_manager.get("thumbnail_memory_cache_size"))
+
+
 def init_thumbnail_cache(library_path):
     thumbnail_path = pathlib.Path(library_path) / 'thumbnails'
     current_thumbnail_disk_storage = thumbnail_disk_storage.ThumbnailDiskStorage(
@@ -88,6 +97,7 @@ def init_thumbnail_cache(library_path):
     services.global_instances.current_thumbnail_provider = (
         services.thumbnail_provider.ThumbnailProvider(
             disk_storage=current_thumbnail_disk_storage,
+            max_cache_size=resolve_thumbnail_cache_size(),
         )
     )
 
