@@ -77,10 +77,10 @@ class SpinBox2PBindingTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def make_spin_box_2p(self, default="0.50"):
+    def make_spin_box_2p(self, default=0.5):
         field = ConfigField(
             "ratio_key",
-            ConfigType.STRING,
+            ConfigType.FLOAT,
             default,
             "比例说明",
             ui=FieldUI(
@@ -95,15 +95,15 @@ class SpinBox2PBindingTests(unittest.TestCase):
         self.assertEqual(2, widget.decimals())
         return field, widget
 
-    def test_string_value_formats_to_two_digits(self):
-        for stored, expected in [("0.5", "0.50"), ("0.33", "0.33"), ("0.42", "0.42")]:
-            with self.subTest(stored=stored):
+    def test_float_round_trip(self):
+        for value in [0.5, 0.33, 0.42]:
+            with self.subTest(value=value):
                 field, widget = self.make_spin_box_2p()
 
-                write_field_value(field, widget, stored)
+                write_field_value(field, widget, value)
 
-                self.assertEqual(float(expected), widget.value())
-                self.assertEqual(expected, read_field_value(field, widget))
+                self.assertEqual(value, widget.value())
+                self.assertEqual(value, read_field_value(field, widget))
 
     def test_range_and_step_applied(self):
         _, widget = self.make_spin_box_2p()
@@ -111,14 +111,6 @@ class SpinBox2PBindingTests(unittest.TestCase):
         self.assertEqual(0.01, widget.minimum())
         self.assertEqual(0.99, widget.maximum())
         self.assertEqual(0.05, widget.singleStep())
-
-    def test_invalid_value_falls_back_to_default(self):
-        field, widget = self.make_spin_box_2p(default="0.50")
-
-        write_field_value(field, widget, "not-a-number")
-
-        self.assertEqual(0.5, widget.value())
-        self.assertEqual("0.50", read_field_value(field, widget))
 
 
 class ComboBoxBindingTests(unittest.TestCase):

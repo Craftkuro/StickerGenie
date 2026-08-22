@@ -60,9 +60,9 @@ class CreateFilterFromSettingsTests(unittest.TestCase):
     def test_reads_similar_image_settings(self):
         settings_manager = Mock()
         settings_manager.get.side_effect = lambda key: {
-            "similar_image_target_drop_ratio": "0.35",
+            "similar_image_target_drop_ratio": 0.35,
             "similar_image_min_keep": 7,
-            "similar_image_min_similarity": "0.60",
+            "similar_image_min_similarity": 0.60,
             "similar_image_max_results": 40,
         }.get(key)
 

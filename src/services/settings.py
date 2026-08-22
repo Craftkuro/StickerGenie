@@ -87,8 +87,8 @@ SETTINGS_SCHEMA = [
     ),
     ConfigField(
         "similar_image_target_drop_ratio",
-        ConfigType.STRING,
-        "0.5",
+        ConfigType.FLOAT,
+        0.5,
         "相似图片：累计下降比例阈值（0-1之间）。保留累计相似度下降达到总下降的该比例之前的候选，值越小结果越保守。",
         ui=FieldUI(
             kind=WidgetKind.SPIN_BOX_2P,
@@ -115,8 +115,8 @@ SETTINGS_SCHEMA = [
     ),
     ConfigField(
         "similar_image_min_similarity",
-        ConfigType.STRING,
-        "0.50",
+        ConfigType.FLOAT,
+        0.5,
         "相似图片：最低相似度阈值（0-1之间），低于该相似度的候选不会进入结果。",
         ui=FieldUI(
             kind=WidgetKind.SPIN_BOX_2P,

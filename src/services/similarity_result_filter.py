@@ -126,13 +126,11 @@ def create_filter_from_settings(
 ) -> SimilarityResultFilter:
     """Create a filter using the current application settings."""
     config = SimilarityFilterConfig(
-        target_drop_ratio=float(
-            settings_manager.get("similar_image_target_drop_ratio")
+        target_drop_ratio=settings_manager.get(
+            "similar_image_target_drop_ratio"
         ),
         min_keep=int(settings_manager.get("similar_image_min_keep")),
-        min_similarity=float(
-            settings_manager.get("similar_image_min_similarity")
-        ),
+        min_similarity=settings_manager.get("similar_image_min_similarity"),
         max_results=int(settings_manager.get("similar_image_max_results")),
     )
     return SimilarityResultFilter(config)

@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -22,8 +21,6 @@ from PyQt6.QtWidgets import (
 )
 
 from config_manager import ConfigField, FieldUI, WidgetKind
-
-logger = logging.getLogger(__name__)
 
 
 class SettingsBindingError(ValueError):
@@ -79,8 +76,8 @@ def _read_spin_box(widget: QWidget) -> int:
     return widget.value()
 
 
-def _read_spin_box_2p(widget: QWidget) -> str:
-    return f"{widget.value():.2f}"
+def _read_spin_box_2p(widget: QWidget) -> float:
+    return widget.value()
 
 
 def _read_combo_box(widget: QWidget) -> Any:
@@ -98,17 +95,7 @@ def _write_spin_box(field: ConfigField, widget: QWidget, value: Any) -> None:
 def _write_spin_box_2p(
     field: ConfigField, widget: QWidget, value: Any
 ) -> None:
-    try:
-        widget.setValue(float(value))
-    except (TypeError, ValueError):
-        fallback = float(field.get_default())
-        logger.warning(
-            "配置项 %s 的值 %r 不是有效数字，已回退为默认值 %s",
-            field.key,
-            value,
-            fallback,
-        )
-        widget.setValue(fallback)
+    widget.setValue(float(value))
 
 
 def _write_combo_box(field: ConfigField, widget: QWidget, value: Any) -> None:

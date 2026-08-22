@@ -21,6 +21,7 @@ class ConfigType(Enum):
     """配置类型枚举"""
     STRING = "str"
     INT = "int"
+    FLOAT = "float"
     BOOL = "bool"
     LIST_STR = "list[str]"
     LIST_INT = "list[int]"
@@ -83,7 +84,7 @@ class ConfigField:
     """
     key: str
     type: ConfigType
-    default: Union[str, int, bool, List[str], List[int], List[Dict[str, Any]]]
+    default: Union[str, int, float, bool, List[str], List[int], List[Dict[str, Any]]]
     comment: str = ""
     ui: FieldUI | None = None
     
@@ -126,6 +127,8 @@ class ConfigField:
             return isinstance(value, str)
         elif self.type == ConfigType.INT:
             return isinstance(value, int) and not isinstance(value, bool)
+        elif self.type == ConfigType.FLOAT:
+            return isinstance(value, float)
         elif self.type == ConfigType.BOOL:
             return isinstance(value, bool)
         elif self.type == ConfigType.LIST_STR:
@@ -142,7 +145,7 @@ class ConfigField:
             return all(isinstance(item, dict) for item in value)
         return False
     
-    def get_default(self) -> Union[str, int, bool, List[str], List[int], List[Dict[str, Any]]]:
+    def get_default(self) -> Union[str, int, float, bool, List[str], List[int], List[Dict[str, Any]]]:
         """获取默认值"""
         return deepcopy(self.default)
 

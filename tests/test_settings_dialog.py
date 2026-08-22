@@ -43,9 +43,9 @@ class SettingsDialogTests(unittest.TestCase):
         self.manager.set("thumbnail_memory_cache_size", 1500)
         self.manager.set("recent_search_limit", 8)
         self.manager.set("tag_suggestion_limit", 12)
-        self.manager.set("similar_image_target_drop_ratio", "0.42")
+        self.manager.set("similar_image_target_drop_ratio", 0.42)
         self.manager.set("similar_image_min_keep", 7)
-        self.manager.set("similar_image_min_similarity", "0.63")
+        self.manager.set("similar_image_min_similarity", 0.63)
         self.manager.set("similar_image_max_results", 60)
         self.manager.set("similar_image_candidate_count", 300)
         self.manager.save()
@@ -263,12 +263,12 @@ class SettingsDialogTests(unittest.TestCase):
         self.assertEqual(24, saved_manager.get("recent_search_limit"))
         self.assertEqual(7, saved_manager.get("tag_suggestion_limit"))
         self.assertEqual(
-            "0.33",
+            0.33,
             saved_manager.get("similar_image_target_drop_ratio"),
         )
         self.assertEqual(4, saved_manager.get("similar_image_min_keep"))
         self.assertEqual(
-            "0.71",
+            0.71,
             saved_manager.get("similar_image_min_similarity"),
         )
         self.assertEqual(40, saved_manager.get("similar_image_max_results"))
