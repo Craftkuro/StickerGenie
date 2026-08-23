@@ -1,11 +1,15 @@
 #coding=utf-8
 import threading
+from pathlib import Path
 
 from blob_storage import BlobStorage
 from config_manager import ConfigManager
 from stickerdb.v1.sticker_db import StickerDBV1
 from stickerdb.vectordb import ChromaVectorStore
 from PyQt6.QtWidgets import QMainWindow
+
+# 当前图库根目录（db、blob、recycler 等均位于其下）
+current_library_path: Path | None = None
 
 #已打开的数据库实例
 current_library_db: StickerDBV1 | None = None

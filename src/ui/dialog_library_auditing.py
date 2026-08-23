@@ -84,6 +84,11 @@ class LibraryAuditingDialog(QDialog):
             self._open_property_editor
         )
 
+        # 图片在别处被删除时修剪浏览历史，避免导航卡死在死条目上。
+        services.sticker_library_viewer_service.wiring.signal_stickers_deleted.connect(
+            self._prune_history
+        )
+
         self.imageTextEditWidget.set_database(self._database)
         self._init_tag_editor()
         self._init_file_info_table()
@@ -103,16 +108,19 @@ class LibraryAuditingDialog(QDialog):
         return None
 
     def _go_back(self):
-        """沿浏览历史后退一步；已在起点时不做任何事。"""
+        """沿浏览历史后退一步；已在起点或前驱已失效时不做任何事。"""
         if self._position <= 0:
             return
-        self._position -= 1
         stickers = self._database.get_stickers_by_ids(
-            [self._history[self._position]]
+            [self._history[self._position - 1]]
         )
         if not stickers:
-            logger.warning("历史记录对应的图片已不存在，id=%s", self._history[self._position])
+            logger.warning(
+                "历史记录对应的图片已不存在，id=%s",
+                self._history[self._position - 1],
+            )
             return
+        self._position -= 1
         self._show_sticker(stickers[0])
 
     def _go_random(self):
@@ -143,6 +151,61 @@ class LibraryAuditingDialog(QDialog):
         self._history.append(new_id)
         self._position += 1
         self._show_sticker(stickers[0])
+
+    def _prune_history(self, deleted_ids: list) -> None:
+        """删除广播后修剪浏览历史，保证画面不再指向被删条目。
+
+        槽内吞掉异常只记日志：PyQt6 中槽内未捕获异常会直接终止进程。
+        """
+        try:
+            self._apply_history_prune(set(deleted_ids))
+        except Exception:
+            logger.exception("修剪审阅历史失败")
+
+    def _apply_history_prune(self, deleted: set) -> None:
+        if not deleted.intersection(self._history):
+            return
+
+        current_id = self._current_id()
+        removed_before_current = sum(
+            1 for i in self._history[: self._position] if i in deleted
+        )
+        # 摘除被删元素，剩余元素天然保序。
+        self._history = [i for i in self._history if i not in deleted]
+
+        if current_id is not None and current_id not in deleted:
+            # 当前画面幸存：指针按左侧被删数量左移即可。
+            self._position -= removed_before_current
+            return
+
+        # 当前画面被删：落到最近的幸存前驱，直接刷新画面，
+        # 不走 _navigate_to（它会截断前进分支再入栈）。
+        landing = max(self._position - removed_before_current - 1, 0)
+        if self._history:
+            self._position = min(landing, len(self._history) - 1)
+            stickers = self._database.get_stickers_by_ids(
+                [self._history[self._position]]
+            )
+            if stickers:
+                self._show_sticker(stickers[0])
+                return
+
+        # 历史被删空：随机跳一张；空库则停在空白态。
+        self._position = -1
+        random_id = self._database.random_sticker_id()
+        if random_id is not None:
+            self._navigate_to(random_id)
+            return
+        self._blank_view()
+
+    def _blank_view(self) -> None:
+        """清空画面，进入无内容可展示的空白态。"""
+        self._stop_movie()
+        self.graphicsView.set_image(QPixmap())
+        self._sticker = None
+        self._file_path = None
+        self.label.setText("")
+        self._reload_tag_model()
 
     # ==================== 左侧查看器 ====================
 

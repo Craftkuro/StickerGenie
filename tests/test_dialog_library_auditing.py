@@ -15,6 +15,7 @@ import services.global_instances
 from blob_storage import BlobStorage
 from commons.dto import StickerImage
 from services.settings import create_settings_manager
+from services.sticker_library_viewer_service import wiring
 from ui.dialog_library_auditing import (
     SIMILAR_BUTTON_HIDE_TEXT,
     SIMILAR_BUTTON_SHOW_TEXT,
@@ -501,6 +502,82 @@ class LibraryAuditingDialogTests(unittest.TestCase):
 
         self.assertIs(dialog._sticker, self.gif)
         self.assertEqual(f"#{self.gif.id} b.gif", dialog.label.text())
+
+    # ==================== 删除广播修剪历史 ====================
+
+    def _build_three_step_history(self) -> LibraryAuditingDialog:
+        """构造浏览历史 [11, 22, 33]，当前停在 33。"""
+        self.db.random_queue.extend([self.png_a.id])
+        self.db.next_results = {
+            self.png_a.id: self.gif.id,
+            self.gif.id: self.png_b.id,
+        }
+        dialog = self._create_dialog()
+        dialog.pushButtonNext.click()
+        dialog.pushButtonNext.click()
+        self.assertEqual(
+            [self.png_a.id, self.gif.id, self.png_b.id], dialog._history
+        )
+        self.assertEqual(2, dialog._position)
+        return dialog
+
+    def test_prune_history_keeps_current_entry_and_order(self):
+        dialog = self._build_three_step_history()
+
+        wiring.signal_stickers_deleted.emit([self.gif.id])
+
+        self.assertEqual([self.png_a.id, self.png_b.id], dialog._history)
+        self.assertEqual(1, dialog._position)
+        # 当前画面幸存：显示内容不变。
+        self.assertEqual(
+            f"#{self.png_b.id} {self.png_b.original_file_name}",
+            dialog.label.text(),
+        )
+
+    def test_prune_history_lands_on_surviving_predecessor(self):
+        dialog = self._build_three_step_history()
+
+        wiring.signal_stickers_deleted.emit([self.png_b.id])
+
+        self.assertEqual([self.png_a.id, self.gif.id], dialog._history)
+        self.assertEqual(1, dialog._position)
+        self.assertEqual(f"#{self.gif.id} {self.gif.original_file_name}", dialog.label.text())
+
+    def test_prune_history_empty_jumps_to_random(self):
+        dialog = self._create_dialog(initial_random_queue=[self.gif.id])
+        self.db.random_queue.append(self.png_a.id)
+
+        wiring.signal_stickers_deleted.emit([self.gif.id])
+
+        self.assertEqual([self.png_a.id], dialog._history)
+        self.assertEqual(0, dialog._position)
+        self.assertEqual(
+            f"#{self.png_a.id} {self.png_a.original_file_name}",
+            dialog.label.text(),
+        )
+
+    def test_prune_history_empty_db_blanks_view(self):
+        single_db = NavigationStubDB([self.png_a])
+        dialog = self._create_dialog(
+            database=single_db,
+            initial_random_queue=[self.png_a.id],
+        )
+
+        wiring.signal_stickers_deleted.emit([self.png_a.id])
+
+        self.assertEqual([], dialog._history)
+        self.assertEqual(-1, dialog._position)
+        self.assertIsNone(dialog._sticker)
+        self.assertEqual("", dialog.label.text())
+
+    def test_prune_history_ignores_unknown_ids(self):
+        dialog = self._build_three_step_history()
+        history_before = list(dialog._history)
+
+        wiring.signal_stickers_deleted.emit([999])
+
+        self.assertEqual(history_before, dialog._history)
+        self.assertEqual(2, dialog._position)
 
 
 if __name__ == "__main__":

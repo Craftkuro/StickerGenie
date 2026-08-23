@@ -73,6 +73,12 @@ class StickerListPage(QWidget):
             self._show_sticker_context_menu
         )
 
+        # 任一页面删除图片后，按广播的 id 列表修剪本页模型，
+        # 保证搜索结果等快照页也不残留已删除的条目。
+        services.sticker_library_viewer_service.wiring.signal_stickers_deleted.connect(
+            self._prune_deleted_rows
+        )
+
     def add_toolbar_widget(self, widget: QWidget) -> QAction:
         """把任意自定义 widget（例如滑块）加入标签页工具栏末尾。"""
         return self.toolbar.addWidget(widget)
@@ -418,6 +424,31 @@ class StickerListPage(QWidget):
     def _delete_sticker_for_index(self, index: QModelIndex):
         self._delete_stickers_for_indexes([index])
 
+    def _prune_deleted_rows(self, deleted_ids: list) -> None:
+        """收到删除广播后，把命中行从当前模型中移除。
+
+        单遍扫描模型行，按集合匹配，无 IO；payload 含本页没有的 id
+        时为无害 no-op。
+        """
+        if not deleted_ids:
+            return
+        model = self.listViewStickerList.model()
+        if model is None:
+            return
+
+        deleted = set(deleted_ids)
+        rows = []
+        for row in range(model.rowCount()):
+            sticker = model.index(row, 0).data(ROLE_STICKER_IMAGE)
+            if sticker is not None and sticker.id in deleted:
+                rows.append(row)
+        if not rows:
+            return
+
+        # 从大到小删除行，避免前面行移除后导致后续行号失效。
+        for row in sorted(rows, reverse=True):
+            model.removeRow(row)
+
     def _delete_stickers_for_indexes(self, indexes: list[QModelIndex]):
         stickers = []
         for index in indexes:
@@ -455,19 +486,7 @@ class StickerListPage(QWidget):
             QMessageBox.critical(self, "删除失败", str(exc))
             return
 
-        model = self.listViewStickerList.model()
-        if model is not None:
-            # 从大到小删除行，避免前面行移除后导致后续行号失效。
-            rows = sorted(
-                {
-                    index.row()
-                    for index in indexes
-                    if index.isValid()
-                },
-                reverse=True,
-            )
-            for row in rows:
-                model.removeRow(row)
+        # 本页的行移除由 signal_stickers_deleted 广播统一完成。
         services.sticker_library_viewer_service.wiring.slot_refresh_content()
 
         if cleanup_errors:

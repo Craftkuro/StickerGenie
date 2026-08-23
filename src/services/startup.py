@@ -56,6 +56,7 @@ def open_library(library_path):
     if not library_path.is_absolute():
         raise ValueError("图库路径必须是绝对路径")
 
+    services.global_instances.current_library_path = library_path
     open_db(library_path)
     init_blob_storage(library_path)
     init_thumbnail_cache(library_path)

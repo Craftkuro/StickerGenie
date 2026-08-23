@@ -53,6 +53,7 @@ from services.settings import create_settings_manager
 from services.sticker_library_viewer_service import (
     build_sticker_model,
     load_library_page,
+    wiring,
 )
 from services.thumbnail_provider import ThumbnailProvider
 from ui.page_finite_sticker_collection import FiniteStickerCollectionPage
@@ -556,18 +557,27 @@ class StickerListViewTests(unittest.TestCase):
             )
             page.close()
 
-    def test_delete_stickers_removes_all_selected_rows(self):
+    def test_delete_stickers_prunes_rows_via_broadcast_signal(self):
         page = SearchResultPage(auto_refresh=False)
         model = QStandardItemModel()
-        for _ in range(3):
+        stickers = []
+        for sticker_id in (1, 2, 3):
+            sticker = make_sticker()
+            sticker.id = sticker_id
+            stickers.append(sticker)
             item = QStandardItem("")
-            item.setData(make_sticker(), ROLE_STICKER_IMAGE)
+            item.setData(sticker, ROLE_STICKER_IMAGE)
             model.appendRow(item)
         page.refresh_content(model)
 
+        # 模拟服务层行为：删除提交后立即广播被删 id 列表。
+        def fake_delete(deleted):
+            wiring.signal_stickers_deleted.emit([s.id for s in deleted])
+            return ()
+
         with patch(
             "services.sticker_library_viewer_service.delete_stickers",
-            return_value=(),
+            side_effect=fake_delete,
         ) as delete_mock, patch(
             "ui.widgets.sticker_list_page.QMessageBox.question",
             return_value=QMessageBox.StandardButton.Yes,
@@ -578,7 +588,56 @@ class StickerListViewTests(unittest.TestCase):
 
         delete_mock.assert_called_once()
         self.assertEqual(1, model.rowCount())
+        self.assertEqual(
+            2, model.index(0, 0).data(ROLE_STICKER_IMAGE).id
+        )
         page.close()
+
+    def test_delete_broadcast_with_unknown_ids_is_noop(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        for sticker_id in (1, 2):
+            sticker = make_sticker()
+            sticker.id = sticker_id
+            item = QStandardItem("")
+            item.setData(sticker, ROLE_STICKER_IMAGE)
+            model.appendRow(item)
+        page.refresh_content(model)
+
+        wiring.signal_stickers_deleted.emit([999])
+
+        self.assertEqual(2, model.rowCount())
+        page.close()
+
+    def test_delete_broadcast_prunes_every_open_page(self):
+        first_page = SearchResultPage(auto_refresh=False)
+        second_page = SearchResultPage(auto_refresh=False)
+        first_model = QStandardItemModel()
+        second_model = QStandardItemModel()
+        for sticker_id in (1, 2, 3):
+            item = QStandardItem("")
+            sticker = make_sticker()
+            sticker.id = sticker_id
+            item.setData(sticker, ROLE_STICKER_IMAGE)
+            first_model.appendRow(item)
+        for sticker_id in (2, 3):
+            item = QStandardItem("")
+            sticker = make_sticker()
+            sticker.id = sticker_id
+            item.setData(sticker, ROLE_STICKER_IMAGE)
+            second_model.appendRow(item)
+        first_page.refresh_content(first_model)
+        second_page.refresh_content(second_model)
+
+        wiring.signal_stickers_deleted.emit([2, 3])
+
+        self.assertEqual(1, first_model.rowCount())
+        self.assertEqual(
+            1, first_model.index(0, 0).data(ROLE_STICKER_IMAGE).id
+        )
+        self.assertEqual(0, second_model.rowCount())
+        first_page.close()
+        second_page.close()
 
     def test_similar_images_page_inherits_finite_page(self):
         with tempfile.TemporaryDirectory() as temp_dir:

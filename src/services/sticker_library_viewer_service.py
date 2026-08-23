@@ -9,6 +9,7 @@ from PyQt6.QtGui import QStandardItemModel, QStandardItem
 
 import services.global_instances
 import services.similarity_result_filter
+import services.sticker_recycle_bin
 from blob_storage import BlobFileEntity
 from commons.dto import StickerImage
 from commons.roles import (
@@ -46,6 +47,9 @@ def _build_sticker_tooltip(
 
 class Wiring(QObject):
     signal_refresh_library_content = pyqtSignal()
+    # payload: list[int]，已删除的 sticker id 列表
+    signal_stickers_deleted = pyqtSignal(list)
+
     def __init__(self):
         super().__init__()
 
@@ -235,7 +239,11 @@ def _open_result_tab(page, title: str) -> None:
 
 
 def delete_stickers(stickers: Sequence[StickerImage]) -> tuple[str, ...]:
-    """以 SQLite 为主记录批量删除图片，再清理可重建的向量和 Blob。"""
+    """以 SQLite 为主记录批量删除图片，再清理可重建的向量和 Blob。
+
+    Blob 文件不直接销毁，而是连同元数据移入回收站目录（recycler），
+    供人工恢复；向量库条目仍然真删，恢复时靠维护功能重新生成。
+    """
     db = services.global_instances.current_library_db
     blob_storage = services.global_instances.current_blob_storage
     vector_store = services.global_instances.current_vector_store
@@ -244,6 +252,8 @@ def delete_stickers(stickers: Sequence[StickerImage]) -> tuple[str, ...]:
 
     sticker_list = list(stickers)
     db.delete_stickers(sticker_list)
+    # SQLite 提交成功后立刻广播：即使后续清理失败，UI 行也必须消失。
+    wiring.signal_stickers_deleted.emit([s.id for s in sticker_list])
     cleanup_errors = []
 
     for sticker in sticker_list:
@@ -260,13 +270,11 @@ def delete_stickers(stickers: Sequence[StickerImage]) -> tuple[str, ...]:
                 logger.exception("删除图片向量失败，id=%s", sticker.id)
                 cleanup_errors.append(f"向量清理失败：{exc}")
 
-        blob_entity = BlobFileEntity(sticker.hash, sticker.extension)
         try:
-            if blob_storage.exists(blob_entity):
-                blob_storage.delete_file(blob_entity)
+            services.sticker_recycle_bin.stash_sticker(sticker)
         except Exception as exc:
-            logger.exception("删除 Blob 文件失败，id=%s", sticker.id)
-            cleanup_errors.append(f"文件清理失败：{exc}")
+            logger.exception("图片移入回收站失败，id=%s", sticker.id)
+            cleanup_errors.append(f"文件移入回收站失败：{exc}")
 
     return tuple(cleanup_errors)
 

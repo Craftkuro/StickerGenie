@@ -1,4 +1,5 @@
 import datetime
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -98,6 +99,9 @@ class SimilarImagesServiceTests(unittest.TestCase):
         self._old_db = services.global_instances.current_library_db
         self._old_blob = services.global_instances.current_blob_storage
         self._old_vectors = services.global_instances.current_vector_store
+        self._old_library_path = (
+            services.global_instances.current_library_path
+        )
         self._old_settings = (
             services.global_instances.current_settings_manager
         )
@@ -116,6 +120,9 @@ class SimilarImagesServiceTests(unittest.TestCase):
         services.global_instances.current_library_db = self._old_db
         services.global_instances.current_blob_storage = self._old_blob
         services.global_instances.current_vector_store = self._old_vectors
+        services.global_instances.current_library_path = (
+            self._old_library_path
+        )
         services.global_instances.current_settings_manager = (
             self._old_settings
         )
@@ -236,49 +243,70 @@ class SimilarImagesServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "还没有特征向量"):
             viewer_service.fetch_similar_candidates(sticker)
 
-    def test_delete_cleans_vector_and_blob_after_sqlite_row(self):
+    def test_delete_moves_blob_to_recycler_after_sqlite_row(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            blob_storage = BlobStorage(temp_dir)
-            source_file = Path(temp_dir) / "delete.png"
+            library_root = Path(temp_dir) / "library"
+            blob_storage = BlobStorage(str(library_root / "blob"))
+            source_file = library_root / "delete.png"
             source_file.write_bytes(b"image")
             entity = blob_storage.store_file(
                 str(source_file),
                 self.second.hash,
             )
             services.global_instances.current_blob_storage = blob_storage
+            services.global_instances.current_library_path = library_root
 
             errors = viewer_service.delete_sticker(self.second)
 
+            recycler = library_root / "recycler"
             self.assertEqual((), errors)
             self.assertEqual([self.second], self.db.deleted)
             self.assertEqual(["second-vector"], self.vector_store.deleted)
             self.assertFalse(blob_storage.exists(entity))
+            stashed = recycler / f"{self.second.hash}{self.second.extension}"
+            self.assertEqual(b"image", stashed.read_bytes())
+            payload = json.loads(
+                (recycler / f"{self.second.hash}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual("second.png", payload["original_file_name"])
 
     def test_delete_falls_back_to_sqlite_id_when_stored_id_is_stale(self):
         stale = make_sticker(7, "stale.png", "stale-vector")
         self.vector_store.add_existing("actual-vector", 7)
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            blob_storage = BlobStorage(temp_dir)
-            source_file = Path(temp_dir) / "stale.png"
+            library_root = Path(temp_dir) / "library"
+            blob_storage = BlobStorage(str(library_root / "blob"))
+            source_file = library_root / "stale.png"
             source_file.write_bytes(b"image")
             entity = blob_storage.store_file(str(source_file), stale.hash)
             services.global_instances.current_blob_storage = blob_storage
+            services.global_instances.current_library_path = library_root
 
             errors = viewer_service.delete_sticker(stale)
 
-        self.assertEqual((), errors)
-        self.assertIn("stale-vector", self.vector_store.deleted)
-        self.assertIn("actual-vector", self.vector_store.deleted)
-        self.assertNotIn(7, self.vector_store.by_sqlite_id)
-        self.assertFalse(blob_storage.exists(entity))
+            self.assertEqual((), errors)
+            self.assertIn("stale-vector", self.vector_store.deleted)
+            self.assertIn("actual-vector", self.vector_store.deleted)
+            self.assertNotIn(7, self.vector_store.by_sqlite_id)
+            self.assertFalse(blob_storage.exists(entity))
+            self.assertTrue(
+                (
+                    library_root
+                    / "recycler"
+                    / f"{stale.hash}{stale.extension}"
+                ).is_file()
+            )
 
     def test_delete_stickers_cleans_all_rows_vectors_and_blobs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            blob_storage = BlobStorage(temp_dir)
+            library_root = Path(temp_dir) / "library"
+            blob_storage = BlobStorage(str(library_root / "blob"))
             entities = []
             for sticker in (self.second, self.third):
-                source_file = Path(temp_dir) / sticker.original_file_name
+                source_file = library_root / sticker.original_file_name
                 source_file.write_bytes(b"image")
                 entity = blob_storage.store_file(
                     str(source_file),
@@ -288,14 +316,25 @@ class SimilarImagesServiceTests(unittest.TestCase):
             self.vector_store.add_existing("second-vector", 2)
             self.vector_store.add_existing("third-vector", 3)
             services.global_instances.current_blob_storage = blob_storage
+            services.global_instances.current_library_path = library_root
 
             errors = viewer_service.delete_stickers(
                 [self.second, self.third]
             )
 
+            recycler = library_root / "recycler"
             self.assertEqual((), errors)
             self.assertFalse(blob_storage.exists(entities[0]))
             self.assertFalse(blob_storage.exists(entities[1]))
+            self.assertEqual(
+                {
+                    f"{self.second.hash}.png",
+                    f"{self.second.hash}.json",
+                    f"{self.third.hash}.png",
+                    f"{self.third.hash}.json",
+                },
+                {path.name for path in recycler.iterdir()},
+            )
 
         self.assertEqual([self.second, self.third], self.db.deleted)
         self.assertEqual(
