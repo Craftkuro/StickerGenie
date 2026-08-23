@@ -26,6 +26,10 @@ datas = [
     ("src/ui/dialog_image_import.ui", "ui"),
     ("src/ui/dialog_image_import_progress.ui", "ui"),
     ("src/ui/dialog_database_maintenance.ui", "ui"),
+    ("src/ui/dialog_batch_tag_edit.ui", "ui"),
+    ("src/ui/dialog_about.ui", "ui"),
+    ("src/ui/dialog_library_import_progress.ui", "ui"),
+    ("src/ui/dialog_library_auditing.ui", "ui"),
     ("src/resources/app_icon.ico", "resources"),
     ("src/resources/arrow-down-narrow-wide.svg", "resources"),
     ("src/resources/arrow-left.svg", "resources"),
@@ -67,6 +71,7 @@ hiddenimports = chromadb_hiddenimports + rust_hiddenimports + rapidocr_hiddenimp
     "ui.widgets.pan_zoom_image_view",
     "ui.widgets.image_text_edit_widget",
     "ui.widgets.path_drop_list_widget",
+    "ui.widgets.custom_search_box",
     "PyQt6.QtSvg",
 ]
 
