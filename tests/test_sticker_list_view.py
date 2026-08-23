@@ -216,7 +216,7 @@ class StickerListViewTests(unittest.TestCase):
             more_menu = more_actions[0].menu()
             self.assertIsNotNone(more_menu)
             delete_action = more_menu.actions()[0]
-            self.assertEqual("删除图片", delete_action.text())
+            self.assertEqual("移动到图库回收站", delete_action.text())
             delete_action.trigger()
             return None
 
@@ -259,7 +259,7 @@ class StickerListViewTests(unittest.TestCase):
             batch_action.trigger()
             more_menu = menu.actions()[2].menu()
             delete_action = more_menu.actions()[0]
-            self.assertEqual("删除图片", delete_action.text())
+            self.assertEqual("移动到图库回收站", delete_action.text())
             delete_action.trigger()
             return None
 
@@ -581,12 +581,21 @@ class StickerListViewTests(unittest.TestCase):
         ) as delete_mock, patch(
             "ui.widgets.sticker_list_page.QMessageBox.question",
             return_value=QMessageBox.StandardButton.Yes,
-        ):
+        ) as question_mock:
             page._delete_stickers_for_indexes(
                 [model.index(0, 0), model.index(2, 0)]
             )
 
         delete_mock.assert_called_once()
+        # 多选确认框：标题与正文都体现“移动到图库回收站”。
+        self.assertEqual(
+            "移动到图库回收站", question_mock.call_args[0][1]
+        )
+        self.assertEqual(
+            "确定将选中的 2 张图片移动到图库内的回收站吗？\n"
+            "回收站在recycler目录，请在有空时手动清理。",
+            question_mock.call_args[0][2],
+        )
         self.assertEqual(1, model.rowCount())
         self.assertEqual(
             2, model.index(0, 0).data(ROLE_STICKER_IMAGE).id

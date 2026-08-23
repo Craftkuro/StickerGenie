@@ -230,7 +230,7 @@ class StickerListPage(QWidget):
                 )
             )
         more_menu = menu.addMenu("更多")
-        delete_action = more_menu.addAction("删除图片")
+        delete_action = more_menu.addAction("移动到图库回收站")
         if len(selected_indexes) == 1:
             delete_action.triggered.connect(
                 lambda _checked=False: self._delete_sticker_for_index(
@@ -461,13 +461,21 @@ class StickerListPage(QWidget):
             return
 
         if len(stickers) == 1:
-            message = f'确定删除“{stickers[0].original_file_name}”吗？'
+            message = (
+                f'确定将“{stickers[0].original_file_name}”'
+                "移动到图库内的回收站吗？\n"
+                "回收站在recycler目录，请在有空时手动清理。"
+            )
         else:
             # 多选时用数量确认，避免弹出一长串文件名。
-            message = f"确定删除选中的 {len(stickers)} 张图片吗？"
+            message = (
+                f"确定将选中的 {len(stickers)} 张图片"
+                "移动到图库内的回收站吗？\n"
+                "回收站在recycler目录，请在有空时手动清理。"
+            )
         answer = QMessageBox.question(
             self,
-            "删除图片",
+            "移动到图库回收站",
             message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
