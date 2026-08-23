@@ -1,4 +1,5 @@
 # coding=utf-8
+import datetime
 import logging
 import pathlib
 import threading
@@ -753,7 +754,62 @@ class StickerDBV1:
                     db_sticker.tags.append(db_tag)
             
             session.commit()
-    
+
+    def update_sticker_file_properties(
+        self,
+        sticker_id: int,
+        *,
+        original_file_name: Optional[str] = None,
+        modification_date: Optional[datetime.datetime] = None,
+    ) -> StickerImage:
+        """
+        更新图片的原始文件名与记录的修改时间；参数为 None 的字段保持原值。
+        返回更新后的完整 DTO。图片不存在时抛出 ValueError，事务不留下部分更新。
+        """
+        with self._write_lock, self._get_session() as session:
+            db_sticker = session.get(DBStickerImage, sticker_id)
+            if db_sticker is None:
+                raise ValueError(f"不存在的表情包，id={sticker_id}")
+
+            if original_file_name is not None:
+                db_sticker.original_file_name = self._normalize_original_file_name(
+                    original_file_name, db_sticker.extension
+                )
+            if modification_date is not None:
+                db_sticker.modification_date = modification_date
+
+            session.commit()
+            return self._export_sticker(db_sticker)
+
+    @staticmethod
+    def _normalize_original_file_name(raw_name: str, extension: str) -> str:
+        """把用户输入规范化为安全的导出文件名。
+
+        校验规则与图库导出的 _validate_original_file_name 对齐（空名、路径
+        分隔符、相对路径片段都会让整次导出失败，必须在保存前拦截）。
+        扩展名以实际文件类型为准：仅当输入恰好以真实扩展名结尾时原样保留
+        （大小写归一），其余后缀视为基础名的一部分并追加真实扩展名，
+        未填扩展名则自动补全——保证导出的文件名与文件内容类型一致。
+        """
+        name = raw_name.strip()
+        if not name:
+            raise ValueError("文件名不能为空。")
+        if (
+            name in {".", ".."}
+            or "/" in name
+            or "\\" in name
+            or pathlib.Path(name).name != name
+        ):
+            raise ValueError(f"文件名包含系统不支持的字符，无法保存：{raw_name!r}")
+
+        actual_extension = extension.lower()
+        if actual_extension and name.lower().endswith(actual_extension):
+            name = name[: -len(actual_extension)]
+        name = name.rstrip(" .")
+        if not name:
+            raise ValueError("文件名不能为空。")
+        return name + extension
+
     def delete_stickers(self, stickers: List[StickerImage]):
         """
         根据输入实例中的 id 删除表情包。

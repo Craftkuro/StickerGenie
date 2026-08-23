@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QRect
-from PyQt6.QtWidgets import QApplication, QDialogButtonBox
+from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox
 
 import apppath
 import services.global_instances
@@ -452,6 +452,55 @@ class LibraryAuditingDialogTests(unittest.TestCase):
         dialog.pushButtonRand.click()
         self.assertEqual(f"#{self.gif.id} {self.gif.original_file_name}", dialog.label.text())
         self.assertEqual(0, page.listViewStickerList.model().rowCount())
+
+    def _renamed_copy(self):
+        renamed = make_sticker(self.gif.id, "renamed.gif", extension=".gif")
+        renamed.hash = self.gif.hash
+        renamed.modification_date = datetime.datetime(2030, 6, 1, 12, 0)
+        return renamed
+
+    def test_edit_properties_updates_current_sticker_display(self):
+        dialog = self._create_dialog(initial_random_queue=[self.gif.id])
+        dialog.show()
+        self.app.processEvents()
+
+        fake_editor = MagicMock()
+        fake_editor.exec.return_value = QDialog.DialogCode.Accepted
+        fake_editor.updated_sticker.return_value = self._renamed_copy()
+
+        with patch(
+            "ui.dialog_library_auditing.LibraryEditingPropsEditDialog",
+            MagicMock(return_value=fake_editor),
+        ) as editor_cls:
+            dialog.pushButtonEditProperties.click()
+            editor_cls.assert_called_once_with(
+                parent=dialog,
+                database=self.db,
+                sticker=self.gif,
+            )
+
+        self.assertIsNotNone(fake_editor.updated_sticker.return_value)
+        updated = fake_editor.updated_sticker.return_value
+        self.assertIs(dialog._sticker, updated)
+        self.assertEqual(f"#{updated.id} renamed.gif", dialog.label.text())
+        self.assertIs(dialog.imageTextEditWidget._sticker, updated)
+        self.assertEqual("renamed.gif", dialog.tableWidgetFileInfo.item(0, 1).text())
+
+    def test_edit_properties_rejected_keeps_state(self):
+        dialog = self._create_dialog(initial_random_queue=[self.gif.id])
+        dialog.show()
+        self.app.processEvents()
+
+        fake_editor = MagicMock()
+        fake_editor.exec.return_value = QDialog.DialogCode.Rejected
+        with patch(
+            "ui.dialog_library_auditing.LibraryEditingPropsEditDialog",
+            MagicMock(return_value=fake_editor),
+        ):
+            dialog.pushButtonEditProperties.click()
+
+        self.assertIs(dialog._sticker, self.gif)
+        self.assertEqual(f"#{self.gif.id} b.gif", dialog.label.text())
 
 
 if __name__ == "__main__":

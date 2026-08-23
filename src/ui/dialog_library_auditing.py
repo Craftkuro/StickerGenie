@@ -22,6 +22,7 @@ import services.sticker_library_viewer_service
 from blob_storage import BlobFileEntity
 from commons.dto import StickerImage, Tag
 
+from .dialog_library_editing_props_edit import LibraryEditingPropsEditDialog
 from .page_similar_images import SimilarImagesPage
 from .widgets.custom_tag_widget import CustomTagWidget, TAG_ACCENT_COLOR_ROLE
 
@@ -68,8 +69,7 @@ class LibraryAuditingDialog(QDialog):
         # 强制激活第1个标签，以免编辑ui文件的时候存入其他激活的标签影响程序运行时行为
         self.tabWidgetBottom.setCurrentIndex(0)
 
-        # 相似图片窗格默认展开，窗口按双倍宽度打开；
-        # pushButtonEditProperties 为未来文件属性编辑预留，暂不连接。
+        # 相似图片窗格默认展开，窗口按双倍宽度打开。
         self.widgetSimilarImages.setVisible(True)
         self.pushButtonShowHideSimilarImages.setText(SIMILAR_BUTTON_HIDE_TEXT)
         self.resize(self.width() * 2, self.height())
@@ -79,6 +79,9 @@ class LibraryAuditingDialog(QDialog):
         self.pushButtonNext.clicked.connect(self._go_next)
         self.pushButtonShowHideSimilarImages.clicked.connect(
             self._toggle_similar_images
+        )
+        self.pushButtonEditProperties.clicked.connect(
+            self._open_property_editor
         )
 
         self.imageTextEditWidget.set_database(self._database)
@@ -468,3 +471,27 @@ class LibraryAuditingDialog(QDialog):
         if value is None:
             return "不可用"
         return value.strftime("%Y-%m-%d %H:%M:%S")
+
+    # ==================== 文件属性编辑 ====================
+
+    def _open_property_editor(self):
+        if self._sticker is None:
+            return
+
+        dialog = LibraryEditingPropsEditDialog(
+            parent=self,
+            database=self._database,
+            sticker=self._sticker,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        updated = dialog.updated_sticker()
+        if updated is None:
+            return
+
+        self._sticker = updated
+        self.label.setText(f"#{updated.id} {updated.original_file_name}")
+        self.imageTextEditWidget.set_sticker(updated)
+        self._reload_tag_model()
+        self._reload_file_info(self._file_path, QPixmap(self._file_path))
