@@ -108,17 +108,19 @@ class LibraryAuditingDialog(QDialog):
         return None
 
     def _go_back(self):
-        """沿浏览历史后退一步；已在起点或前驱已失效时不做任何事。"""
+        """回退到上一张看过的图。
+
+        已经退到最早一条历史、或者上一张图已被删除时，停在原地不动。
+        """
         if self._position <= 0:
             return
-        stickers = self._database.get_stickers_by_ids(
-            [self._history[self._position - 1]]
-        )
+        # 先确认上一张还在，再去移动指针。顺序反过来的话，一旦上一张
+        # 恰好已被删除，指针就会停在一张不存在的图上，之后每次点
+        # “上一个”都会卡在同一处。
+        target_id = self._history[self._position - 1]
+        stickers = self._database.get_stickers_by_ids([target_id])
         if not stickers:
-            logger.warning(
-                "历史记录对应的图片已不存在，id=%s",
-                self._history[self._position - 1],
-            )
+            logger.warning("历史里的上一张图片已不存在，id=%s", target_id)
             return
         self._position -= 1
         self._show_sticker(stickers[0])
@@ -153,9 +155,10 @@ class LibraryAuditingDialog(QDialog):
         self._show_sticker(stickers[0])
 
     def _prune_history(self, deleted_ids: list) -> None:
-        """删除广播后修剪浏览历史，保证画面不再指向被删条目。
+        """收到删除广播后，把刚删掉的图片从浏览历史里清除。
 
-        槽内吞掉异常只记日志：PyQt6 中槽内未捕获异常会直接终止进程。
+        这是 Qt 槽函数：内部出错时只记日志、不往外抛。PyQt6 的规矩是
+        槽函数里冒出未捕获的异常会直接把整个程序带崩。
         """
         try:
             self._apply_history_prune(set(deleted_ids))
@@ -163,26 +166,60 @@ class LibraryAuditingDialog(QDialog):
             logger.exception("修剪审阅历史失败")
 
     def _apply_history_prune(self, deleted: set) -> None:
+        """从 _history 里去掉被删的 id，并让画面指向一张仍然存在的图。
+
+        _history 按先后顺序记录看过的图片 id，_position 指向当前显示
+        的那张。删掉其中一些 id 之后要保证两件事：
+
+        1. 剩下的 id 保持原来的先后顺序（相当于从列表里抠掉几项）；
+        2. _position 要么继续指着原来那张图，要么在原来那张恰好被删
+           时改指到别处。
+
+        :param deleted: 本次广播中所有被删图片的 id 集合
+        """
+        # 如果广播里的 id 一张都没看过，不用动。
         if not deleted.intersection(self._history):
             return
 
         current_id = self._current_id()
-        removed_before_current = sum(
+
+        # 数一数当前这张图的左边有几张会被删掉。
+        # 左边每少一张，当前这张在新列表里的位置就往前挪一格，
+        # 所以这个数字也是稍后指针需要左移的格数。
+        removed_on_left = sum(
             1 for i in self._history[: self._position] if i in deleted
         )
-        # 摘除被删元素，剩余元素天然保序。
+
+        # 从列表里抠掉所有被删的 id。列表推导式按原顺序遍历，
+        # 剩下的元素顺序自然不变。
         self._history = [i for i in self._history if i not in deleted]
 
+        # 情况一：正在看的图没被删。
+        # 只需把指针左移 removed_on_left 格，它仍然指着原来那张图。
+        #
+        # 例：历史 [A, B, C]，正在看 C（下标 2），删掉 B。
+        # 新历史 [A, C]，指针从 2 挪到 1，指的还是 C。
         if current_id is not None and current_id not in deleted:
-            # 当前画面幸存：指针按左侧被删数量左移即可。
-            self._position -= removed_before_current
+            self._position -= removed_on_left
             return
 
-        # 当前画面被删：落到最近的幸存前驱，直接刷新画面，
-        # 不走 _navigate_to（它会截断前进分支再入栈）。
-        landing = max(self._position - removed_before_current - 1, 0)
+        # 情况二：正在看的图被删了，得换一张来显示。
+        # 优先显示历史上离它最近的前一张；如果前几张连着都被删了，
+        # 就再往前找。位置这样算：
+        #   self._position - removed_on_left 是当前这张在新列表里
+        #     “本应待”的位置；
+        #   再减 1 就是它前面那格。
+        #   new_position 小于 0 说明它本来就是最早的一张、前面没有
+        #     更早的了，退而求其次看新列表的第一张；
+        #   最后 min 保证不超出列表末尾。
+        #
+        # 例：历史 [A, B, C]，正在看 B（下标 1），删掉 B。
+        # 新历史 [A, C]，1 - 0 - 1 = 0，改看 A。
+        new_position = self._position - removed_on_left - 1
+        if new_position < 0:
+            new_position = 0
         if self._history:
-            self._position = min(landing, len(self._history) - 1)
+            self._position = min(new_position, len(self._history) - 1)
             stickers = self._database.get_stickers_by_ids(
                 [self._history[self._position]]
             )
@@ -190,16 +227,20 @@ class LibraryAuditingDialog(QDialog):
                 self._show_sticker(stickers[0])
                 return
 
-        # 历史被删空：随机跳一张；空库则停在空白态。
+        # 情况三：历史已经被删空（或者极端情况下取不到图）。
+        # 从库里随机跳一张当作新的浏览起点；整个图库都没有图可看时，
+        # 清空画面进入空白态。
         self._position = -1
         random_id = self._database.random_sticker_id()
         if random_id is not None:
+            # 此时 _history 为空且 _position 为 -1，
+            # _navigate_to 正好会把这张随机图作为第一条历史压入。
             self._navigate_to(random_id)
             return
         self._blank_view()
 
     def _blank_view(self) -> None:
-        """清空画面，进入无内容可展示的空白态。"""
+        """清空左侧大图区域，显示空白。"""
         self._stop_movie()
         self.graphicsView.set_image(QPixmap())
         self._sticker = None
