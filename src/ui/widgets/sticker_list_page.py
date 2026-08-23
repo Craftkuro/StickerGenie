@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QSlider,
+    QToolButton,
     QWidget,
 )
 
@@ -126,6 +127,45 @@ class StickerListPage(QWidget):
         self.add_toolbar_widget(slider)
         self.display_size_slider = slider
 
+    def _setup_display_mode_toggle(self) -> None:
+        """在工具栏滑块左侧加入图标/详细信息显示切换按钮。"""
+        self._ensure_toolbar_spacer()
+
+        button = QToolButton(self)
+        button.setObjectName("displayModeToggle")
+        button.setText("详细信息")
+        button.setToolTip("切换图标/详细信息显示")
+        button.setAccessibleName("切换图标/详细信息显示")
+        button.setCheckable(True)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        button.toggled.connect(self._on_display_mode_toggled)
+        self.insert_toolbar_widget_right_of_spacer(button)
+        self.display_mode_button = button
+
+    def _on_display_mode_toggled(self, checked: bool) -> None:
+        mode = (
+            commons.constants.LIST_DISPLAY_MODE_LIST
+            if checked
+            else commons.constants.LIST_DISPLAY_MODE_ICON
+        )
+        view = self.listViewStickerList
+        view.set_display_mode(mode)
+
+        # 同步滑块范围与位置到新模式的记忆值；先捕获目标值，
+        # 避免 setRange 钳位触发 valueChanged 污染新模式记忆。
+        target_value = view.item_size()
+        slider = getattr(self, "display_size_slider", None)
+        if slider is None:
+            return
+        if mode == commons.constants.LIST_DISPLAY_MODE_LIST:
+            slider.setRange(
+                view.DETAIL_ROW_HEIGHT_MIN,
+                view.DETAIL_ROW_HEIGHT_MAX,
+            )
+        else:
+            slider.setRange(48, commons.constants.THUMBNAIL_SIZE)
+        slider.setValue(target_value)
+
     def refresh_content(self, model: QStandardItemModel):
         previous_model = self.listViewStickerList.model()
         if model.parent() is None:
@@ -153,6 +193,17 @@ class StickerListPage(QWidget):
         sticker = index.data(ROLE_STICKER_IMAGE)
         dialog.load_image(file_path, index.data(), sticker)
         dialog.exec()
+
+        # 查看器里编辑标签只改了共享 DTO，这里补发 dataChanged 通知视图重绘
+        # （详细信息模式的标签列、图标模式均受益）。
+        # 行号越界检查兜底模态期间发生的删除广播（陈旧索引 isValid() 仍为真）。
+        model = self.listViewStickerList.model()
+        if (
+            model is not None
+            and index.isValid()
+            and index.row() < model.rowCount()
+        ):
+            model.dataChanged.emit(index, index, [ROLE_STICKER_IMAGE])
 
     def _show_sticker_context_menu(self, position: QPoint):
         view = self.listViewStickerList

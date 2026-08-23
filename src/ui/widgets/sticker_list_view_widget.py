@@ -1,9 +1,11 @@
 # coding=utf-8
 import logging
+from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QModelIndex, QRect, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
+    QFont,
     QFontMetrics,
     QIcon,
     QPainter,
@@ -21,11 +23,78 @@ from PyQt6.QtWidgets import (
 )
 
 import commons.constants
-from commons.roles import ROLE_BLOB_ENTITY, ROLE_SIMILARITY
+from commons.roles import ROLE_BLOB_ENTITY, ROLE_SIMILARITY, ROLE_STICKER_IMAGE
 import services.global_instances
 from services.thumbnail_provider import ThumbnailProvider
 
 logger = logging.getLogger(__name__)
+
+
+# 详细信息模式标签圆角片的样式常量，配色参照 custom_tag_widget.TagItemDelegate。
+TAG_CHIP_PAD_X = 8
+TAG_CHIP_PAD_Y = 3
+TAG_CHIP_GAP = 6
+TAG_CHIP_CORNER_RADIUS = 5
+TAG_CHIP_BACKGROUND = QColor("#E3F2FD")
+TAG_CHIP_TEXT = QColor("#1565C0")
+TAG_CHIP_BORDER = QColor("#2196F3")
+TAG_CHIP_ACCENT_ALPHA = 35
+MORE_BADGE_BACKGROUND = QColor("#9E9E9E")
+MORE_BADGE_FOREGROUND = QColor("#FFFFFF")
+MORE_BADGE_PAD_X = 4
+
+
+@dataclass(frozen=True)
+class TagChipLayout:
+    """一行内标签圆角片的布局结果。"""
+
+    chips: list[tuple[QRect, str]] = field(default_factory=list)
+    hidden_count: int = 0
+
+
+def layout_tag_chips(
+    text_rect: QRect,
+    tags: list,
+    metrics: QFontMetrics,
+) -> TagChipLayout:
+    """计算标签圆角片在一行内的布局，放不下的折叠进 hidden_count。
+
+    输入顺序即展示顺序（与图片查看器标签编辑框一致），本函数不做重排。
+    """
+    chip_height = metrics.height() + 2 * TAG_CHIP_PAD_Y
+    top = text_rect.center().y() - chip_height // 2
+    limit = text_rect.right() + 1
+
+    chips: list[tuple[QRect, str]] = []
+    x = text_rect.left()
+    for tag in tags:
+        width = metrics.horizontalAdvance(tag.name) + 2 * TAG_CHIP_PAD_X
+        if x + width > limit:
+            break
+        chips.append((QRect(x, top, width, chip_height), tag.name))
+        x += width + TAG_CHIP_GAP
+    hidden_count = len(tags) - len(chips)
+
+    if hidden_count > 0:
+        # 行尾预留 "+N" 徽标位置；与最后一个圆角片重叠时继续折叠。
+        badge_text = f"+{hidden_count}"
+        badge_width = (
+            metrics.horizontalAdvance(badge_text) + 2 * MORE_BADGE_PAD_X
+        )
+        badge_left = limit - badge_width
+        while (
+            chips
+            and chips[-1][0].right() + 1 + TAG_CHIP_GAP > badge_left
+        ):
+            chips.pop()
+            hidden_count += 1
+            badge_text = f"+{hidden_count}"
+            badge_width = (
+                metrics.horizontalAdvance(badge_text) + 2 * MORE_BADGE_PAD_X
+            )
+            badge_left = limit - badge_width
+
+    return TagChipLayout(chips=chips, hidden_count=hidden_count)
 
 
 class StickerItemDelegate(QStyledItemDelegate):
@@ -43,6 +112,9 @@ class StickerItemDelegate(QStyledItemDelegate):
     GIF_BADGE_BACKGROUND = QColor(255, 102, 154)
     GIF_BADGE_FOREGROUND = QColor("#FFFFFF")
     GIF_EXTENSION = ".gif"
+    DETAIL_TEXT_GAP = 12
+    DETAIL_TAG_GAP = 16
+    DETAIL_FILENAME_RATIO = 0.35
 
     def __init__(
         self,
@@ -51,6 +123,7 @@ class StickerItemDelegate(QStyledItemDelegate):
     ):
         super().__init__(parent)
         self._item_size = self.ITEM_SIZE
+        self._display_mode = commons.constants.LIST_DISPLAY_MODE_ICON
         self._thumbnail_provider = (
             thumbnail_provider
             or services.global_instances.current_thumbnail_provider
@@ -63,6 +136,10 @@ class StickerItemDelegate(QStyledItemDelegate):
     def set_item_size(self, size: int) -> None:
         """设置 item 外框边长，尺寸变化后由视图统一触发重新布局。"""
         self._item_size = max(1, int(size))
+
+    def set_display_mode(self, mode: int) -> None:
+        """切换绘制形态：图标网格（LIST_DISPLAY_MODE_ICON）或详细信息行。"""
+        self._display_mode = mode
 
     def _pixmap_for_index(
         self,
@@ -113,30 +190,98 @@ class StickerItemDelegate(QStyledItemDelegate):
                 fill_color.setAlpha(18)
                 painter.fillRect(option.rect, fill_color)
 
-            icon_rect = option.rect.adjusted(
-                self.PADDING,
-                self.PADDING,
-                -self.PADDING,
-                -self.PADDING,
+            if self._display_mode == commons.constants.LIST_DISPLAY_MODE_LIST:
+                self._paint_detail(painter, option, index)
+            else:
+                self._paint_icon(painter, option, index)
+        finally:
+            painter.restore()
+
+    def _paint_icon(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        icon_rect = option.rect.adjusted(
+            self.PADDING,
+            self.PADDING,
+            -self.PADDING,
+            -self.PADDING,
+        )
+        mode = (
+            QIcon.Mode.Normal
+            if option.state & QStyle.StateFlag.State_Enabled
+            else QIcon.Mode.Disabled
+        )
+        pixmap = self._pixmap_for_index(index, icon_rect.size(), mode)
+        if pixmap.isNull():
+            return
+        pixmap = pixmap.scaled(
+            icon_rect.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        pixmap_rect = pixmap.rect()
+        pixmap_rect.moveCenter(icon_rect.center())
+        painter.drawPixmap(pixmap_rect, pixmap)
+
+        # 对于 GIF 图片，在左上角画一个 GIF 角标
+        blob_entity = index.data(ROLE_BLOB_ENTITY)
+        if (
+            blob_entity is not None
+            and blob_entity.extension.casefold() == self.GIF_EXTENSION
+        ):
+            self._draw_badge(
+                painter,
+                pixmap_rect,
+                "GIF",
+                self.GIF_BADGE_BACKGROUND,
+                self.GIF_BADGE_FOREGROUND,
+                align_left=True,
             )
-            mode = (
-                QIcon.Mode.Normal
-                if option.state & QStyle.StateFlag.State_Enabled
-                else QIcon.Mode.Disabled
+
+        # 对于有相似度数据的图，在右上角画一个相似度的角标
+        similarity = index.data(ROLE_SIMILARITY)
+        if similarity is not None:
+            self._draw_similarity_badge(
+                painter,
+                pixmap_rect,
+                float(similarity),
             )
-            pixmap = self._pixmap_for_index(index, icon_rect.size(), mode)
-            if pixmap.isNull():
-                return
+
+    def _paint_detail(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        """详细信息模式：左侧小缩略图 + 文件名 + 标签圆角片。"""
+        rect = option.rect
+        thumb_side = max(1, rect.height() - 2 * self.PADDING)
+        thumb_rect = QRect(
+            rect.left() + self.PADDING,
+            rect.top() + self.PADDING,
+            thumb_side,
+            thumb_side,
+        )
+        mode = (
+            QIcon.Mode.Normal
+            if option.state & QStyle.StateFlag.State_Enabled
+            else QIcon.Mode.Disabled
+        )
+        pixmap = self._pixmap_for_index(index, thumb_rect.size(), mode)
+        if not pixmap.isNull():
             pixmap = pixmap.scaled(
-                icon_rect.size(),
+                thumb_rect.size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
             pixmap_rect = pixmap.rect()
-            pixmap_rect.moveCenter(icon_rect.center())
+            pixmap_rect.moveCenter(thumb_rect.center())
             painter.drawPixmap(pixmap_rect, pixmap)
 
-            # 对于 GIF 图片，在左上角画一个 GIF 角标
+            # 角标与图标模式共用，只是基准换成小缩略图矩形。
             blob_entity = index.data(ROLE_BLOB_ENTITY)
             if (
                 blob_entity is not None
@@ -150,8 +295,6 @@ class StickerItemDelegate(QStyledItemDelegate):
                     self.GIF_BADGE_FOREGROUND,
                     align_left=True,
                 )
-
-            # 对于有相似度数据的图，在右上角画一个相似度的角标
             similarity = index.data(ROLE_SIMILARITY)
             if similarity is not None:
                 self._draw_similarity_badge(
@@ -159,8 +302,110 @@ class StickerItemDelegate(QStyledItemDelegate):
                     pixmap_rect,
                     float(similarity),
                 )
-        finally:
-            painter.restore()
+
+        text_left = thumb_rect.right() + 1 + self.DETAIL_TEXT_GAP
+        text_right = rect.right() - self.PADDING
+        if text_right < text_left:
+            return
+        text_rect = QRect(
+            text_left,
+            rect.top(),
+            text_right - text_left + 1,
+            rect.height(),
+        )
+        metrics = QFontMetrics(option.font)
+
+        sticker = index.data(ROLE_STICKER_IMAGE)
+        if sticker is not None:
+            filename = sticker.original_file_name or ""
+        else:
+            # debug 服务等构造的模型没有 ROLE_STICKER_IMAGE，退回 DisplayRole。
+            filename = index.data(Qt.ItemDataRole.DisplayRole) or ""
+
+        name_limit = max(0, int(text_rect.width() * self.DETAIL_FILENAME_RATIO))
+        elided_name = ""
+        if name_limit > 0:
+            elided_name = metrics.elidedText(
+                filename,
+                Qt.TextElideMode.ElideRight,
+                name_limit,
+            )
+        name_rect = QRect(
+            text_rect.left(),
+            text_rect.top(),
+            name_limit,
+            text_rect.height(),
+        )
+        painter.setPen(option.palette.text().color())
+        painter.drawText(
+            name_rect,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            elided_name,
+        )
+
+        tags_left = name_rect.right() + 1 + self.DETAIL_TAG_GAP
+        if tags_left > text_rect.right():
+            return
+        tags_rect = QRect(
+            tags_left,
+            text_rect.top(),
+            text_rect.right() - tags_left + 1,
+            text_rect.height(),
+        )
+        tags = sticker.tags if sticker is not None else []
+        if not tags:
+            return
+        layout = layout_tag_chips(tags_rect, tags, metrics)
+        self._draw_tag_chips(painter, option, tags_rect, layout, tags)
+
+    def _draw_tag_chips(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        clip_rect: QRect,
+        layout: TagChipLayout,
+        tags: list,
+    ) -> None:
+        """按布局绘制彩色标签圆角片；样式对齐 TagItemDelegate。"""
+        painter.save()
+        painter.setClipRect(clip_rect)
+        for position, (chip_rect, label) in enumerate(layout.chips):
+            accent_value = getattr(tags[position], "color_rgb", "")
+            accent_color = QColor(accent_value) if accent_value else QColor()
+            has_accent = accent_color.isValid()
+            border = accent_color if has_accent else TAG_CHIP_BORDER
+            if has_accent:
+                background = QColor(border)
+                background.setAlpha(TAG_CHIP_ACCENT_ALPHA)
+                text_color = option.palette.text().color()
+            else:
+                background = TAG_CHIP_BACKGROUND
+                text_color = TAG_CHIP_TEXT
+
+            painter.setBrush(background)
+            painter.setPen(QPen(border, 1))
+            painter.drawRoundedRect(
+                chip_rect,
+                TAG_CHIP_CORNER_RADIUS,
+                TAG_CHIP_CORNER_RADIUS,
+            )
+            painter.setPen(text_color)
+            painter.drawText(
+                chip_rect,
+                Qt.AlignmentFlag.AlignCenter,
+                label,
+            )
+        painter.restore()
+
+        if layout.hidden_count > 0:
+            self._draw_badge(
+                painter,
+                clip_rect,
+                f"+{layout.hidden_count}",
+                MORE_BADGE_BACKGROUND,
+                MORE_BADGE_FOREGROUND,
+                vertical_center=True,
+            )
 
     def _draw_similarity_badge(
         self,
@@ -186,6 +431,7 @@ class StickerItemDelegate(QStyledItemDelegate):
         foreground: QColor,
         *,
         align_left: bool = False,
+        vertical_center: bool = False,
     ) -> None:
         """在缩略图角落绘制固定大小的角标，与相似度角标同一样式。"""
         font = painter.font()
@@ -208,9 +454,15 @@ class StickerItemDelegate(QStyledItemDelegate):
                 - badge_width
                 - self.BADGE_MARGIN
             )
+        if vertical_center:
+            badge_top = (
+                thumbnail_rect.center().y() - badge_height // 2
+            )
+        else:
+            badge_top = thumbnail_rect.top() + self.BADGE_MARGIN
         badge_rect = QRect(
             badge_left,
-            thumbnail_rect.top() + self.BADGE_MARGIN,
+            badge_top,
             badge_width,
             badge_height,
         )
@@ -234,6 +486,9 @@ class StickerItemDelegate(QStyledItemDelegate):
         option: QStyleOptionViewItem,
         index: QModelIndex,
     ) -> QSize:
+        if self._display_mode == commons.constants.LIST_DISPLAY_MODE_LIST:
+            # 宽度仅作兜底；实际 cell 尺寸由 gridSize 决定。
+            return QSize(self._item_size * 4, self._item_size)
         return QSize(self._item_size, self._item_size)
 
 
@@ -248,6 +503,9 @@ class StickerListView(QListView):
     THUMBNAIL_SIZE = commons.constants.THUMBNAIL_SIZE
     ITEM_SIZE = StickerItemDelegate.ITEM_SIZE
     LOAD_MORE_THRESHOLD = 64
+    DETAIL_ROW_HEIGHT_DEFAULT = 72
+    DETAIL_ROW_HEIGHT_MIN = 48
+    DETAIL_ROW_HEIGHT_MAX = 128
 
     def __init__(
         self,
@@ -262,11 +520,13 @@ class StickerListView(QListView):
 
         super().__init__(parent)
 
-        self.display_mode = commons.constants.LIST_DISPLAY_MODE_ICON
+        self._display_mode = commons.constants.LIST_DISPLAY_MODE_ICON
         self.sort_mode = commons.constants.SORT_BY_DATE
         self.reverse_sort = False
         self._thumbnail_provider: ThumbnailProvider | None = None
-        self._item_size = self.ITEM_SIZE
+        # 两种模式的尺寸互相独立记忆（类似 Windows 资源管理器）。
+        self._icon_item_size = self.ITEM_SIZE
+        self._detail_row_height = self.DETAIL_ROW_HEIGHT_DEFAULT
         # hash -> row 索引：缩略图就绪时按 hash 直接定位行，避免逐行扫描视口。
         self._hash_to_rows: dict[str, int] = {}
 
@@ -280,7 +540,9 @@ class StickerListView(QListView):
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
         self.setIconSize(QSize(self.THUMBNAIL_SIZE, self.THUMBNAIL_SIZE))
-        self.setGridSize(QSize(self._item_size, self._item_size))
+        self.setGridSize(
+            QSize(self._icon_item_size, self._icon_item_size)
+        )
         self.setSpacing(8)
         self.setUniformItemSizes(True)
         self.setWordWrap(False)
@@ -393,17 +655,67 @@ class StickerListView(QListView):
         self.load_more_requested.emit()
 
     def item_size(self) -> int:
-        """返回当前 item 外框边长。"""
-        return self._item_size
+        """返回当前模式的显示尺寸（图标模式为格子边长，详细信息模式为行高）。"""
+        if self._display_mode == commons.constants.LIST_DISPLAY_MODE_LIST:
+            return self._detail_row_height
+        return self._icon_item_size
 
-    def set_display_size(self, size: int) -> None:
-        """调整图片显示大小（类似 Windows 7 资源管理器的滑块）。"""
-        size = max(32, min(int(size), 512))
-        self._item_size = size
+    def set_display_mode(self, mode: int) -> None:
+        """在图标模式和详细信息模式之间切换，两种模式的尺寸各自记忆。"""
+        self._display_mode = mode
         delegate = self.itemDelegate()
         if isinstance(delegate, StickerItemDelegate):
-            delegate.set_item_size(size)
-        self.setGridSize(QSize(size, size))
+            delegate.set_display_mode(mode)
+
+        if mode == commons.constants.LIST_DISPLAY_MODE_LIST:
+            self.setViewMode(QListView.ViewMode.ListMode)
+            self._apply_detail_row_height()
+        else:
+            self.setViewMode(QListView.ViewMode.IconMode)
+            if isinstance(delegate, StickerItemDelegate):
+                delegate.set_item_size(self._icon_item_size)
+            self._apply_icon_grid_size()
+        # 立即重排，不等下一次视口事件。
+        self.doItemsLayout()
+
+    def set_display_size(self, size: int) -> None:
+        """调整当前模式的显示大小（类似 Windows 7 资源管理器的滑块）。"""
+        size = int(size)
+        delegate = self.itemDelegate()
+        if self._display_mode == commons.constants.LIST_DISPLAY_MODE_LIST:
+            self._detail_row_height = max(
+                self.DETAIL_ROW_HEIGHT_MIN,
+                min(size, self.DETAIL_ROW_HEIGHT_MAX),
+            )
+            if isinstance(delegate, StickerItemDelegate):
+                delegate.set_item_size(self._detail_row_height)
+            self._sync_detail_grid_width()
+        else:
+            self._icon_item_size = max(32, min(size, 512))
+            if isinstance(delegate, StickerItemDelegate):
+                delegate.set_item_size(self._icon_item_size)
+            self._apply_icon_grid_size()
+
+    def _apply_icon_grid_size(self) -> None:
+        self.setGridSize(
+            QSize(self._icon_item_size, self._icon_item_size)
+        )
+
+    def _apply_detail_row_height(self) -> None:
+        delegate = self.itemDelegate()
+        if isinstance(delegate, StickerItemDelegate):
+            delegate.set_item_size(self._detail_row_height)
+        self._sync_detail_grid_width()
+
+    def _sync_detail_grid_width(self) -> None:
+        """详细信息模式下格子占满视口宽度，高度为当前行高。"""
+        width = max(1, self.viewport().width())
+        self.setGridSize(QSize(width, self._detail_row_height))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._display_mode == commons.constants.LIST_DISPLAY_MODE_LIST:
+            self._sync_detail_grid_width()
 
     def set_thumbnail_provider(self, thumbnail_provider: ThumbnailProvider) -> None:
         if self._thumbnail_provider is not None:
@@ -415,7 +727,8 @@ class StickerListView(QListView):
                 pass
         self._thumbnail_provider = thumbnail_provider
         delegate = StickerItemDelegate(self, thumbnail_provider)
-        delegate.set_item_size(self._item_size)
+        delegate.set_item_size(self.item_size())
+        delegate.set_display_mode(self._display_mode)
         self.setItemDelegate(delegate)
         if thumbnail_provider is not None:
             thumbnail_provider.thumbnail_ready.connect(self._on_thumbnail_ready)

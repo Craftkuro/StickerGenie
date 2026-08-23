@@ -59,6 +59,7 @@ class InfiniteStickerCollectionPage(StickerListPage):
             self.signal_refresh_content.emit()
         else:
             self._reset_and_load_first_page()
+        self._setup_display_mode_toggle()
         self._setup_display_size_slider()
 
     def _setup_sort_button(self) -> None:

@@ -19,6 +19,7 @@ from PyQt6.QtCore import (
     Qt,
 )
 from PyQt6.QtGui import (
+    QFontMetrics,
     QIcon,
     QImage,
     QPainter,
@@ -40,6 +41,7 @@ from PyQt6.QtWidgets import (
 )
 
 import apppath
+import commons.constants
 from blob_storage import BlobFileEntity
 from commons.dto import StickerImage, Tag
 from commons.roles import (
@@ -61,8 +63,11 @@ from ui.page_infinite_sticker_collection import InfiniteStickerCollectionPage
 from ui.page_search_result import SearchResultPage
 from ui.page_similar_images import SimilarImagesPage
 from ui.widgets.sticker_list_view_widget import (
+    MORE_BADGE_PAD_X,
     StickerItemDelegate,
     StickerListView,
+    TAG_CHIP_GAP,
+    layout_tag_chips,
 )
 from ui.widgets.toolbar_spacer import ToolbarSpacer
 
@@ -742,6 +747,7 @@ class StickerListViewTests(unittest.TestCase):
                 left_button,
                 page.toolbar_spacer,
                 right_button,
+                page.display_mode_button,
                 page.display_size_slider,
             ],
             widgets,
@@ -1467,6 +1473,529 @@ class StickerListViewTests(unittest.TestCase):
                 anim_as_static_image=True,
             )
             page.close()
+
+    # ==================== 显示模式切换（视图层） ====================
+
+    def test_set_display_mode_switches_view_and_grid(self):
+        view = StickerListView()
+        model = QStandardItemModel()
+        model.appendRow(QStandardItem(""))
+        view.setModel(model)
+        view.resize(400, 240)
+        view.show()
+        QApplication.processEvents()
+        expected_width = view.viewport().width()
+
+        view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_LIST)
+
+        self.assertEqual(QListView.ViewMode.ListMode, view.viewMode())
+        self.assertEqual(
+            QSize(expected_width, StickerListView.DETAIL_ROW_HEIGHT_DEFAULT),
+            view.gridSize(),
+        )
+        delegate = view.itemDelegate()
+        self.assertEqual(
+            QSize(StickerListView.DETAIL_ROW_HEIGHT_DEFAULT * 4,
+                  StickerListView.DETAIL_ROW_HEIGHT_DEFAULT),
+            delegate.sizeHint(QStyleOptionViewItem(), model.index(0, 0)),
+        )
+
+        view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_ICON)
+
+        self.assertEqual(QListView.ViewMode.IconMode, view.viewMode())
+        self.assertEqual(QSize(160, 160), view.gridSize())
+        self.assertEqual(
+            QSize(160, 160),
+            delegate.sizeHint(QStyleOptionViewItem(), model.index(0, 0)),
+        )
+        view.close()
+
+    def test_display_sizes_are_remembered_per_mode(self):
+        view = StickerListView()
+        view.resize(400, 240)
+        view.show()
+        QApplication.processEvents()
+
+        view.set_display_size(96)
+        view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_LIST)
+        view.set_display_size(100)
+
+        self.assertEqual(100, view.item_size())
+        self.assertEqual(
+            QSize(view.viewport().width(), 100),
+            view.gridSize(),
+        )
+
+        view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_ICON)
+
+        self.assertEqual(96, view.item_size())
+        self.assertEqual(QSize(96, 96), view.gridSize())
+
+        view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_LIST)
+
+        self.assertEqual(100, view.item_size())
+        view.close()
+
+    def test_detail_row_height_is_clamped_to_slider_range(self):
+        view = StickerListView()
+        view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_LIST)
+
+        view.set_display_size(10)
+        self.assertEqual(StickerListView.DETAIL_ROW_HEIGHT_MIN, view.item_size())
+        view.set_display_size(5000)
+        self.assertEqual(StickerListView.DETAIL_ROW_HEIGHT_MAX, view.item_size())
+        view.close()
+
+    def test_resize_updates_detail_grid_width(self):
+        view = StickerListView()
+        model = QStandardItemModel()
+        for _ in range(30):
+            model.appendRow(QStandardItem(""))
+        view.setModel(model)
+        view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_LIST)
+        view.resize(400, 240)
+        view.show()
+        QApplication.processEvents()
+        first_width = view.gridSize().width()
+
+        view.resize(650, 240)
+        QApplication.processEvents()
+
+        self.assertNotEqual(first_width, view.gridSize().width())
+        self.assertEqual(view.viewport().width(), view.gridSize().width())
+        view.close()
+
+    def test_item_size_reflects_current_mode(self):
+        view = StickerListView()
+
+        self.assertEqual(160, view.item_size())
+        view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_LIST)
+        self.assertEqual(
+            StickerListView.DETAIL_ROW_HEIGHT_DEFAULT,
+            view.item_size(),
+        )
+        view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_ICON)
+        self.assertEqual(160, view.item_size())
+        view.close()
+
+    def test_rebuilt_delegate_inherits_current_mode_and_size(self):
+        view = StickerListView(thumbnail_provider=ThumbnailProvider())
+        view.set_display_size(120)
+        view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_LIST)
+        view.set_thumbnail_provider(ThumbnailProvider())
+
+        delegate = view.itemDelegate()
+        self.assertIsInstance(delegate, StickerItemDelegate)
+        self.assertEqual(
+            commons.constants.LIST_DISPLAY_MODE_LIST,
+            delegate._display_mode,
+        )
+        self.assertEqual(72, delegate._item_size)
+        view.close()
+
+    def test_toolbar_has_display_mode_toggle(self):
+        page = FiniteStickerCollectionPage(auto_refresh=False)
+        toggle = page.display_mode_button
+        widgets = [
+            page.toolbarStickerList.widgetForAction(action)
+            for action in page.toolbarStickerList.actions()
+        ]
+
+        self.assertIn(toggle, widgets)
+        self.assertTrue(toggle.isCheckable())
+        self.assertEqual("详细信息", toggle.text())
+        self.assertLess(
+            widgets.index(toggle),
+            widgets.index(page.display_size_slider),
+        )
+        page.close()
+
+    def test_display_mode_toggle_updates_view_and_slider(self):
+        page = FiniteStickerCollectionPage(auto_refresh=False)
+        view = page.listViewStickerList
+        toggle = page.display_mode_button
+        slider = page.display_size_slider
+
+        toggle.setChecked(True)
+
+        self.assertEqual(
+            commons.constants.LIST_DISPLAY_MODE_LIST,
+            view._display_mode,
+        )
+        self.assertEqual(QListView.ViewMode.ListMode, view.viewMode())
+        self.assertEqual((48, StickerListView.DETAIL_ROW_HEIGHT_MAX), (slider.minimum(), slider.maximum()))
+        self.assertEqual(StickerListView.DETAIL_ROW_HEIGHT_DEFAULT, slider.value())
+
+        toggle.setChecked(False)
+
+        self.assertEqual(QListView.ViewMode.IconMode, view.viewMode())
+        self.assertEqual((48, commons.constants.THUMBNAIL_SIZE), (slider.minimum(), slider.maximum()))
+        self.assertEqual(160, slider.value())
+        self.assertEqual(QSize(160, 160), view.gridSize())
+        page.close()
+
+    # ==================== 详细模式绘制（像素采样） ====================
+
+    @staticmethod
+    def _make_tag(name, *, tag_id=1, order=0, color="#2196F3"):
+        tag = Tag()
+        tag.id = tag_id
+        tag.name = name
+        tag.order = order
+        tag.color_rgb = color
+        return tag
+
+    def _paint_item_in_rect(
+        self,
+        item: QStandardItem,
+        rect: QRect,
+        thumbnail_provider=None,
+        display_mode: int | None = None,
+    ) -> QImage:
+        model = QStandardItemModel()
+        model.appendRow(item)
+        canvas = QImage(rect.width(), rect.height(), QImage.Format.Format_ARGB32)
+        canvas.fill(0xFF00FF00)
+        painter = QPainter(canvas)
+        try:
+            option = QStyleOptionViewItem()
+            option.rect = rect
+            option.state = QStyle.StateFlag.State_Enabled
+            delegate = StickerItemDelegate(
+                thumbnail_provider=thumbnail_provider
+            )
+            if display_mode is not None:
+                delegate.set_display_mode(display_mode)
+            delegate.set_item_size(rect.height())
+            delegate.paint(painter, option, model.index(0, 0))
+        finally:
+            painter.end()
+        return canvas
+
+    def _paint_detail_item(
+        self,
+        item: QStandardItem,
+        *,
+        width: int = 400,
+        height: int = 72,
+        thumbnail_provider=None,
+    ) -> QImage:
+        return self._paint_item_in_rect(
+            item,
+            QRect(0, 0, width, height),
+            thumbnail_provider=thumbnail_provider,
+            display_mode=commons.constants.LIST_DISPLAY_MODE_LIST,
+        )
+
+    @staticmethod
+    def _white_pixel_bounds(image: QImage):
+        min_x = min_y = max_x = max_y = None
+        for y in range(image.height()):
+            for x in range(image.width()):
+                color = image.pixelColor(x, y)
+                if (
+                    color.red() > 230
+                    and color.green() > 230
+                    and color.blue() > 230
+                ):
+                    if min_x is None or x < min_x:
+                        min_x = x
+                    if min_y is None or y < min_y:
+                        min_y = y
+                    if max_x is None or x > max_x:
+                        max_x = x
+                    if max_y is None or y > max_y:
+                        max_y = y
+        if min_x is None:
+            return None
+        return (min_x, min_y, max_x, max_y)
+
+    @staticmethod
+    def _gray_pixel_count(image: QImage, bounds) -> int:
+        min_x, min_y, max_x, max_y = bounds
+        count = 0
+        for y in range(min_y, max_y + 1):
+            for x in range(min_x, max_x + 1):
+                color = image.pixelColor(x, y)
+                if (
+                    130 < color.red() < 190
+                    and abs(color.red() - color.green()) < 12
+                    and abs(color.green() - color.blue()) < 12
+                ):
+                    count += 1
+        return count
+
+    def test_detail_paint_draws_thumbnail_on_left(self):
+        provider = FakeThumbnailProvider()
+        item = QStandardItem("")
+        item.setData(BlobFileEntity("detail-hash", ".png"), ROLE_BLOB_ENTITY)
+        canvas = self._paint_detail_item(item, thumbnail_provider=provider)
+
+        bounds = self._white_pixel_bounds(canvas)
+        self.assertIsNotNone(bounds)
+        min_x, _, max_x, _ = bounds
+        self.assertLessEqual(max_x, canvas.width() // 3)
+        self.assertGreater(min_x, 0)
+
+    def test_detail_paint_draws_filename_and_tags_text(self):
+        sticker = make_sticker()
+        sticker.original_file_name = "detail_name.png"
+        sticker.tags = [
+            self._make_tag("城市", tag_id=1, order=1),
+            self._make_tag("建筑", tag_id=2, order=2),
+        ]
+        item = QStandardItem("")
+        item.setData(sticker, ROLE_STICKER_IMAGE)
+        canvas = self._paint_detail_item(item)
+
+        text_zone = (90, 0, canvas.width() - 1, canvas.height() - 1)
+        self.assertGreater(self._black_pixel_count(canvas, text_zone), 0)
+
+    def test_detail_paint_draws_colored_tag_chips(self):
+        sticker = make_sticker()
+        sticker.tags = [self._make_tag("红色标签", color="#FF0000")]
+        item = QStandardItem("")
+        item.setData(sticker, ROLE_STICKER_IMAGE)
+        canvas = self._paint_detail_item(item)
+
+        red_count = 0
+        for y in range(canvas.height()):
+            for x in range(canvas.width() // 2, canvas.width()):
+                color = canvas.pixelColor(x, y)
+                if color.red() > 200 and color.green() < 80 and color.blue() < 80:
+                    red_count += 1
+        self.assertGreater(red_count, 0)
+
+    def test_detail_paint_keeps_gif_badge_on_small_thumbnail(self):
+        provider = FakeThumbnailProvider()
+        item = QStandardItem("")
+        item.setData(BlobFileEntity("detail-gif-hash", ".gif"), ROLE_BLOB_ENTITY)
+        canvas = self._paint_detail_item(item, thumbnail_provider=provider)
+
+        bounds = self._pink_pixel_bounds(canvas)
+        self.assertIsNotNone(bounds)
+        min_x, min_y, max_x, max_y = bounds
+        self.assertLess(max_x, canvas.width() // 3)
+        self.assertLess(max_y, canvas.height() // 2)
+        self.assertLess(min_x, 40)
+        self.assertLess(min_y, 20)
+
+    def test_detail_paint_without_dto_falls_back_to_display_role(self):
+        item = QStandardItem("fallback_name.png")
+        canvas = self._paint_detail_item(item)
+
+        text_zone = (100, 0, canvas.width() - 1, canvas.height() - 1)
+        self.assertGreater(self._black_pixel_count(canvas, text_zone), 0)
+
+    def test_empty_tags_leave_blank_region(self):
+        sticker = make_sticker()
+        sticker.original_file_name = "a.png"
+        sticker.tags = []
+        item = QStandardItem("")
+        item.setData(sticker, ROLE_STICKER_IMAGE)
+        canvas = self._paint_detail_item(item)
+
+        blank_zone = (int(canvas.width() * 0.55), 0, canvas.width() - 1,
+                      canvas.height() - 1)
+        self.assertEqual(0, self._black_pixel_count(canvas, blank_zone))
+
+    def test_detail_paint_overflow_tags_show_plus_n_badge(self):
+        sticker = make_sticker()
+        sticker.tags = [
+            self._make_tag(f"很长很长的标签名{i}", tag_id=i, order=i)
+            for i in range(12)
+        ]
+        item = QStandardItem("")
+        item.setData(sticker, ROLE_STICKER_IMAGE)
+        canvas = self._paint_detail_item(item, width=360)
+
+        right_edge = (
+            canvas.width() - 60, 0, canvas.width() - 1, canvas.height() - 1
+        )
+        gray_count = self._gray_pixel_count(canvas, right_edge)
+        self.assertGreater(gray_count, 0)
+        badge_rows = {
+            y
+            for y in range(canvas.height())
+            if self._gray_pixel_count(
+                canvas,
+                (canvas.width() - 60, y, canvas.width() - 1, y),
+            ) > 0
+        }
+        # 徽标垂直居中，不贴行顶。
+        self.assertTrue(all(row > canvas.height() * 0.2 for row in badge_rows))
+
+    # ==================== 标签布局纯函数 ====================
+
+    def test_layout_tag_chips_preserves_input_order(self):
+        metrics = QFontMetrics(QApplication.instance().font())
+        tags = [
+            self._make_tag("甲", tag_id=5, order=1),
+            self._make_tag("乙", tag_id=9, order=1),
+            self._make_tag("丙", tag_id=1, order=2),
+        ]
+
+        layout = layout_tag_chips(QRect(0, 0, 600, 72), tags, metrics)
+
+        self.assertEqual(["甲", "乙", "丙"], [label for _, label in layout.chips])
+        lefts = [chip.left() for chip, _ in layout.chips]
+        self.assertEqual(sorted(lefts), lefts)
+        self.assertEqual(0, layout.hidden_count)
+
+    def test_layout_tag_chips_folds_overflow_with_plus_n(self):
+        metrics = QFontMetrics(QApplication.instance().font())
+        tags = [
+            self._make_tag(f"长标签名称{i}", tag_id=i, order=i)
+            for i in range(10)
+        ]
+        rect = QRect(0, 0, 260, 72)
+
+        layout = layout_tag_chips(rect, tags, metrics)
+
+        self.assertGreater(layout.hidden_count, 0)
+        self.assertLess(len(layout.chips), len(tags))
+        badge_width = (
+            metrics.horizontalAdvance(f"+{layout.hidden_count}")
+            + 2 * MORE_BADGE_PAD_X
+        )
+        for chip_rect, _ in layout.chips:
+            self.assertTrue(rect.contains(chip_rect))
+            self.assertLessEqual(
+                chip_rect.right() + 1 + TAG_CHIP_GAP,
+                rect.right() + 1 - badge_width,
+            )
+
+    def test_layout_tag_chips_single_oversized_tag_is_folded(self):
+        metrics = QFontMetrics(QApplication.instance().font())
+        tags = [self._make_tag("一个特别特别特别特别长的标签名")]
+
+        layout = layout_tag_chips(QRect(0, 0, 60, 72), tags, metrics)
+
+        self.assertEqual([], layout.chips)
+        self.assertEqual(1, layout.hidden_count)
+
+    # ==================== 链路回归 ====================
+
+    def test_batch_tag_update_repaints_detail_rows(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        current_sticker = make_sticker()
+        item = QStandardItem("")
+        item.setData(current_sticker, ROLE_STICKER_IMAGE)
+        model.appendRow(item)
+        page.refresh_content(model)
+        page.display_mode_button.setChecked(True)
+
+        spy = QSignalSpy(model.dataChanged)
+        updated_sticker = make_sticker()
+        updated_sticker.tags = [self._make_tag("批量新标签", tag_id=77)]
+        page._update_sticker_dtos([updated_sticker])
+
+        self.assertGreaterEqual(len(spy), 1)
+        self.assertEqual([ROLE_STICKER_IMAGE], list(spy[0][2]))
+        stored_sticker = model.index(0, 0).data(ROLE_STICKER_IMAGE)
+        self.assertEqual(["批量新标签"], [tag.name for tag in stored_sticker.tags])
+        page.close()
+
+    def test_mode_switch_preserves_load_more_and_hash_index(self):
+        provider = ThumbnailProvider()
+        view = StickerListView(thumbnail_provider=provider)
+        model = QStandardItemModel()
+        for row in range(200):
+            item = QStandardItem("")
+            item.setData(BlobFileEntity(f"hash-{row}", ".png"), ROLE_BLOB_ENTITY)
+            model.appendRow(item)
+        view.setModel(model)
+        view.resize(320, 240)
+        view.show()
+        QApplication.processEvents()
+
+        for mode in (
+            commons.constants.LIST_DISPLAY_MODE_LIST,
+            commons.constants.LIST_DISPLAY_MODE_ICON,
+            commons.constants.LIST_DISPLAY_MODE_LIST,
+        ):
+            view.set_display_mode(mode)
+
+        spy = QSignalSpy(view.load_more_requested)
+        scrollbar = view.verticalScrollBar()
+        self.assertGreater(scrollbar.maximum(), 0)
+        scrollbar.setValue(scrollbar.maximum())
+        QApplication.processEvents()
+        self.assertGreater(len(spy), 0)
+
+        scrollbar.setValue(0)
+        QApplication.processEvents()
+        with patch.object(view, "_update_item") as update_item:
+            provider.thumbnail_ready.emit(
+                "hash-1",
+                QImage(1, 1, QImage.Format.Format_RGB32),
+            )
+        update_item.assert_called_once()
+        self.assertEqual("hash-1",
+                         update_item.call_args.args[0].data(ROLE_BLOB_ENTITY).hash)
+        view.close()
+
+    def test_viewer_close_emits_data_changed(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        item = QStandardItem("")
+        item.setData(make_sticker(), ROLE_STICKER_IMAGE)
+        item.setData("stored.png", ROLE_FILE_PATH)
+        model.appendRow(item)
+        page.refresh_content(model)
+        index = model.index(0, 0)
+
+        class FakeDialog:
+            def __init__(self, parent=None):
+                pass
+
+            def load_image(self, *_args, **_kwargs):
+                pass
+
+            def exec(self):
+                return 0
+
+        with patch(
+            "ui.widgets.sticker_list_page.ImageViewerDialog", FakeDialog
+        ):
+            spy = QSignalSpy(model.dataChanged)
+            page._open_image_viewer_for_index(index)
+
+        self.assertEqual(1, len(spy))
+        self.assertEqual(index.row(), spy[0][0].row())
+        self.assertEqual([ROLE_STICKER_IMAGE], list(spy[0][2]))
+        page.close()
+
+    def test_viewer_close_after_row_deletion_skips_data_changed(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        item = QStandardItem("")
+        item.setData(make_sticker(), ROLE_STICKER_IMAGE)
+        item.setData("stored.png", ROLE_FILE_PATH)
+        model.appendRow(item)
+        page.refresh_content(model)
+        index = model.index(0, 0)
+
+        class DeletingDialog:
+            def __init__(self, parent=None):
+                pass
+
+            def load_image(self, *_args, **_kwargs):
+                pass
+
+            def exec(self):
+                model.removeRow(0)
+                return 0
+
+        with patch(
+            "ui.widgets.sticker_list_page.ImageViewerDialog", DeletingDialog
+        ):
+            spy = QSignalSpy(model.dataChanged)
+            page._open_image_viewer_for_index(index)
+
+        self.assertEqual(0, len(spy))
+        page.close()
 
 
 if __name__ == "__main__":
