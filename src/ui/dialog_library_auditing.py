@@ -138,6 +138,23 @@ class LibraryAuditingDialog(QDialog):
         self._navigate_to(next_id)
 
     def _go_next(self):
+        """历史里还有更晚的条目时沿历史前进；否则才跳到下一个 id。
+
+        与浏览器的前进一致：回退之后再前进只是重新走一遍来时的路，
+        不产生新条目。前进条目已不存在时（删除广播丢失等防御情况）
+        记日志后转走“下一个 id”；_navigate_to 会截断当前位置之后的
+        历史，正好把这条死条目清掉。
+        """
+        if self._position + 1 < len(self._history):
+            target_id = self._history[self._position + 1]
+            stickers = self._database.get_stickers_by_ids([target_id])
+            if stickers:
+                self._position += 1
+                self._show_sticker(stickers[0])
+                return
+            logger.warning("历史里的下一张图片已不存在，id=%s", target_id)
+
+        # 已没有历史可供前进，或历史里的下一张图片找不到，都使用默认行为即访问下一个id
         current_id = self._current_id()
         if current_id is None:
             return

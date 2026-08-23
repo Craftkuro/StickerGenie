@@ -250,6 +250,51 @@ class LibraryAuditingDialogTests(unittest.TestCase):
             [self.png_a.id, self.gif.id, self.png_b.id], dialog._history
         )
 
+    def test_next_walks_forward_history_before_querying_db(self):
+        dialog = self._build_three_step_history()
+        dialog.pushButtonPrev.click()
+        self.assertEqual(1, dialog._position)
+
+        # 清空 next_sticker_id 映射：前进必须沿历史走，不依赖数据库。
+        self.db.next_results = {}
+        dialog.pushButtonNext.click()
+
+        self.assertEqual(
+            [self.png_a.id, self.gif.id, self.png_b.id], dialog._history
+        )
+        self.assertEqual(2, dialog._position)
+        self.assertEqual(f"#{self.png_b.id} c.png", dialog.label.text())
+
+    def test_random_truncates_forward_history(self):
+        dialog = self._build_three_step_history()
+        dialog.pushButtonPrev.click()
+        self.db.random_queue.append(self.png_a.id)
+
+        dialog.pushButtonRand.click()
+
+        self.assertEqual(
+            [self.png_a.id, self.gif.id, self.png_a.id], dialog._history
+        )
+        self.assertEqual(2, dialog._position)
+        self.assertEqual(f"#{self.png_a.id} a.png", dialog.label.text())
+
+    def test_next_falls_to_next_id_when_history_entry_is_dead(self):
+        dialog = self._build_three_step_history()
+        dialog.pushButtonPrev.click()
+        self.assertEqual(1, dialog._position)
+
+        # 前进条目 33 已不存在：转走“下一个 id”，死条目同时被截掉。
+        del self.db.stickers[self.png_b.id]
+        self.db.next_results = {self.gif.id: self.png_a.id}
+
+        dialog.pushButtonNext.click()
+
+        self.assertEqual(
+            [self.png_a.id, self.gif.id, self.png_a.id], dialog._history
+        )
+        self.assertEqual(2, dialog._position)
+        self.assertEqual(f"#{self.png_a.id} a.png", dialog.label.text())
+
     def test_next_wrapping_to_self_keeps_history_single_entry(self):
         single_db = NavigationStubDB([self.png_a])
         dialog = self._create_dialog(
