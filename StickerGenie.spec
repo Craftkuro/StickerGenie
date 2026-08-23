@@ -42,6 +42,7 @@ datas = [
     ("src/resources/search.svg", "resources"),
     ("src/resources/binoculars.svg", "resources"),
     ("src/resources/funnel.svg", "resources"),
+    ("src/resources/layout-list.svg", "resources"),
     ("src/resources/refresh-cw.svg", "resources"),
     ("src/resources/tags.svg", "resources"),
     ("src/resources/trash.svg", "resources"),

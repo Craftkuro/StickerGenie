@@ -46,8 +46,9 @@ class AdvancedSearchResultPageTests(unittest.TestCase):
             ],
             toolbar_widgets[:3],
         )
-        self.assertIs(page.toolbar_spacer, toolbar_widgets[3])
-        self.assertIsInstance(toolbar_widgets[3], ToolbarSpacer)
+        self.assertIs(page.display_mode_button, toolbar_widgets[3])
+        self.assertIs(page.toolbar_spacer, toolbar_widgets[4])
+        self.assertIsInstance(toolbar_widgets[4], ToolbarSpacer)
         # spacer 不伸展，剩余宽度全部交给表达式输入框。
         self.assertEqual(
             QSizePolicy.Policy.Fixed,

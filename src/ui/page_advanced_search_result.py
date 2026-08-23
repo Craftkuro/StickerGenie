@@ -42,9 +42,9 @@ class AdvancedSearchResultPage(FiniteStickerCollectionPage):
 
         # 表达式输入框独占工具栏剩余空间，因此关闭 spacer 的伸展。
         self.toolbar_spacer.set_expanding(False)
-        self.insert_toolbar_widget_left_of_spacer(self.expression_label)
-        self.insert_toolbar_widget_left_of_spacer(self.expression_text_edit)
-        self.insert_toolbar_widget_left_of_spacer(self.copy_button)
+        self.insert_toolbar_widget_left_of_display_mode_button(self.expression_label)
+        self.insert_toolbar_widget_left_of_display_mode_button(self.expression_text_edit)
+        self.insert_toolbar_widget_left_of_display_mode_button(self.copy_button)
 
         self.copy_button.clicked.connect(self._copy_expression)
 

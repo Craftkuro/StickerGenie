@@ -115,7 +115,7 @@ class SimilarImagesPage(FiniteStickerCollectionPage):
             Qt.ToolButtonStyle.ToolButtonIconOnly
         )
 
-        self.insert_toolbar_widget_left_of_spacer(self._filter_button)
+        self.insert_toolbar_widget_left_of_display_mode_button(self._filter_button)
 
         self._filter_popup.filter_applied.connect(self._on_filter_applied)
 

@@ -744,10 +744,10 @@ class StickerListViewTests(unittest.TestCase):
         ]
         self.assertEqual(
             [
+                page.display_mode_button,
                 left_button,
                 page.toolbar_spacer,
                 right_button,
-                page.display_mode_button,
                 page.display_size_slider,
             ],
             widgets,
@@ -1593,7 +1593,7 @@ class StickerListViewTests(unittest.TestCase):
         self.assertEqual(72, delegate._item_size)
         view.close()
 
-    def test_toolbar_has_display_mode_toggle(self):
+    def test_toolbar_has_display_mode_menu_button(self):
         page = FiniteStickerCollectionPage(auto_refresh=False)
         toggle = page.display_mode_button
         widgets = [
@@ -1601,22 +1601,45 @@ class StickerListViewTests(unittest.TestCase):
             for action in page.toolbarStickerList.actions()
         ]
 
+        self.assertIsInstance(toggle, QToolButton)
         self.assertIn(toggle, widgets)
-        self.assertTrue(toggle.isCheckable())
-        self.assertEqual("详细信息", toggle.text())
+        menu = toggle.menu()
+        self.assertIsNotNone(menu)
+        self.assertFalse(toggle.icon().isNull())
+        # 位于工具栏左侧：在弹性 spacer 之前。
+        self.assertLess(
+            widgets.index(toggle),
+            widgets.index(page.toolbar_spacer),
+        )
         self.assertLess(
             widgets.index(toggle),
             widgets.index(page.display_size_slider),
         )
+
+        self.assertEqual(
+            [
+                commons.constants.LIST_DISPLAY_MODE_ICON,
+                commons.constants.LIST_DISPLAY_MODE_LIST,
+            ],
+            [action.data() for action in menu.actions()],
+        )
+        checked = [action for action in menu.actions() if action.isChecked()]
+        self.assertEqual(1, len(checked))
+        self.assertEqual("图标", checked[0].text())
+        self.assertEqual("切换图标/详细信息显示", toggle.toolTip())
         page.close()
 
-    def test_display_mode_toggle_updates_view_and_slider(self):
+    def test_display_mode_menu_updates_view_and_slider(self):
         page = FiniteStickerCollectionPage(auto_refresh=False)
         view = page.listViewStickerList
         toggle = page.display_mode_button
         slider = page.display_size_slider
+        actions_by_text = {
+            action.text(): action
+            for action in toggle.menu().actions()
+        }
 
-        toggle.setChecked(True)
+        actions_by_text["详细信息"].trigger()
 
         self.assertEqual(
             commons.constants.LIST_DISPLAY_MODE_LIST,
@@ -1626,12 +1649,17 @@ class StickerListViewTests(unittest.TestCase):
         self.assertEqual((48, StickerListView.DETAIL_ROW_HEIGHT_MAX), (slider.minimum(), slider.maximum()))
         self.assertEqual(StickerListView.DETAIL_ROW_HEIGHT_DEFAULT, slider.value())
 
-        toggle.setChecked(False)
+        actions_by_text["图标"].trigger()
 
         self.assertEqual(QListView.ViewMode.IconMode, view.viewMode())
         self.assertEqual((48, commons.constants.THUMBNAIL_SIZE), (slider.minimum(), slider.maximum()))
         self.assertEqual(160, slider.value())
         self.assertEqual(QSize(160, 160), view.gridSize())
+
+        checked = [
+            action for action in toggle.menu().actions() if action.isChecked()
+        ]
+        self.assertEqual(["图标"], [action.text() for action in checked])
         page.close()
 
     # ==================== 详细模式绘制（像素采样） ====================
@@ -1954,7 +1982,12 @@ class StickerListViewTests(unittest.TestCase):
         item.setData(current_sticker, ROLE_STICKER_IMAGE)
         model.appendRow(item)
         page.refresh_content(model)
-        page.display_mode_button.setChecked(True)
+        detail_action = next(
+            action
+            for action in page.display_mode_button.menu().actions()
+            if action.text() == "详细信息"
+        )
+        detail_action.trigger()
 
         spy = QSignalSpy(model.dataChanged)
         updated_sticker = make_sticker()

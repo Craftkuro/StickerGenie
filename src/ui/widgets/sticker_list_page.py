@@ -11,7 +11,7 @@ from PyQt6.QtCore import (
     Qt,
     pyqtSignal,
 )
-from PyQt6.QtGui import QAction, QStandardItemModel
+from PyQt6.QtGui import QAction, QActionGroup, QIcon, QStandardItemModel
 from PyQt6.QtWidgets import (
     QFileDialog,
     QMenu,
@@ -31,6 +31,7 @@ from commons.roles import (
 )
 import services.image_clipboard_service
 import services.sticker_library_viewer_service
+from utils.resource_path import resolve_resource_path
 from utils.save_as_files import has_duplicate_original_file_names, save_as_files
 
 from ..dialog_batch_tag_edit import BatchTagEditDialog
@@ -44,6 +45,11 @@ class StickerListPage(QWidget):
     """含工具栏和 StickerListView 的表情包标签页基类。"""
 
     signal_refresh_content = pyqtSignal()
+
+    DISPLAY_MODE_OPTIONS = (
+        (commons.constants.LIST_DISPLAY_MODE_ICON, "图标"),
+        (commons.constants.LIST_DISPLAY_MODE_LIST, "详细信息"),
+    )
 
     def __init__(self, *, ui_file_name: str, auto_refresh: bool = True):
         super().__init__()
@@ -110,6 +116,15 @@ class StickerListPage(QWidget):
             return self.toolbar.insertWidget(actions[index + 1], widget)
         return self.add_toolbar_widget(widget)
 
+    def insert_toolbar_widget_left_of_display_mode_button(self, widget: QWidget) -> QAction:
+        """在显示模式切换按钮左侧插入自定义 widget。
+
+        供子页面把自己的控件排在显示模式按钮之前，保持原有左右次序。
+        """
+        return self.toolbar.insertWidget(
+            self.display_mode_button_action, widget
+        )
+
     def _setup_display_size_slider(self) -> None:
         """在工具栏右侧加入显示大小滑块（类似 Windows 7 资源管理器）。"""
         self._ensure_toolbar_spacer()
@@ -128,26 +143,41 @@ class StickerListPage(QWidget):
         self.display_size_slider = slider
 
     def _setup_display_mode_toggle(self) -> None:
-        """在工具栏滑块左侧加入图标/详细信息显示切换按钮。"""
-        self._ensure_toolbar_spacer()
+        """在工具栏左侧现有按钮的右边加入图标/详细信息显示切换菜单按钮。"""
+        self._display_mode_menu = QMenu(self)
+        self._display_mode_menu.setObjectName("displayModeMenu")
+        self._display_mode_action_group = QActionGroup(self)
+        self._display_mode_action_group.setExclusive(True)
+        for mode, label in self.DISPLAY_MODE_OPTIONS:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setData(mode)
+            action.triggered.connect(self._on_display_mode_action_triggered)
+            self._display_mode_action_group.addAction(action)
+            self._display_mode_menu.addAction(action)
 
         button = QToolButton(self)
         button.setObjectName("displayModeToggle")
-        button.setText("详细信息")
         button.setToolTip("切换图标/详细信息显示")
         button.setAccessibleName("切换图标/详细信息显示")
-        button.setCheckable(True)
-        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        button.toggled.connect(self._on_display_mode_toggled)
-        self.insert_toolbar_widget_right_of_spacer(button)
+        button.setIcon(
+            QIcon(str(resolve_resource_path("layout-list.svg")))
+        )
+        button.setMenu(self._display_mode_menu)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.display_mode_button_action = (
+            self.insert_toolbar_widget_left_of_spacer(button)
+        )
         self.display_mode_button = button
 
-    def _on_display_mode_toggled(self, checked: bool) -> None:
-        mode = (
-            commons.constants.LIST_DISPLAY_MODE_LIST
-            if checked
-            else commons.constants.LIST_DISPLAY_MODE_ICON
-        )
+        self._display_mode_menu.actions()[0].setChecked(True)
+
+    def _on_display_mode_action_triggered(self, _checked: bool = False) -> None:
+        action = self.sender()
+        if action is None or action.data() is None:
+            return
+        mode = int(action.data())
         view = self.listViewStickerList
         view.set_display_mode(mode)
 
