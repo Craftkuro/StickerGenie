@@ -1825,6 +1825,76 @@ class StickerListViewTests(unittest.TestCase):
         # 徽标垂直居中，不贴行顶。
         self.assertTrue(all(row > canvas.height() * 0.2 for row in badge_rows))
 
+    def test_detail_filename_font_not_polluted_by_badges(self):
+        # GIF 角标会改写画笔字体；文件名必须始终按 option.font 渲染。
+        name = "font_check.png"
+        counts = []
+        for extension in (".png", ".gif"):
+            provider = FakeThumbnailProvider()
+            item = QStandardItem("")
+            item.setData(
+                BlobFileEntity(f"hash{extension}", extension),
+                ROLE_BLOB_ENTITY,
+            )
+            sticker = make_sticker()
+            sticker.original_file_name = name
+            item.setData(sticker, ROLE_STICKER_IMAGE)
+            canvas = self._paint_detail_item(
+                item, thumbnail_provider=provider
+            )
+            zone = (90, 0, int(canvas.width() * 0.45), canvas.height() - 1)
+            counts.append(self._black_pixel_count(canvas, zone))
+
+        self.assertGreater(counts[0], 0)
+        self.assertEqual(counts[0], counts[1])
+
+    def test_detail_chip_border_renders_exact_logical_width(self):
+        sticker = make_sticker()
+        sticker.tags = [self._make_tag("城市"), self._make_tag("建筑")]
+        item = QStandardItem("")
+        item.setData(sticker, ROLE_STICKER_IMAGE)
+        width, height = 400, 72
+        canvas = self._paint_detail_item(item, width=width, height=height)
+
+        # 与 _paint_detail 的布局推导保持一致，得到标签区与圆角片矩形。
+        text_left = 8 + (height - 16 - 1) + 1 + 12
+        text_width = (width - 1) - 8 - text_left + 1
+        name_limit = int(text_width * 0.35)
+        tags_left = text_left + name_limit - 1 + 1 + 16
+        tags_rect = QRect(tags_left, 0, width - 8 - tags_left + 1, height)
+        metrics = QFontMetrics(QApplication.instance().font())
+        layout = layout_tag_chips(
+            tags_rect, sticker.tags, metrics
+        )
+        self.assertEqual(2, len(layout.chips))
+
+        def is_border(color):
+            return color.blue() > 230 and color.green() < 200 and color.red() < 90
+
+        runs = []
+        start = None
+        for x in range(canvas.width()):
+            has_border = any(
+                is_border(canvas.pixelColor(x, y))
+                for y in range(canvas.height())
+            )
+            if has_border:
+                if start is None:
+                    start = x
+            elif start is not None:
+                runs.append((start, x - 1))
+                start = None
+        if start is not None:
+            runs.append((start, canvas.width() - 1))
+
+        self.assertEqual(len(layout.chips), len(runs))
+        for (chip_rect, _), (run_start, run_end) in zip(layout.chips, runs):
+            # 渲染宽度必须精确等于逻辑宽度（无 Qt 描边外扩的 +1）。
+            self.assertEqual(chip_rect.left(), run_start)
+            self.assertEqual(chip_rect.right(), run_end)
+        for (_, prev_end), (next_start, _) in zip(runs, runs[1:]):
+            self.assertEqual(TAG_CHIP_GAP, next_start - prev_end - 1)
+
     # ==================== 标签布局纯函数 ====================
 
     def test_layout_tag_chips_preserves_input_order(self):

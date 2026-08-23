@@ -336,6 +336,8 @@ class StickerItemDelegate(QStyledItemDelegate):
             name_limit,
             text_rect.height(),
         )
+        # 显式回到 option.font，避免缩略图角标等前置绘制污染画笔字体。
+        painter.setFont(option.font)
         painter.setPen(option.palette.text().color())
         painter.drawText(
             name_rect,
@@ -366,9 +368,11 @@ class StickerItemDelegate(QStyledItemDelegate):
         layout: TagChipLayout,
         tags: list,
     ) -> None:
-        """按布局绘制彩色标签圆角片；样式对齐 TagItemDelegate。"""
-        painter.save()
-        painter.setClipRect(clip_rect)
+        """按布局绘制彩色标签圆角片；样式对齐 TagItemDelegate。
+
+        不设裁剪：layout_tag_chips 保证圆角片不越界，而裁剪区左边界
+        与首片左边框重合，在高 DPI 缩放下会把整列边框裁掉。
+        """
         for position, (chip_rect, label) in enumerate(layout.chips):
             accent_value = getattr(tags[position], "color_rgb", "")
             accent_color = QColor(accent_value) if accent_value else QColor()
@@ -384,8 +388,10 @@ class StickerItemDelegate(QStyledItemDelegate):
 
             painter.setBrush(background)
             painter.setPen(QPen(border, 1))
+            # 收缩 1px 抵消 Qt 描边在右/下侧的外扩，
+            # 保证圆角片渲染宽度与逻辑宽度一致、片间距精确等于 TAG_CHIP_GAP。
             painter.drawRoundedRect(
-                chip_rect,
+                chip_rect.adjusted(0, 0, -1, -1),
                 TAG_CHIP_CORNER_RADIUS,
                 TAG_CHIP_CORNER_RADIUS,
             )
@@ -395,7 +401,6 @@ class StickerItemDelegate(QStyledItemDelegate):
                 Qt.AlignmentFlag.AlignCenter,
                 label,
             )
-        painter.restore()
 
         if layout.hidden_count > 0:
             self._draw_badge(
@@ -433,53 +438,60 @@ class StickerItemDelegate(QStyledItemDelegate):
         align_left: bool = False,
         vertical_center: bool = False,
     ) -> None:
-        """在缩略图角落绘制固定大小的角标，与相似度角标同一样式。"""
-        font = painter.font()
-        font.setPointSize(self.BADGE_FONT_POINT_SIZE)
-        font.setBold(True)
-        painter.setFont(font)
+        """在缩略图角落绘制固定大小的角标，与相似度角标同一样式。
 
-        metrics = QFontMetrics(font)
-        badge_width = (
-            metrics.horizontalAdvance(text) + 2 * self.BADGE_PADDING_X
-        )
-        badge_height = (
-            metrics.height() + 2 * self.BADGE_PADDING_Y
-        )
-        if align_left:
-            badge_left = thumbnail_rect.left() + self.BADGE_MARGIN
-        else:
-            badge_left = (
-                thumbnail_rect.right()
-                - badge_width
-                - self.BADGE_MARGIN
-            )
-        if vertical_center:
-            badge_top = (
-                thumbnail_rect.center().y() - badge_height // 2
-            )
-        else:
-            badge_top = thumbnail_rect.top() + self.BADGE_MARGIN
-        badge_rect = QRect(
-            badge_left,
-            badge_top,
-            badge_width,
-            badge_height,
-        )
+        save/restore 保证不污染调用方后续绘制的画笔状态（字体等）。
+        """
+        painter.save()
+        try:
+            font = painter.font()
+            font.setPointSize(self.BADGE_FONT_POINT_SIZE)
+            font.setBold(True)
+            painter.setFont(font)
 
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(background)
-        painter.drawRoundedRect(
-            badge_rect,
-            self.BADGE_CORNER_RADIUS,
-            self.BADGE_CORNER_RADIUS,
-        )
-        painter.setPen(foreground)
-        painter.drawText(
-            badge_rect,
-            Qt.AlignmentFlag.AlignCenter,
-            text,
-        )
+            metrics = QFontMetrics(font)
+            badge_width = (
+                metrics.horizontalAdvance(text) + 2 * self.BADGE_PADDING_X
+            )
+            badge_height = (
+                metrics.height() + 2 * self.BADGE_PADDING_Y
+            )
+            if align_left:
+                badge_left = thumbnail_rect.left() + self.BADGE_MARGIN
+            else:
+                badge_left = (
+                    thumbnail_rect.right()
+                    - badge_width
+                    - self.BADGE_MARGIN
+                )
+            if vertical_center:
+                badge_top = (
+                    thumbnail_rect.center().y() - badge_height // 2
+                )
+            else:
+                badge_top = thumbnail_rect.top() + self.BADGE_MARGIN
+            badge_rect = QRect(
+                badge_left,
+                badge_top,
+                badge_width,
+                badge_height,
+            )
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(background)
+            painter.drawRoundedRect(
+                badge_rect,
+                self.BADGE_CORNER_RADIUS,
+                self.BADGE_CORNER_RADIUS,
+            )
+            painter.setPen(foreground)
+            painter.drawText(
+                badge_rect,
+                Qt.AlignmentFlag.AlignCenter,
+                text,
+            )
+        finally:
+            painter.restore()
 
     def sizeHint(
         self,
