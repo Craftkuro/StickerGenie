@@ -19,3 +19,12 @@
 ## 项目测试
 
 本项目使用python的标准库unittest
+
+## PyQt6 注意事项
+
+Qt 槽函数（signal/slot 连接的 Python 方法）内抛出的未捕获异常不会向上传播：
+PyQt6 会打印异常后直接调用 qFatal() 终止整个进程。
+表现为：测试或应用无声硬崩（如 bash 下 exit 127），没有 Python traceback，faulthandler 也可能无法捕获。
+
+排查方法：崩溃点在某个 `.click()` / 信号发射之后时，优先检查被触发的槽函数内部是否有未处理的 Python 异常（如 NameError、AttributeError），
+而不是怀疑 Qt 本身。可在槽函数内逐步插桩 print 定位；对预期可能失败的外部调用（数据库、文件等）务必在槽内 try/except 并给出 UI 反馈。
