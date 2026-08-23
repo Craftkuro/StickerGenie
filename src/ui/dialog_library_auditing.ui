@@ -14,6 +14,18 @@
    <string>Dialog</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="leftMargin">
+    <number>6</number>
+   </property>
+   <property name="topMargin">
+    <number>6</number>
+   </property>
+   <property name="rightMargin">
+    <number>6</number>
+   </property>
+   <property name="bottomMargin">
+    <number>6</number>
+   </property>
    <item>
     <widget class="QSplitter" name="splitterLeftRight">
      <property name="orientation">
@@ -21,6 +33,9 @@
      </property>
      <widget class="QWidget" name="widgetImageViewer" native="true">
       <layout class="QVBoxLayout" name="verticalLayout_2">
+       <property name="spacing">
+        <number>3</number>
+       </property>
        <item>
         <widget class="QWidget" name="widget" native="true">
          <property name="sizePolicy">
@@ -361,9 +376,9 @@
      <property name="orientation">
       <enum>Qt::Orientation::Horizontal</enum>
      </property>
-      <property name="standardButtons">
-       <set>QDialogButtonBox::StandardButton::Close</set>
-      </property>
+     <property name="standardButtons">
+      <set>QDialogButtonBox::StandardButton::Close</set>
+     </property>
     </widget>
    </item>
   </layout>
@@ -380,23 +395,23 @@
    <header>ui.widgets.image_text_edit_widget</header>
   </customwidget>
  </customwidgets>
-  <resources/>
-  <connections>
-   <connection>
-    <sender>buttonBox</sender>
-    <signal>rejected()</signal>
-    <receiver>Dialog</receiver>
-    <slot>reject()</slot>
-    <hints>
-     <hint type="sourcelabel">
-      <x>316</x>
-      <y>260</y>
-     </hint>
-     <hint type="destinationlabel">
-      <x>286</x>
-      <y>274</y>
-     </hint>
-    </hints>
-   </connection>
-  </connections>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>rejected()</signal>
+   <receiver>Dialog</receiver>
+   <slot>reject()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>316</x>
+     <y>260</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>286</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
 </ui>
