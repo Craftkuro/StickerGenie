@@ -92,6 +92,7 @@ class LibraryAuditingDialog(QDialog):
         self.imageTextEditWidget.set_database(self._database)
         self._init_tag_editor()
         self._init_file_info_table()
+        self._update_prev_button()
 
         initial_id = self._database.random_sticker_id()
         if initial_id is not None:
@@ -106,6 +107,10 @@ class LibraryAuditingDialog(QDialog):
         if 0 <= self._position < len(self._history):
             return self._history[self._position]
         return None
+
+    def _update_prev_button(self) -> None:
+        """只有历史里还有更早的条目时，“上一个”按钮才可用。"""
+        self.pushButtonPrev.setEnabled(self._position > 0)
 
     def _go_back(self):
         """回退到上一张看过的图。
@@ -247,6 +252,7 @@ class LibraryAuditingDialog(QDialog):
         self._file_path = None
         self.label.setText("")
         self._reload_tag_model()
+        self._update_prev_button()
 
     # ==================== 左侧查看器 ====================
 
@@ -282,6 +288,7 @@ class LibraryAuditingDialog(QDialog):
         self.imageTextEditWidget.set_sticker(sticker)
         self._reload_tag_model()
         self._reload_file_info(file_path, pixmap)
+        self._update_prev_button()
 
         if (
             self._similar_page is not None
