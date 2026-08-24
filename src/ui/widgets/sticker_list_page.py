@@ -59,15 +59,16 @@ class StickerListPage(QWidget):
         ui_file_path = apppath.app_path / 'ui' / ui_file_name
         uic.loadUi(ui_file_path, self)
 
-        # 工具栏：目前没有功能按钮，但必须支持任意自定义 widget。
+        # 工具栏布局固定为：
+        # [基类控件(显示模式按钮)] [自定义区1] [弹性 spacer] [滑块]
+        # 子类控件用 spacer 左右两侧的 widget/action 插入方法加入对应区域。
         self.toolbar = self.toolbarStickerList
         self.toolbar.setMovable(False)
         self.toolbar.setFloatable(False)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.toolbar.setIconSize(QSize(16, 16))
 
-        # 弹性 spacer 由 _ensure_toolbar_spacer 懒创建，
-        # 创建前工具栏内容保持左对齐（例如全库页的刷新按钮）。
+        # 弹性 spacer 由基类安装，作为左侧自定义区的边界锚点。
         self.toolbar_spacer: ToolbarSpacer | None = None
         self._toolbar_spacer_action: QAction | None = None
 
@@ -86,12 +87,13 @@ class StickerListPage(QWidget):
             self._prune_deleted_rows
         )
 
-    def add_toolbar_widget(self, widget: QWidget) -> QAction:
-        """把任意自定义 widget（例如滑块）加入标签页工具栏末尾。"""
-        return self.toolbar.addWidget(widget)
+        # 所有子类共用的工具栏控件：显示模式切换和显示大小滑块。
+        self._setup_display_mode_toggle()
+        self._setup_display_size_slider()
 
-    def add_toolbar_action(self, action: QAction) -> QAction:
-        return self.toolbar.addAction(action)
+    def add_toolbar_widget(self, widget: QWidget) -> QAction:
+        """把自定义 widget 追加到工具栏最末（仅基类内部用于安装滑块）。"""
+        return self.toolbar.addWidget(widget)
 
     def _ensure_toolbar_spacer(self) -> QAction:
         """确保工具栏存在一个弹性 spacer（初始状态在末尾），返回其 action。"""
@@ -103,12 +105,25 @@ class StickerListPage(QWidget):
         return self._toolbar_spacer_action
 
     def insert_toolbar_widget_left_of_spacer(self, widget: QWidget) -> QAction:
-        """在弹性 spacer 左侧插入自定义 widget（与工具栏左侧内容相邻）。"""
+        """把自定义 widget 插入 spacer 左侧的自定义区1末尾。
+
+        多次插入时展示顺序与执行顺序一致。
+        """
         spacer_action = self._ensure_toolbar_spacer()
         return self.toolbar.insertWidget(spacer_action, widget)
 
-    def insert_toolbar_widget_right_of_spacer(self, widget: QWidget) -> QAction:
-        """在弹性 spacer 右侧插入自定义 widget（位于滑块等右端控件之前）。"""
+    def insert_toolbar_action_left_of_spacer(self, action: QAction) -> QAction:
+        """把 QAction 插入 spacer 左侧的自定义区1末尾。
+
+        行为与 insert_toolbar_widget_left_of_spacer 一致。
+        """
+        spacer_action = self._ensure_toolbar_spacer()
+        return self.toolbar.insertAction(spacer_action, action)
+
+    def insert_toolbar_widget_right_of_spacer(
+        self, widget: QWidget
+    ) -> QAction:
+        """在弹性 spacer 右侧插入自定义 widget（位于右端既有控件之前）。"""
         spacer_action = self._ensure_toolbar_spacer()
         actions = self.toolbar.actions()
         index = actions.index(spacer_action)
@@ -116,14 +131,19 @@ class StickerListPage(QWidget):
             return self.toolbar.insertWidget(actions[index + 1], widget)
         return self.add_toolbar_widget(widget)
 
-    def insert_toolbar_widget_left_of_display_mode_button(self, widget: QWidget) -> QAction:
-        """在显示模式切换按钮左侧插入自定义 widget。
+    def insert_toolbar_action_right_of_spacer(
+        self, action: QAction
+    ) -> QAction:
+        """在弹性 spacer 右侧插入 QAction（位于右端既有控件之前）。
 
-        供子页面把自己的控件排在显示模式按钮之前，保持原有左右次序。
+        行为与 insert_toolbar_widget_right_of_spacer 一致。
         """
-        return self.toolbar.insertWidget(
-            self.display_mode_button_action, widget
-        )
+        spacer_action = self._ensure_toolbar_spacer()
+        actions = self.toolbar.actions()
+        index = actions.index(spacer_action)
+        if index + 1 < len(actions):
+            return self.toolbar.insertAction(actions[index + 1], action)
+        return self.toolbar.addAction(action)
 
     def _setup_display_size_slider(self) -> None:
         """在工具栏右侧加入显示大小滑块（类似 Windows 7 资源管理器）。"""
@@ -166,9 +186,7 @@ class StickerListPage(QWidget):
         button.setMenu(self._display_mode_menu)
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        self.display_mode_button_action = (
-            self.insert_toolbar_widget_left_of_spacer(button)
-        )
+        self.insert_toolbar_widget_left_of_spacer(button)
         self.display_mode_button = button
 
         self._display_mode_menu.actions()[0].setChecked(True)

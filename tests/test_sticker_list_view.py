@@ -19,6 +19,7 @@ from PyQt6.QtCore import (
     Qt,
 )
 from PyQt6.QtGui import (
+    QAction,
     QFontMetrics,
     QIcon,
     QImage,
@@ -756,18 +757,44 @@ class StickerListViewTests(unittest.TestCase):
         self.assertEqual("toolbarSpacer", page.toolbar_spacer.objectName())
         page.close()
 
-    def test_infinite_page_toolbar_has_refresh_button_leftmost(self):
+    def test_insert_toolbar_actions_around_spacer(self):
+        page = FiniteStickerCollectionPage(auto_refresh=False)
+        left_action = QAction("left", page)
+        right_action = QAction("right", page)
+
+        page.insert_toolbar_action_left_of_spacer(left_action)
+        page.insert_toolbar_action_right_of_spacer(right_action)
+
+        actions = page.toolbarStickerList.actions()
+        widgets = [
+            page.toolbarStickerList.widgetForAction(action)
+            for action in actions
+        ]
+        self.assertIs(left_action, actions[1])
+        self.assertIs(page.toolbar_spacer, widgets[2])
+        self.assertIs(right_action, actions[3])
+        page.close()
+
+    def test_infinite_page_toolbar_control_order(self):
         page = InfiniteStickerCollectionPage(auto_refresh=False)
         actions = page.toolbarStickerList.actions()
+        widgets = [
+            page.toolbarStickerList.widgetForAction(action) for action in actions
+        ]
 
-        self.assertTrue(actions)
-        self.assertIs(page.refresh_action, actions[0])
+        # [显示模式][刷新][排序] | spacer | [滑块]
+        self.assertEqual(
+            [
+                page.display_mode_button,
+                page.sort_button,
+                page.toolbar_spacer,
+                page.display_size_slider,
+            ],
+            [widgets[0], widgets[2], widgets[3], widgets[4]],
+        )
+        self.assertIs(page.refresh_action, actions[1])
         self.assertFalse(page.refresh_action.icon().isNull())
         self.assertEqual("刷新图库", page.refresh_action.toolTip())
-        self.assertIs(
-            page.display_size_slider,
-            page.toolbarStickerList.widgetForAction(actions[-1]),
-        )
 
         spy = QSignalSpy(page.signal_refresh_content)
         page.refresh_action.trigger()

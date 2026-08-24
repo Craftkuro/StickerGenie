@@ -38,6 +38,8 @@ class InfiniteStickerCollectionPage(StickerListPage):
         self._loading_more = False
         self.listViewStickerList.load_more_requested.connect(self._load_more)
 
+        # 刷新和排序按钮依次插到显示模式按钮右侧（自定义区1），
+        # 最终布局为 [显示模式][刷新][排序] | spacer | [滑块]。
         self.refresh_action = QAction(self)
         self.refresh_action.setObjectName("refreshAction")
         self.refresh_action.setIcon(
@@ -46,7 +48,7 @@ class InfiniteStickerCollectionPage(StickerListPage):
         self.refresh_action.setToolTip("刷新图库")
         self.refresh_action.triggered.connect(self._on_refresh_clicked)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        self.toolbar.addAction(self.refresh_action)
+        self.insert_toolbar_action_left_of_spacer(self.refresh_action)
         self._setup_sort_button()
 
         if auto_refresh:
@@ -59,8 +61,6 @@ class InfiniteStickerCollectionPage(StickerListPage):
             self.signal_refresh_content.emit()
         else:
             self._reset_and_load_first_page()
-        self._setup_display_mode_toggle()
-        self._setup_display_size_slider()
 
     def _setup_sort_button(self) -> None:
         self._sort_menu = QMenu(self)
@@ -89,7 +89,7 @@ class InfiniteStickerCollectionPage(StickerListPage):
         self.sort_button.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonIconOnly
         )
-        self.add_toolbar_widget(self.sort_button)
+        self.insert_toolbar_widget_left_of_spacer(self.sort_button)
 
         self._sort_menu.actions()[0].setChecked(True)
 

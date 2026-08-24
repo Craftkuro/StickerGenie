@@ -38,15 +38,16 @@ class AdvancedSearchResultPageTests(unittest.TestCase):
             page.toolbar.widgetForAction(action)
             for action in page.toolbar.actions()
         ]
+        # [显示模式][表达式标签][表达式输入框][复制] | spacer | 滑块
+        self.assertIs(page.display_mode_button, toolbar_widgets[0])
         self.assertEqual(
             [
                 page.expression_label,
                 page.expression_text_edit,
                 page.copy_button,
             ],
-            toolbar_widgets[:3],
+            toolbar_widgets[1:4],
         )
-        self.assertIs(page.display_mode_button, toolbar_widgets[3])
         self.assertIs(page.toolbar_spacer, toolbar_widgets[4])
         self.assertIsInstance(toolbar_widgets[4], ToolbarSpacer)
         # spacer 不伸展，剩余宽度全部交给表达式输入框。
