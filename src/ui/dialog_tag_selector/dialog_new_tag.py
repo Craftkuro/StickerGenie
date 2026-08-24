@@ -15,8 +15,8 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
+    QDialogButtonBox,
     QFormLayout,
-    QHBoxLayout,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
@@ -101,19 +101,21 @@ class NewTagDialog(QDialog):
 
         layout.addLayout(form)
 
-        button_row = QHBoxLayout()
-        button_row.addStretch()
-        self.pushButtonCancel = QPushButton("取消", self)
-        button_row.addWidget(self.pushButtonCancel)
-        self.pushButtonSave = QPushButton("保存", self)
-        self.pushButtonSave.setDefault(True)
-        button_row.addWidget(self.pushButtonSave)
-        layout.addLayout(button_row)
+        self.buttonBox = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel,
+            self,
+        )
+        self.buttonBox.setObjectName("buttonBox")
+        self.buttonBox.button(
+            QDialogButtonBox.StandardButton.Save
+        ).setDefault(True)
+        layout.addWidget(self.buttonBox)
 
     def _connect_signals(self) -> None:
         self.pushButtonTagColor.clicked.connect(self._choose_tag_color)
-        self.pushButtonCancel.clicked.connect(self.reject)
-        self.pushButtonSave.clicked.connect(self._save_tag)
+        self.buttonBox.accepted.connect(self._save_tag)
+        self.buttonBox.rejected.connect(self.reject)
 
     def _choose_tag_color(self) -> None:
         dialog = ColorPresetDialog(self)

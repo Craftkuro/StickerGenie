@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QApplication, QDialog
+from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox
 
 from commons.dto import Tag
 from stickerdb.v1.sticker_db import StickerDBV1
@@ -66,7 +66,9 @@ class NewTagDialogTests(unittest.TestCase):
         self.dialog.spinBoxTagOrder.setValue(5)
         self.dialog._set_tag_color(QColor("#ABCDEF"))
 
-        self.dialog.pushButtonSave.click()
+        self.dialog.buttonBox.button(
+            QDialogButtonBox.StandardButton.Save
+        ).click()
 
         self.assertEqual(QDialog.DialogCode.Accepted, self.dialog.result())
         stored = next(
@@ -83,7 +85,9 @@ class NewTagDialogTests(unittest.TestCase):
             "ui.dialog_tag_selector.dialog_new_tag.QMessageBox.warning"
         ) as warning:
             self.dialog.lineEditTagName.setText("   ")
-            self.dialog.pushButtonSave.click()
+            self.dialog.buttonBox.button(
+                QDialogButtonBox.StandardButton.Save
+            ).click()
 
         warning.assert_called_once_with(
             self.dialog,
@@ -99,7 +103,9 @@ class NewTagDialogTests(unittest.TestCase):
             "ui.dialog_tag_selector.dialog_new_tag.QMessageBox.warning"
         ) as warning:
             self.dialog.lineEditTagName.setText("Existing")
-            self.dialog.pushButtonSave.click()
+            self.dialog.buttonBox.button(
+                QDialogButtonBox.StandardButton.Save
+            ).click()
 
         warning.assert_called_once_with(
             self.dialog,
@@ -121,7 +127,9 @@ class NewTagDialogTests(unittest.TestCase):
         ) as critical, patch(
             "ui.dialog_tag_selector.dialog_new_tag.logger.exception"
         ):
-            self.dialog.pushButtonSave.click()
+            self.dialog.buttonBox.button(
+                QDialogButtonBox.StandardButton.Save
+            ).click()
 
         critical.assert_called_once()
         self.assertEqual(QDialog.DialogCode.Rejected, self.dialog.result())
@@ -131,7 +139,9 @@ class NewTagDialogTests(unittest.TestCase):
     def test_cancel_rejects_without_creating(self):
         self.dialog.lineEditTagName.setText("Draft")
 
-        self.dialog.pushButtonCancel.click()
+        self.dialog.buttonBox.button(
+            QDialogButtonBox.StandardButton.Cancel
+        ).click()
 
         self.assertEqual(QDialog.DialogCode.Rejected, self.dialog.result())
         self.assertIsNone(self.dialog.new_tag_id)
