@@ -165,6 +165,59 @@ class StickerListViewTests(unittest.TestCase):
         )
         view.close()
 
+    def test_switching_back_to_icon_mode_restores_wheel_scroll_step(self):
+        # Qt 只在列表布局路径里重算滚动条 singleStep；图标模式切过去再
+        # 切回来后若残留列表模式的值，滚轮每格只会滚动几像素。
+        view = StickerListView()
+        model = QStandardItemModel()
+        for _ in range(200):
+            model.appendRow(QStandardItem(""))
+        view.setModel(model)
+        view.resize(800, 600)
+        view.show()
+        QApplication.processEvents()
+
+        initial_single_step = view.verticalScrollBar().singleStep()
+        self.assertGreater(initial_single_step, 1)
+
+        view.set_display_mode(
+            commons.constants.LIST_DISPLAY_MODE_LIST
+        )
+        QApplication.processEvents()
+        self.assertEqual(1, view.verticalScrollBar().singleStep())
+
+        view.set_display_mode(
+            commons.constants.LIST_DISPLAY_MODE_ICON
+        )
+        QApplication.processEvents()
+
+        self.assertEqual(
+            initial_single_step,
+            view.verticalScrollBar().singleStep(),
+        )
+
+        # 归还控制权后，图标模式下调整尺寸应像启动时一样自动跟随，
+        # 无需再次切换模式。
+        view.set_display_size(240)
+        view.doItemsLayout()
+        self.assertEqual(
+            240 + view.spacing(),
+            view.verticalScrollBar().singleStep(),
+        )
+
+        # 调整图标尺寸后再次往返，步长应跟随新的行距。
+        view.set_display_size(160)
+        expected_step = 160 + view.spacing()
+        view.set_display_mode(
+            commons.constants.LIST_DISPLAY_MODE_LIST
+        )
+        view.set_display_mode(
+            commons.constants.LIST_DISPLAY_MODE_ICON
+        )
+        QApplication.processEvents()
+        self.assertEqual(expected_step, view.verticalScrollBar().singleStep())
+        view.close()
+
     def test_view_emits_load_more_when_scrolled_near_bottom(self):
         view = StickerListView()
         model = QStandardItemModel()

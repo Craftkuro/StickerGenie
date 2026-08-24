@@ -689,6 +689,12 @@ class StickerListView(QListView):
             self._apply_icon_grid_size()
         # 立即重排，不等下一次视口事件。
         self.doItemsLayout()
+        if mode != commons.constants.LIST_DISPLAY_MODE_LIST:
+            # 列表布局路径会 setSingleStep(1)，令滚动条进入"应用接管"状态，
+            # 此后 Qt 不再随布局应用图标模式的步长（残留为 1，滚轮每格仅几像素）。
+            # setSingleStep(-1) 归还控制权并立即应用布局刚记下的首选步长
+            # （委托 sizeHint 高 + spacing），与程序启动时的行为一致。
+            self.verticalScrollBar().setSingleStep(-1)
 
     def set_display_size(self, size: int) -> None:
         """调整当前模式的显示大小（类似 Windows 7 资源管理器的滑块）。"""
