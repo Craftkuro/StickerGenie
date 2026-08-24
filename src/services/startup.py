@@ -24,6 +24,7 @@ def run_startup_tasks():
 def set_logging_levels():
     logging.getLogger('PyQt6.uic.uiparser').setLevel(logging.INFO)
     logging.getLogger('PyQt6.uic.properties').setLevel(logging.INFO)
+    logging.getLogger('PIL').setLevel(logging.INFO)
 
 
 def init_settings_manager():
