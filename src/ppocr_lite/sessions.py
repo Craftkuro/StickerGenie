@@ -47,7 +47,7 @@ class ModelSessions:
         sess_opt = ort.SessionOptions()
         sess_opt.log_severity_level = 4
         sess_opt.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        sess_opt.enable_cpu_mem_arena = False
+        # enable_cpu_mem_arena 保持 ORT 默认开启；rapidocr 关它的做法不适用本项目。
         # intra/inter_op 线程数不显式设置，交由 ORT 自动决策；
         # 流水线 stage 已是单线程，避免超订。
         logger.info("加载 OCR 模型 %s", model_path.name)

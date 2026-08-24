@@ -134,9 +134,9 @@ class OcrRunnerTests(unittest.TestCase):
 
     @unittest.skipUnless(
         os.environ.get("STICKERGENIE_RUN_MODEL_TESTS") == "1",
-        "set STICKERGENIE_RUN_MODEL_TESTS=1 to run the real RapidOCR test",
+        "set STICKERGENIE_RUN_MODEL_TESTS=1 to run the real OCR model test",
     )
-    def test_real_rapidocr_runner(self):
+    def test_real_ppocr_lite_runner(self):
         from PIL import Image, ImageDraw, ImageFont
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -155,7 +155,7 @@ class OcrRunnerTests(unittest.TestCase):
         self.assertEqual(1, summary.completed)
         self.assertEqual(1, summary.succeeded)
         self.assertEqual(0, summary.failed)
-        self.assertEqual("rapidocr", summary.startup_info["engine_name"])
+        self.assertEqual("ppocr_lite", summary.startup_info["engine_name"])
         path, text = summary.results[0].data
         self.assertEqual(normalize_image_path(image_path), path)
         self.assertTrue(text.startswith(OCR_TEXT_PREFIX))

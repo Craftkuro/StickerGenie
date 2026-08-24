@@ -124,9 +124,10 @@ def load_ocr_engine():
 
 - 三个模型各一个 `ort.InferenceSession`，初始化时一次创建、整个进程生命周期复用。
 - SessionOptions 对齐 rapidocr：`graph_optimization_level=ORT_ENABLE_ALL`、
-  `enable_cpu_mem_arena=false`、`log_severity_level=4`、线程数交给 ORT 自动决策
+  `log_severity_level=4`、线程数交给 ORT 自动决策
   （`intra_op_num_threads=0`，与 image_features_extractor 同款注释理由：
   流水线 stage 已是单线程，避免超订）。
+  例外：`enable_cpu_mem_arena` 不跟随 rapidocr 的 false，保持 ORT 默认开启。
 - **provider 策略**：`providers=None` 直接交给 `ort.InferenceSession` 默认行为
   （即按 `ort.get_available_providers()` 的顺序全部启用）。当前 CPU 版 onnxruntime
   只有 CPU EP；将来换装 onnxruntime-gpu 时自动走 CUDA EP，本包代码零改动——

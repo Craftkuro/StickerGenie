@@ -107,14 +107,14 @@ def compose_ocr_text(items) -> str | None:
 
 
 def load_ocr_engine():
-    """在 worker 进程内一次性初始化 RapidOCR 引擎。"""
+    """在 worker 进程内一次性初始化 ppocr_lite 引擎。"""
 
     global _engine
     if _engine is None:
-        from rapidocr import RapidOCR
+        from ppocr_lite import OcrEngine
 
-        _engine = RapidOCR(params={"Global.log_level": "WARNING"})
-    return {"engine_name": "rapidocr"}
+        _engine = OcrEngine()
+    return {"engine_name": "ppocr_lite"}
 
 
 def _get_engine() -> Any:

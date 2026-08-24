@@ -57,6 +57,10 @@ class OcrEngine:
             if text.strip() and score >= params.text_score
         ]
 
+    def __call__(self, image: str | os.PathLike[str]) -> list:
+        """recognize 的别名，兼容旧流水线把引擎当可调用对象使用的约定。"""
+        return self.recognize(image)
+
     def _detect(self, img: np.ndarray, params: OcrParams) -> np.ndarray:
         """det 预处理 + 推理 + DB 后处理，返回 int32 [N,4,2] 检测框（可为空数组）。"""
         det_input = preprocess.build_det_input(

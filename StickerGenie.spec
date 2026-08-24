@@ -48,6 +48,9 @@ datas = [
     ("src/resources/trash.svg", "resources"),
     (str(feature_model_path), "."),
     (str(feature_model_hash_path), "."),
+    ("src/PP-OCRv6_det_small.onnx", "."),
+    ("src/ch_ppocr_mobile_v2.0_cls_mobile.onnx", "."),
+    ("src/PP-OCRv6_rec_small.onnx", "."),
 ]
 
 # ChromaDB 1.x 通过字符串动态加载实现类；Rust 绑定是独立二进制包。
@@ -60,11 +63,10 @@ chromadb_hiddenimports = [
     m for m in chromadb_hiddenimports if not m.startswith("chromadb.test")
 ]
 rust_datas, rust_binaries, rust_hiddenimports = collect_all("chromadb_rust_bindings")
-rapidocr_datas, rapidocr_binaries, rapidocr_hiddenimports = collect_all("rapidocr")
 
-datas += chromadb_datas + rust_datas + rapidocr_datas
-binaries = chromadb_binaries + rust_binaries + rapidocr_binaries
-hiddenimports = chromadb_hiddenimports + rust_hiddenimports + rapidocr_hiddenimports + [
+datas += chromadb_datas + rust_datas
+binaries = chromadb_binaries + rust_binaries
+hiddenimports = chromadb_hiddenimports + rust_hiddenimports + [
     # .ui 通过 uic 在运行时按字符串 header 动态导入该控件模块，
     # PyInstaller 静态分析发现不了，必须显式声明，否则打包后
     # 加载对应界面会报 ModuleNotFoundError。
