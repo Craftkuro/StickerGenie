@@ -2,6 +2,7 @@
 """ONNX 会话创建与 rec 字符表读取。"""
 
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,11 @@ from .params import CLS_MODEL_FILENAME, DET_MODEL_FILENAME, REC_MODEL_FILENAME
 logger = logging.getLogger(__name__)
 
 _CHARACTER_KEY = "character"
+
+# 单会话 intra-op 线程数上限。同一进程内可能并存多个引擎实例
+# （OCR stage 线程池每线程一套），不显式限制会让 K×自动全核线程超订互踩；
+# 与 image_text_extractor.runner 的 pool_size=⌈逻辑核数/4⌉ 配套。
+_ORT_INTRA_OP_NUM_THREADS = min(4, os.cpu_count() or 4)
 
 
 def resolve_models_dir(models_dir=None) -> Path:
@@ -48,8 +54,8 @@ class ModelSessions:
         sess_opt.log_severity_level = 4
         sess_opt.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         # enable_cpu_mem_arena 保持 ORT 默认开启；rapidocr 关它的做法不适用本项目。
-        # intra/inter_op 线程数不显式设置，交由 ORT 自动决策；
-        # 流水线 stage 已是单线程，避免超订。
+        sess_opt.intra_op_num_threads = _ORT_INTRA_OP_NUM_THREADS
+        # inter_op 不设：默认 Sequential 执行模式用不到。
         logger.info("加载 OCR 模型 %s", model_path.name)
         return ort.InferenceSession(str(model_path), sess_options=sess_opt)
 

@@ -1,12 +1,16 @@
 """运行在 batch_job_runner 子进程内的 OCR stage 函数。
 
-OCR 引擎由 load_ocr_engine()（流水线 setup_func）在 worker 内一次性加载，
+OCR 引擎由 load_ocr_engine()（流水线 setup_func）预载并验证模型可用；
 ocr_image() 是唯一 stage：单线程逐图识别并把结果拼成数据库文本。
+
+stage 线程池的每个 worker 线程经 _get_engine() 惰性各载一套引擎实例
+（引擎非线程安全，不能跨线程共享），存放在 threading.local 中。
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 
@@ -16,7 +20,22 @@ logger = logging.getLogger(__name__)
 OCR_TEXT_PREFIX = "[OCR]"
 OCR_TEXT_MAX_LENGTH = 4000
 
-_engine: Any = None
+_local = threading.local()
+
+
+def _create_engine() -> Any:
+    from ppocr_lite import OcrEngine
+
+    return OcrEngine()
+
+
+def _get_engine() -> Any:
+    """返回当前线程的 OCR 引擎；首次调用时惰性加载。"""
+    engine = getattr(_local, "engine", None)
+    if engine is None:
+        engine = _local.engine = _create_engine()
+        logger.info("已为当前 worker 线程加载 OCR 引擎")
+    return engine
 
 
 def _is_cjk_like_last_char(char: str) -> bool:
@@ -107,21 +126,10 @@ def compose_ocr_text(items) -> str | None:
 
 
 def load_ocr_engine():
-    """在 worker 进程内一次性初始化 ppocr_lite 引擎。"""
+    """流水线 setup_func：预载当前线程引擎，验证模型可加载（快速失败）。"""
 
-    global _engine
-    if _engine is None:
-        from ppocr_lite import OcrEngine
-
-        _engine = OcrEngine()
+    _get_engine()
     return {"engine_name": "ppocr_lite"}
-
-
-def _get_engine() -> Any:
-    """返回已初始化的 OCR 引擎；未初始化时视为流水线契约错误。"""
-    if _engine is None:
-        raise RuntimeError("OCR engine is not initialized")
-    return _engine
 
 
 def ocr_image(image_path: str):

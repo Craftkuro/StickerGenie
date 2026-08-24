@@ -1,6 +1,7 @@
 import multiprocessing
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +11,8 @@ from image_text_extractor import (
     compose_ocr_text,
     normalize_image_path,
 )
+from image_text_extractor import stages
+from image_text_extractor.runner import default_ocr_pool_size
 from image_text_extractor.stages import (
     OCR_TEXT_MAX_LENGTH,
     OCR_TEXT_PREFIX,
@@ -127,10 +130,59 @@ class OcrRunnerTests(unittest.TestCase):
         self.assertEqual(1, len(spec.stages))
         stage = spec.stages[0]
         self.assertEqual("ocr", stage.name)
-        self.assertEqual(1, stage.pool_size)
+        self.assertGreaterEqual(stage.pool_size, 1)
         self.assertEqual(1, stage.batch_size)
         self.assertIs(spec.setup_func, load_ocr_engine)
         self.assertIs(stage.func, ocr_image)
+
+    def test_default_pool_size_is_at_least_one(self):
+        self.assertGreaterEqual(default_ocr_pool_size(), 1)
+
+    def test_pool_size_can_be_overridden(self):
+        spec = OcrBatchJobRunner(pool_size=3).build_pipeline()
+        self.assertEqual(3, spec.stages[0].pool_size)
+
+
+class LoadOcrEngineTests(unittest.TestCase):
+    def tearDown(self):
+        stages._local.__dict__.clear()
+
+    def test_engine_is_thread_local(self):
+        factory_calls = []
+        lock = threading.Lock()
+
+        def fake_factory():
+            with lock:
+                engine = object()
+                factory_calls.append(engine)
+            return engine
+
+        started = threading.Event()
+        results = {}
+
+        def worker():
+            started.wait()
+            results["engine"] = stages._get_engine()
+
+        with patch("ppocr_lite.OcrEngine", side_effect=fake_factory):
+            main_first = stages._get_engine()
+            main_second = stages._get_engine()
+            thread = threading.Thread(target=worker)
+            thread.start()
+            started.set()
+            thread.join()
+
+        self.assertIs(main_first, main_second)
+        self.assertIsNot(main_first, results["engine"])
+        self.assertEqual(2, len(factory_calls))
+
+    def test_load_ocr_engine_returns_startup_info(self):
+        with patch(
+            "ppocr_lite.OcrEngine", side_effect=lambda: object()
+        ):
+            self.assertEqual(
+                {"engine_name": "ppocr_lite"}, load_ocr_engine()
+            )
 
     @unittest.skipUnless(
         os.environ.get("STICKERGENIE_RUN_MODEL_TESTS") == "1",
