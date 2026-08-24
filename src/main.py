@@ -35,6 +35,7 @@ def main() -> int:
     import services.single_instance
     import services.startup
     import ui.main_window
+    from PyQt6.QtCore import QLibraryInfo, QLocale, QTranslator
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtGui import QIcon, QPixmapCache
     from utils.resource_path import resolve_resource_path
@@ -43,6 +44,14 @@ def main() -> int:
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     application = QApplication(sys.argv)
+    qt_translator = QTranslator(application)
+    qt_translator.load(
+        QLocale("zh_CN"),
+        "qtbase",
+        "_",
+        QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath),
+    )
+    application.installTranslator(qt_translator)
 
     # 当同一目录的程序运行多个实例时，第二个及后续实例将退出，
     # 因为目前配置文件是绑定在exe路径的，同一份配置多实例可能导致数据损坏
