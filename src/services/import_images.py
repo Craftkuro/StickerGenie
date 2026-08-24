@@ -27,20 +27,14 @@ from utils.image_metadata import get_image_metadata
 logger = logging.getLogger(__name__)
 
 IMPORT_BATCH_SIZE = 32
-# 导入进度区间：0-5 预处理，5-15 写 SQLite，15-40 OCR，40-100 向量。
-PREPROCESS_END_PERCENT = 5
-SQLITE_END_PERCENT = 15
-OCR_START_PERCENT = 15
-OCR_END_PERCENT = 40
-VECTOR_START_PERCENT = 40
+# 进度条按选中任务均分：任务0为预处理+写入图库（始终执行），其后依次是可选的
+# OCR、向量生成任务。任务0内部再分段：预处理占 PREPROCESS_FRACTION，其余给写入图库。
+PREPROCESS_FRACTION = 0.5
 
 
-def _percent_in_range(value: int, total: int, start: int, end: int) -> int:
-    """把已完成的 value/total 映射到 [start, end] 进度区间。"""
-    if total <= 0:
-        return end
-    ratio = min(1.0, max(0.0, value / total))
-    return start + int((end - start) * ratio)
+def _overall_percent(task_index: int, task_count: int, fraction: float) -> int:
+    normalized = min(1.0, max(0.0, fraction))
+    return int(100 * (task_index + normalized) / task_count)
 
 
 @dataclass(frozen=True)
@@ -86,16 +80,18 @@ def _is_cancelled(cancel_event: threading.Event | None) -> bool:
 
 def _report_progress(
     callback: ProgressCallback | None,
-    percent: int,
-    status: str,
     *,
+    task_index: int,
+    task_count: int,
+    task_fraction: float,
+    status: str,
     completed: int = 0,
     total: int = 0,
 ) -> None:
     if callback is not None:
         callback(
             ImportImagesProgress(
-                percent=percent,
+                percent=_overall_percent(task_index, task_count, task_fraction),
                 status=status,
                 completed=completed,
                 total=total,
@@ -133,8 +129,8 @@ def _generate_vectors(
     progress_callback: ProgressCallback | None = None,
     *,
     cancel_event: threading.Event | None = None,
-    start_percent: int = VECTOR_START_PERCENT,
-    end_percent: int = 100,
+    task_index: int,
+    task_count: int,
 ) -> tuple[int, tuple[str, ...]]:
     vector_store = services.global_instances.current_vector_store
     if vector_store is None:
@@ -161,8 +157,10 @@ def _generate_vectors(
         return 0, tuple(errors)
     _report_progress(
         progress_callback,
-        start_percent,
-        "正在生成图片向量",
+        task_index=task_index,
+        task_count=task_count,
+        task_fraction=0.0,
+        status="正在生成图片向量",
         completed=0,
         total=total,
     )
@@ -233,13 +231,10 @@ def _generate_vectors(
             completed = min(total, result_batch.progress.completed)
             _report_progress(
                 progress_callback,
-                _percent_in_range(
-                    completed,
-                    total,
-                    start_percent,
-                    end_percent,
-                ),
-                "正在生成图片向量",
+                task_index=task_index,
+                task_count=task_count,
+                task_fraction=completed / total,
+                status="正在生成图片向量",
                 completed=completed,
                 total=total,
             )
@@ -257,8 +252,8 @@ def _extract_texts(
     progress_callback: ProgressCallback | None = None,
     *,
     cancel_event: threading.Event | None = None,
-    start_percent: int = OCR_START_PERCENT,
-    end_percent: int = OCR_END_PERCENT,
+    task_index: int,
+    task_count: int,
 ) -> tuple[int, tuple[str, ...]]:
     current_library_db = services.global_instances.current_library_db
     if current_library_db is None:
@@ -280,8 +275,10 @@ def _extract_texts(
         return 0, tuple(errors)
     _report_progress(
         progress_callback,
-        start_percent,
-        "正在识别图片文字",
+        task_index=task_index,
+        task_count=task_count,
+        task_fraction=0.0,
+        status="正在识别图片文字",
         completed=0,
         total=total,
     )
@@ -325,13 +322,10 @@ def _extract_texts(
             completed = min(total, result_batch.progress.completed)
             _report_progress(
                 progress_callback,
-                _percent_in_range(
-                    completed,
-                    total,
-                    start_percent,
-                    end_percent,
-                ),
-                "正在识别图片文字",
+                task_index=task_index,
+                task_count=task_count,
+                task_fraction=completed / total,
+                status="正在识别图片文字",
                 completed=completed,
                 total=total,
             )
@@ -350,53 +344,68 @@ def _prepare_candidates(
     *,
     progress: ProgressCallback | None = None,
     cancel_event: threading.Event | None = None,
+    task_index: int,
+    task_count: int,
 ) -> tuple[list[ImportCandidate], int, bool]:
     """读取图片元数据并过滤同一请求内的重复 hash。"""
     candidates: list[ImportCandidate] = []
     request_hashes: set[str] = set()
     duplicate_count = 0
+    total_files = len(file_paths)
 
     _report_progress(
         progress,
-        0,
-        "正在预处理图片",
-        total=len(file_paths),
+        task_index=task_index,
+        task_count=task_count,
+        task_fraction=0.0,
+        status="正在预处理图片",
+        completed=0,
+        total=total_files,
     )
     if _is_cancelled(cancel_event):
         return candidates, duplicate_count, True
 
-    for file_path in file_paths:
+    for processed, file_path in enumerate(file_paths, start=1):
         if _is_cancelled(cancel_event):
             return candidates, duplicate_count, True
 
-        path = Path(file_path)
-        if not path.exists():
-            continue
-
+        candidate = None
         try:
-            metadata = get_image_metadata(path)
-            if _is_cancelled(cancel_event):
-                return candidates, duplicate_count, True
+            path = Path(file_path)
+            if path.exists():
+                metadata = get_image_metadata(path)
+                if _is_cancelled(cancel_event):
+                    return candidates, duplicate_count, True
 
-            if metadata.hash in request_hashes:
-                duplicate_count += 1
-                continue
-            request_hashes.add(metadata.hash)
+                if metadata.hash in request_hashes:
+                    duplicate_count += 1
+                else:
+                    request_hashes.add(metadata.hash)
 
-            sticker = _metadata_to_sticker_image(metadata, path)
-            if tags:
-                for tag in tags:
-                    sticker.tags.append(tag)
-            candidates.append(
-                ImportCandidate(
-                    sticker=sticker,
-                    file_path=file_path,
-                    file_hash=metadata.hash,
-                )
-            )
+                    sticker = _metadata_to_sticker_image(metadata, path)
+                    if tags:
+                        for tag in tags:
+                            sticker.tags.append(tag)
+                    candidate = ImportCandidate(
+                        sticker=sticker,
+                        file_path=file_path,
+                        file_hash=metadata.hash,
+                    )
         except (OSError, ValueError) as exc:
             logger.warning("无法读取图片 %s: %s", file_path, exc)
-            continue
+
+        if candidate is not None:
+            candidates.append(candidate)
+
+        _report_progress(
+            progress,
+            task_index=task_index,
+            task_count=task_count,
+            task_fraction=PREPROCESS_FRACTION * processed / total_files,
+            status="正在预处理图片",
+            completed=processed,
+            total=total_files,
+        )
 
     return candidates, duplicate_count, False
 
@@ -437,7 +446,8 @@ def _commit_candidates(
     current_blob_storage,
     progress: ProgressCallback | None = None,
     cancel_event: threading.Event | None = None,
-    run_enrichment: bool = False,
+    task_index: int,
+    task_count: int,
 ) -> tuple[list[StickerImage], list[tuple[StickerImage, str]], int, bool]:
     """分批复制 Blob 并提交 SQLite，返回实际插入的图片。"""
     candidate_count = len(import_candidates)
@@ -445,10 +455,30 @@ def _commit_candidates(
     all_inserted_stickers_and_blob_paths: list[tuple[StickerImage, str]] = []
     duplicate_count = 0
 
+    if not candidate_count:
+        _report_progress(
+            progress,
+            task_index=task_index,
+            task_count=task_count,
+            task_fraction=1.0,
+            status="写入图库完成",
+            completed=0,
+            total=0,
+        )
+        return (
+            imported_stickers,
+            all_inserted_stickers_and_blob_paths,
+            duplicate_count,
+            False,
+        )
+
     _report_progress(
         progress,
-        PREPROCESS_END_PERCENT,
-        "正在写入图库",
+        task_index=task_index,
+        task_count=task_count,
+        task_fraction=PREPROCESS_FRACTION,
+        status="正在写入图库",
+        completed=0,
         total=candidate_count,
     )
 
@@ -516,17 +546,14 @@ def _commit_candidates(
         )
 
         completed = len(imported_stickers)
-        sqlite_end = SQLITE_END_PERCENT if run_enrichment else 100
-        percent = _percent_in_range(
-            completed,
-            candidate_count,
-            PREPROCESS_END_PERCENT,
-            sqlite_end,
-        )
+        # 任务0总体进度 = 50% 预处理 + 50% 写入图库；写入段按入库条数折算。
+        ratio = min(1.0, completed / candidate_count)
         _report_progress(
             progress,
-            percent,
-            "正在写入图库",
+            task_index=task_index,
+            task_count=task_count,
+            task_fraction=PREPROCESS_FRACTION + (1 - PREPROCESS_FRACTION) * ratio,
+            status="正在写入图库",
             completed=completed,
             total=candidate_count,
         )
@@ -554,38 +581,59 @@ def _run_enrichment(
     extract_text: bool,
     progress: ProgressCallback | None = None,
     cancel_event: threading.Event | None = None,
+    task_count: int,
 ) -> tuple[int, tuple[str, ...], int, tuple[str, ...]]:
     """对已入库图片执行可选的 OCR 与向量生成。"""
     ocr_count = 0
     ocr_errors: tuple[str, ...] = ()
     vectorized_count = 0
     vector_errors: tuple[str, ...] = ()
+    task_index = 1
 
-    if extract_text and stickers_and_blob_paths:
-        try:
-            ocr_count, ocr_errors = _extract_texts(
-                stickers_and_blob_paths,
+    if extract_text:
+        if stickers_and_blob_paths:
+            try:
+                ocr_count, ocr_errors = _extract_texts(
+                    stickers_and_blob_paths,
+                    progress,
+                    cancel_event=cancel_event,
+                    task_index=task_index,
+                    task_count=task_count,
+                )
+            except Exception as exc:
+                logger.exception("图片文字识别失败")
+                ocr_errors = (*ocr_errors, f"文字识别失败：{exc}")
+        else:
+            _report_progress(
                 progress,
-                cancel_event=cancel_event,
-                start_percent=OCR_START_PERCENT,
-                end_percent=OCR_END_PERCENT if generate_vectors else 100,
+                task_index=task_index,
+                task_count=task_count,
+                task_fraction=1.0,
+                status="文字识别完成",
             )
-        except Exception as exc:
-            logger.exception("图片文字识别失败")
-            ocr_errors = (*ocr_errors, f"文字识别失败：{exc}")
+        task_index += 1
 
-    if generate_vectors and stickers_and_blob_paths:
-        try:
-            vectorized_count, vector_errors = _generate_vectors(
-                stickers_and_blob_paths,
+    if generate_vectors:
+        if stickers_and_blob_paths:
+            try:
+                vectorized_count, vector_errors = _generate_vectors(
+                    stickers_and_blob_paths,
+                    progress,
+                    cancel_event=cancel_event,
+                    task_index=task_index,
+                    task_count=task_count,
+                )
+            except Exception as exc:
+                logger.exception("写入图片向量失败")
+                vector_errors = (*vector_errors, f"向量写入失败：{exc}")
+        else:
+            _report_progress(
                 progress,
-                cancel_event=cancel_event,
-                start_percent=VECTOR_START_PERCENT,
-                end_percent=100,
+                task_index=task_index,
+                task_count=task_count,
+                task_fraction=1.0,
+                status="向量生成完成",
             )
-        except Exception as exc:
-            logger.exception("写入图片向量失败")
-            vector_errors = (*vector_errors, f"向量写入失败：{exc}")
 
     return ocr_count, ocr_errors, vectorized_count, vector_errors
 
@@ -622,6 +670,9 @@ def import_images_with_result(
     ocr_count = 0
     ocr_errors: tuple[str, ...] = ()
 
+    # 任务0（预处理+写入图库）始终执行，OCR 与向量按需追加并依次编号。
+    task_count = 1 + int(extract_text) + int(generate_vectors)
+
     def make_result(*, cancelled: bool = False) -> ImportImagesResult:
         return ImportImagesResult(
             imported_stickers=tuple(imported_stickers),
@@ -638,6 +689,8 @@ def import_images_with_result(
         tags,
         progress=progress,
         cancel_event=cancel_event,
+        task_index=0,
+        task_count=task_count,
     )
     if cancelled:
         return make_result(cancelled=True)
@@ -663,7 +716,8 @@ def import_images_with_result(
         current_blob_storage=current_blob_storage,
         progress=progress,
         cancel_event=cancel_event,
-        run_enrichment=generate_vectors or extract_text,
+        task_index=0,
+        task_count=task_count,
     )
     if cancelled:
         return make_result(cancelled=True)
@@ -676,6 +730,7 @@ def import_images_with_result(
             extract_text=extract_text,
             progress=progress,
             cancel_event=cancel_event,
+            task_count=task_count,
         )
 
     if _is_cancelled(cancel_event):
@@ -683,8 +738,10 @@ def import_images_with_result(
 
     _report_progress(
         progress,
-        100,
-        "导入完成",
+        task_index=task_count - 1,
+        task_count=task_count,
+        task_fraction=1.0,
+        status="导入完成",
         completed=len(imported_stickers),
         total=len(import_candidates),
     )

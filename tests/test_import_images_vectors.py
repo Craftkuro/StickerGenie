@@ -211,14 +211,15 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertIs(cancel_event, fake_runner.captured_cancel_event)
         percents = [event.percent for event in progress_events]
         self.assertEqual(sorted(percents), percents)
-        self.assertEqual([0, 5], percents[:2])
+        self.assertEqual([0, 25], percents[:2])
+        self.assertEqual([50], percents[3:4])
         self.assertEqual(100, percents[-1])
         vector_progress = [
             event
             for event in progress_events
             if event.status == "正在生成图片向量"
         ]
-        self.assertEqual([40, 100], [event.percent for event in vector_progress])
+        self.assertEqual([50, 100], [event.percent for event in vector_progress])
         self.assertEqual([0, 1], [event.completed for event in vector_progress])
 
     def test_duplicate_hashes_skip_vector_extraction(self):
@@ -341,7 +342,7 @@ class ImportImagesVectorTests(unittest.TestCase):
             for event in progress_events
             if event.status == "正在生成图片向量"
         ]
-        self.assertEqual([40, 60, 80, 100], vector_progress)
+        self.assertEqual([50, 66, 83, 100], vector_progress)
 
     def test_reports_preprocessing_import_and_completion_progress(self):
         progress_events = []
@@ -354,8 +355,14 @@ class ImportImagesVectorTests(unittest.TestCase):
         self.assertEqual(1, len(result.imported_stickers))
         self.assertEqual(0, progress_events[0].percent)
         self.assertEqual("正在预处理图片", progress_events[0].status)
-        self.assertEqual(5, progress_events[1].percent)
-        self.assertEqual("正在写入图库", progress_events[1].status)
+        self.assertEqual(50, progress_events[1].percent)
+        self.assertEqual("正在预处理图片", progress_events[1].status)
+        commit_progress = [
+            event
+            for event in progress_events
+            if event.status == "正在写入图库"
+        ]
+        self.assertEqual([50, 100], [event.percent for event in commit_progress])
         self.assertEqual(100, progress_events[-1].percent)
         self.assertEqual("导入完成", progress_events[-1].status)
 
@@ -441,7 +448,7 @@ class ImportImagesVectorTests(unittest.TestCase):
             for event in progress_events
             if event.status == "正在识别图片文字"
         ]
-        self.assertEqual([15, 100], [event.percent for event in ocr_progress])
+        self.assertEqual([50, 100], [event.percent for event in ocr_progress])
         self.assertEqual([0, 1], [event.completed for event in ocr_progress])
 
     def test_extract_text_failure_keeps_sqlite_rows_without_raising(self):
