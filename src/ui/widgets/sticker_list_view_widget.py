@@ -9,6 +9,7 @@ from PyQt6.QtGui import (
     QFontMetrics,
     QIcon,
     QPainter,
+    QPalette,
     QPen,
     QPixmap,
     QStandardItemModel,
@@ -518,6 +519,7 @@ class StickerListView(QListView):
     DETAIL_ROW_HEIGHT_DEFAULT = 72
     DETAIL_ROW_HEIGHT_MIN = 48
     DETAIL_ROW_HEIGHT_MAX = 128
+    DEFAULT_EMPTY_TEXT = "列表空空如也"
 
     def __init__(
         self,
@@ -541,6 +543,9 @@ class StickerListView(QListView):
         self._detail_row_height = self.DETAIL_ROW_HEIGHT_DEFAULT
         # hash -> row 索引：缩略图就绪时按 hash 直接定位行，避免逐行扫描视口。
         self._hash_to_rows: dict[str, int] = {}
+        # 空态占位文案；_empty_state_active 记录上次绘制的空态，用于检测翻转。
+        self._empty_text = self.DEFAULT_EMPTY_TEXT
+        self._empty_state_active = True
 
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setResizeMode(QListView.ResizeMode.Adjust)
@@ -587,6 +592,7 @@ class StickerListView(QListView):
             self._connect_model_signals(model)
             self._rebuild_hash_index()
             self._load_more_timer.start()
+        self._update_empty_state()
 
     def _connect_model_signals(self, model) -> None:
         model.rowsInserted.connect(self._on_model_rows_inserted)
@@ -610,13 +616,16 @@ class StickerListView(QListView):
     def _on_model_rows_inserted(self, _parent, first, last) -> None:
         self._update_hash_index_for_inserted_rows(first, last)
         self._load_more_timer.start()
+        self._update_empty_state()
 
     def _on_model_rows_removed(self, _parent, _first, _last) -> None:
         # 删除会导致后续行号变化，全量重建比逐行修正更不易出错；删除是低频操作。
         self._rebuild_hash_index()
+        self._update_empty_state()
 
     def _on_model_reset(self) -> None:
         self._rebuild_hash_index()
+        self._update_empty_state()
 
     def _on_model_data_changed(self, _top_left, _bottom_right, roles) -> None:
         # 只有 blob 身份变化会影响 hash 索引；当前业务不会改，这里兜底处理。
@@ -734,6 +743,38 @@ class StickerListView(QListView):
         super().resizeEvent(event)
         if self._display_mode == commons.constants.LIST_DISPLAY_MODE_LIST:
             self._sync_detail_grid_width()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if not self._is_empty():
+            return
+        painter = QPainter(self.viewport())
+        painter.setPen(
+            self.palette().color(QPalette.ColorRole.PlaceholderText)
+        )
+        painter.drawText(
+            self.viewport().rect(),
+            Qt.AlignmentFlag.AlignCenter,
+            self._empty_text,
+        )
+
+    def _is_empty(self) -> bool:
+        model = self.model()
+        return model is None or model.rowCount() == 0
+
+    def _update_empty_state(self) -> None:
+        # 空↔非空翻转时 Qt 只局部重绘变化区域，需全量重绘避免残留旧文案；
+        # 未翻转时不触发重绘，批量导入不受影响。
+        empty = self._is_empty()
+        if empty != self._empty_state_active:
+            self._empty_state_active = empty
+            self.viewport().update()
+
+    def set_empty_text(self, text: str) -> None:
+        """设置列表为空时显示的占位文案。"""
+        self._empty_text = text
+        if self._empty_state_active:
+            self.viewport().update()
 
     def set_thumbnail_provider(self, thumbnail_provider: ThumbnailProvider) -> None:
         if self._thumbnail_provider is not None:

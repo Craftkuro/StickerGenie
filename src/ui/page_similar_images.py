@@ -29,6 +29,8 @@ class SimilarImagesPage(FiniteStickerCollectionPage):
     without re-querying; the model is rebuilt from cached data.
     """
 
+    EMPTY_STATE_TEXT = "未找到合适的相似图片，可修改过滤条件"
+
     def __init__(self, *, auto_refresh: bool = False):
         super().__init__(auto_refresh=auto_refresh)
 
@@ -37,6 +39,8 @@ class SimilarImagesPage(FiniteStickerCollectionPage):
 
         self._filter_enabled: bool = True
         self._filter_config: SimilarityFilterConfig | None = None
+
+        self.listViewStickerList.set_empty_text(self.EMPTY_STATE_TEXT)
 
         self._setup_filter_popup()
 

@@ -727,6 +727,28 @@ class StickerListViewTests(unittest.TestCase):
         self.assertIsInstance(page.display_size_slider, QSlider)
         page.close()
 
+    def test_similar_images_page_sets_custom_empty_text(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_manager = create_settings_manager(
+                Path(temp_dir) / "settings.toml"
+            )
+            with patch.object(
+                services.global_instances,
+                "current_settings_manager",
+                settings_manager,
+            ):
+                page = SimilarImagesPage(auto_refresh=False)
+
+        self.assertEqual(
+            SimilarImagesPage.EMPTY_STATE_TEXT,
+            page.listViewStickerList._empty_text,
+        )
+        self.assertNotEqual(
+            StickerListView.DEFAULT_EMPTY_TEXT,
+            SimilarImagesPage.EMPTY_STATE_TEXT,
+        )
+        page.close()
+
     def test_infinite_page_loads_more_on_request(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "stored-hash.png"
@@ -2179,6 +2201,77 @@ class StickerListViewTests(unittest.TestCase):
 
         self.assertEqual(0, len(spy))
         page.close()
+
+
+class StickerListViewEmptyStateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    @staticmethod
+    def _grab_image(view):
+        return view.grab().toImage()
+
+    def test_empty_state_flag_follows_model_row_count(self):
+        view = StickerListView()
+        self.assertTrue(view._empty_state_active)
+
+        model = QStandardItemModel()
+        model.appendRow(QStandardItem(""))
+        view.setModel(model)
+        self.assertFalse(view._empty_state_active)
+
+        model.removeRow(0)
+        self.assertTrue(view._empty_state_active)
+        view.close()
+
+    def test_empty_view_paints_placeholder_and_populated_does_not(self):
+        view = StickerListView()
+        view.resize(320, 240)
+        view.show()
+        QApplication.processEvents()
+        empty_image = self._grab_image(view)
+
+        model = QStandardItemModel()
+        model.appendRow(QStandardItem("x"))
+        view.setModel(model)
+        QApplication.processEvents()
+        populated_image = self._grab_image(view)
+
+        self.assertEqual(StickerListView.DEFAULT_EMPTY_TEXT, view._empty_text)
+        self.assertNotEqual(empty_image, populated_image)
+        view.close()
+
+    def test_placeholder_is_restored_after_row_removal(self):
+        view = StickerListView()
+        view.resize(320, 240)
+        view.show()
+        QApplication.processEvents()
+        baseline = self._grab_image(view)
+
+        model = QStandardItemModel()
+        model.appendRow(QStandardItem("x"))
+        view.setModel(model)
+        model.removeRow(0)
+        QApplication.processEvents()
+
+        self.assertTrue(view._empty_state_active)
+        self.assertEqual(baseline, self._grab_image(view))
+        view.close()
+
+    def test_set_empty_text_customizes_placeholder(self):
+        view = StickerListView()
+        view.resize(320, 240)
+        view.show()
+        QApplication.processEvents()
+        default_image = self._grab_image(view)
+
+        view.set_empty_text("这里什么都没有")
+        QApplication.processEvents()
+
+        self.assertEqual("这里什么都没有", view._empty_text)
+        self.assertNotEqual(default_image, self._grab_image(view))
+        view.close()
 
 
 if __name__ == "__main__":
