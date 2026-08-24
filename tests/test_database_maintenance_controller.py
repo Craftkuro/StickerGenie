@@ -126,6 +126,29 @@ class DatabaseMaintenanceControllerTests(unittest.TestCase):
             message,
         )
 
+    def test_taskbar_bridge_tracks_start_progress_and_completion(self):
+        action = Mock()
+        status_bar = Mock()
+        window = SimpleNamespace(
+            actionStartDatabaseMaintenance=action,
+            statusBar=lambda: status_bar,
+        )
+        taskbar = Mock()
+        controller = DatabaseMaintenanceController(
+            window,
+            Mock(),
+            taskbar_progress=taskbar,
+        )
+        progress = DatabaseMaintenanceProgress(50, "任务", "状态", 4, 8, False)
+
+        controller.start_database_maintenance(DatabaseMaintenanceOptions())
+        controller._on_database_maintenance_progress_changed(progress)
+        controller._close_database_maintenance_dialog()
+
+        taskbar.begin.assert_called_once_with()
+        taskbar.update.assert_called_once_with(50)
+        taskbar.clear.assert_called_once_with()
+
 
 class MainWindowDatabaseMaintenanceMenuTests(unittest.TestCase):
     @classmethod

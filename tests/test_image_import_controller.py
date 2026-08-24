@@ -64,6 +64,38 @@ class ImageImportControllerTests(unittest.TestCase):
 
         progress_dialog.update_progress.assert_called_once_with(progress)
 
+    def test_taskbar_bridge_tracks_start_progress_and_terminal_states(self):
+        import_service = Mock()
+        status_bar = Mock()
+        window = SimpleNamespace(statusBar=lambda: status_bar)
+        taskbar = Mock()
+        controller = ImageImportController(
+            window,
+            import_service,
+            taskbar_progress=taskbar,
+        )
+        request = ImportImagesRequest(file_paths=("a.png",))
+
+        with patch(
+            "ui.operations.image_import_controller.ImageImportProgressDialog"
+        ):
+            controller.handle_import_images_request(request)
+
+        taskbar.begin.assert_called_once_with()
+
+        controller._dialog = Mock()
+        controller._on_import_images_progress_changed(
+            ImportImagesProgress(percent=60, status="正在生成图片向量")
+        )
+        taskbar.update.assert_called_once_with(60)
+
+        with patch(
+            "ui.operations.image_import_controller.QMessageBox.critical"
+        ):
+            controller._on_import_images_failed("boom")
+
+        taskbar.clear.assert_called_once_with()
+
     def test_refreshes_library_after_import_service_completes(self):
         status_bar = Mock()
         close_progress_dialog = Mock()

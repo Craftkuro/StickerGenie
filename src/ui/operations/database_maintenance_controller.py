@@ -6,15 +6,17 @@ import services.global_instances
 from services.database_maintenance_service import DatabaseMaintenanceService
 
 from ..dialog_database_maintenance import DatabaseMaintenanceDialog
+from .taskbar_progress import TaskbarProgressBridge
 
 
 class DatabaseMaintenanceController:
     """负责数据库维护全流程：对话框生命周期、进度与终态处理。"""
 
-    def __init__(self, window, service: DatabaseMaintenanceService):
+    def __init__(self, window, service: DatabaseMaintenanceService, taskbar_progress=None):
         self._window = window
         self._service = service
         self._dialog = None
+        self._taskbar = taskbar_progress or TaskbarProgressBridge(window)
         service.maintenance_finished.connect(
             self._on_database_maintenance_finished
         )
@@ -61,12 +63,15 @@ class DatabaseMaintenanceController:
             self._service.start_maintenance(options)
         except Exception as exc:
             self._on_database_maintenance_failed(str(exc))
+            return
+        self._taskbar.begin()
 
     def _on_database_maintenance_progress_changed(self, progress):
         dialog = self._dialog
         if dialog is not None:
             dialog.update_progress(progress)
 
+        self._taskbar.update(progress.percent)
         message = progress.status
         if progress.total:
             message += f"（{progress.completed}/{progress.total}）"
@@ -78,6 +83,7 @@ class DatabaseMaintenanceController:
         if dialog is not None:
             dialog.finish()
             dialog.deleteLater()
+        self._taskbar.clear()
 
     def _release_database_maintenance_dialog(self, dialog):
         if self._dialog is dialog:

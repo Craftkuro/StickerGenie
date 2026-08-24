@@ -9,15 +9,17 @@ from services.image_import_service import ImageImportService
 
 from ..dialog_image_import import ImageImportDialog
 from ..dialog_image_import_progress import ImageImportProgressDialog
+from .taskbar_progress import TaskbarProgressBridge
 
 
 class ImageImportController:
     """负责图片导入全流程：对话框生命周期、进度与终态处理。"""
 
-    def __init__(self, window, service: ImageImportService):
+    def __init__(self, window, service: ImageImportService, taskbar_progress=None):
         self._window = window
         self._service = service
         self._dialog = None
+        self._taskbar = taskbar_progress or TaskbarProgressBridge(window)
         service.import_finished.connect(self._on_import_images_finished)
         service.import_cancelled.connect(self._on_import_images_cancelled)
         service.import_failed.connect(self._on_import_images_failed)
@@ -45,12 +47,14 @@ class ImageImportController:
         except Exception as exc:
             self._on_import_images_failed(str(exc))
             return
+        self._taskbar.begin()
         self._window.statusBar().showMessage("正在导入图片…")
 
     def _on_import_images_progress_changed(self, progress):
         dialog = self._dialog
         if dialog is not None:
             dialog.update_progress(progress)
+        self._taskbar.update(progress.percent)
 
     def _close_image_import_progress_dialog(self):
         dialog = self._dialog
@@ -58,6 +62,7 @@ class ImageImportController:
         if dialog is not None:
             dialog.finish()
             dialog.deleteLater()
+        self._taskbar.clear()
 
     def _on_import_images_finished(self, result):
         self._close_image_import_progress_dialog()
