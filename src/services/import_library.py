@@ -275,12 +275,10 @@ def _resolve_tags(
 def _build_sticker(
     image: _BackupImage,
     file_metadata: StickerImageMetadata,
-    source: Path,
     tags: list[Tag],
 ) -> StickerImage:
     sticker = StickerImage()
     sticker.original_file_name = PurePosixPath(image.relative_path).name
-    sticker.relative_path = str(source)
     sticker.file_size = file_metadata.file_size
     sticker.hash = file_metadata.hash
     sticker.extension = file_metadata.extension
@@ -423,7 +421,6 @@ def import_library(
         sticker = _build_sticker(
             image,
             file_metadata,
-            source,
             _resolve_tags(image.tag_names, tag_by_name),
         )
         if image.hash in existing_hashes:

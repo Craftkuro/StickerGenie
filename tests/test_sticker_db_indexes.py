@@ -36,7 +36,6 @@ def make_sticker(
 ) -> StickerImage:
     sticker = StickerImage()
     sticker.original_file_name = file_name
-    sticker.relative_path = file_name
     sticker.file_size = 1
     sticker.hash = hash_value
     sticker.extension = ".png"
@@ -82,9 +81,9 @@ class StickerDBIndexTests(unittest.TestCase):
         connection = sqlite3.connect(self.db_path)
         connection.execute(
             "INSERT INTO sticker_images "
-            "(original_file_name, relative_path, file_size, hash, extension, "
+            "(original_file_name, file_size, hash, extension, "
             "imported_at, modification_date, size_width, size_height) "
-            "VALUES ('a.png', 'a.png', 1, 'legacy-hash', '.png', "
+            "VALUES ('a.png', 1, 'legacy-hash', '.png', "
             "'2026-01-01 00:00:00', '2026-01-01 00:00:00', 1, 1)"
         )
         connection.commit()
@@ -130,7 +129,6 @@ class StickerDBIndexTests(unittest.TestCase):
                 CREATE TABLE sticker_images (
                     id INTEGER NOT NULL,
                     original_file_name VARCHAR NOT NULL,
-                    relative_path VARCHAR NOT NULL,
                     file_size INTEGER NOT NULL,
                     hash VARCHAR NOT NULL,
                     extension VARCHAR NOT NULL,

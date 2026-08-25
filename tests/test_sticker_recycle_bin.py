@@ -14,7 +14,6 @@ def make_sticker(sticker_id: int = 1) -> StickerImage:
     sticker = StickerImage()
     sticker.id = sticker_id
     sticker.original_file_name = "原始名称.png"
-    sticker.relative_path = "原始名称.png"
     sticker.file_size = 1
     sticker.hash = f"{sticker_id:040d}"
     sticker.extension = ".png"

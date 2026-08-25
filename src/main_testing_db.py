@@ -120,7 +120,6 @@ def test_stickerdb_v1():
     now = datetime.datetime.now()
     sticker = StickerImage()
     sticker.original_file_name = TEST_IMAGE_PATH.name
-    sticker.relative_path = str(TEST_IMAGE_PATH.relative_to(project_root))
     sticker.file_size = file_size
     sticker.hash = image_hash
     sticker.imported_at = now

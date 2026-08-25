@@ -18,7 +18,6 @@ def make_sticker(sticker_id: int, name: str, vector_id: str | None = None):
     sticker = StickerImage()
     sticker.id = sticker_id
     sticker.original_file_name = name
-    sticker.relative_path = name
     sticker.file_size = 1
     sticker.hash = f"{sticker_id:040d}"
     sticker.extension = ".png"

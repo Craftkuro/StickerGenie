@@ -10,7 +10,6 @@ from stickerdb.v1.sticker_db import StickerDBV1
 def make_sticker(file_name: str) -> StickerImage:
     sticker = StickerImage()
     sticker.original_file_name = file_name
-    sticker.relative_path = file_name
     sticker.file_size = 1
     sticker.hash = file_name
     sticker.extension = ".png"

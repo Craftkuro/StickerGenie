@@ -27,7 +27,6 @@ def make_tag(name: str) -> Tag:
 def make_sticker(hash_value: str, tags=()) -> StickerImage:
     sticker = StickerImage()
     sticker.original_file_name = f"{hash_value}.png"
-    sticker.relative_path = sticker.original_file_name
     sticker.file_size = 1
     sticker.hash = hash_value
     sticker.extension = ".png"

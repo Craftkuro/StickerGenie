@@ -22,7 +22,6 @@ def make_sticker(sticker_id: int = 7) -> StickerImage:
     sticker = StickerImage()
     sticker.id = sticker_id
     sticker.original_file_name = "old name.png"
-    sticker.relative_path = "old name.png"
     sticker.file_size = 123
     sticker.hash = "0" * 40
     sticker.extension = ".png"

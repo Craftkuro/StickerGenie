@@ -32,7 +32,6 @@ def make_tag(name: str, color: str, *, enabled: bool = True) -> Tag:
 def make_sticker(tag: Tag) -> StickerImage:
     sticker = StickerImage()
     sticker.original_file_name = "viewer.png"
-    sticker.relative_path = "viewer.png"
     sticker.file_size = 1
     sticker.hash = "viewer-test-hash"
     sticker.extension = ".png"

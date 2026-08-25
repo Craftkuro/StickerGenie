@@ -44,7 +44,6 @@ def make_sticker(
     sticker = StickerImage()
     sticker.id = sticker_id
     sticker.original_file_name = file_name
-    sticker.relative_path = file_name
     sticker.file_size = 1
     sticker.hash = f"{sticker_id:040d}"
     sticker.extension = extension

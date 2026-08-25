@@ -99,18 +99,16 @@ def _report_progress(
         )
 
 
-def _metadata_to_sticker_image(metadata: StickerImageMetadata, file_path: Path) -> StickerImage:
+def _metadata_to_sticker_image(metadata: StickerImageMetadata) -> StickerImage:
     """
     将图片元数据转换为 StickerImage DTO。
     :param metadata: 图片元数据
-    :param file_path: 图片文件路径
     :return: StickerImage DTO
     """
     now = datetime.datetime.now()
     
     sticker = StickerImage()
     sticker.original_file_name = metadata.original_file_name
-    sticker.relative_path = str(file_path)
     sticker.file_size = metadata.file_size
     sticker.hash = metadata.hash
     sticker.extension = metadata.extension
@@ -382,7 +380,7 @@ def _prepare_candidates(
                 else:
                     request_hashes.add(metadata.hash)
 
-                    sticker = _metadata_to_sticker_image(metadata, path)
+                    sticker = _metadata_to_sticker_image(metadata)
                     if tags:
                         for tag in tags:
                             sticker.tags.append(tag)

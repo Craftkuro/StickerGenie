@@ -213,7 +213,6 @@ class DatabaseMaintenanceTests(unittest.TestCase):
 
         sticker = StickerImage()
         sticker.original_file_name = metadata.original_file_name
-        sticker.relative_path = str(source_path)
         sticker.file_size = metadata.file_size
         sticker.hash = metadata.hash
         sticker.extension = metadata.extension

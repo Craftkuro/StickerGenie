@@ -19,7 +19,6 @@ from ui.widgets.image_text_edit_widget import ImageTextEditWidget
 def make_sticker() -> StickerImage:
     sticker = StickerImage()
     sticker.original_file_name = "viewer.png"
-    sticker.relative_path = "viewer.png"
     sticker.file_size = 1
     sticker.hash = "viewer-text-test-hash"
     sticker.extension = ".png"

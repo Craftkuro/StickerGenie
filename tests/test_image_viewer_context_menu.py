@@ -21,7 +21,6 @@ from ui.dialog_image_viewer import ImageViewerDialog
 def make_sticker(name="viewer.png", extension=".png") -> StickerImage:
     sticker = StickerImage()
     sticker.original_file_name = name
-    sticker.relative_path = name
     sticker.file_size = 1
     sticker.hash = "viewer-context-menu-hash"
     sticker.extension = extension

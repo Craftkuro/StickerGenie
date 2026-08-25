@@ -44,7 +44,6 @@ class DBStickerImage(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     
     original_file_name: Mapped[str] = mapped_column(String, nullable=False)
-    relative_path: Mapped[str] = mapped_column(String, nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     extension: Mapped[str] = mapped_column(String, nullable=False)
@@ -71,7 +70,6 @@ class DBStickerImage(Base):
         :param dto: StickerImage DTO 实例
         """
         self.original_file_name = dto.original_file_name
-        self.relative_path = dto.relative_path
         self.file_size = dto.file_size
         self.hash = dto.hash
         self.extension = dto.extension
@@ -81,7 +79,7 @@ class DBStickerImage(Base):
         self.size_height = dto.size_height
         self.vectordb_id = dto.vectordb_id
         self.text_in_image = dto.text_in_image
-    
+
     def export(self) -> StickerImage:
         """
         将 ORM 对象导出为 DTO 对象。
@@ -90,7 +88,6 @@ class DBStickerImage(Base):
         dto = StickerImage()
         dto.id = self.id
         dto.original_file_name = self.original_file_name
-        dto.relative_path = self.relative_path
         dto.file_size = self.file_size
         dto.hash = self.hash
         dto.extension = self.extension

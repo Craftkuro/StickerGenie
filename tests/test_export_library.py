@@ -52,7 +52,6 @@ def make_sticker(
 ) -> StickerImage:
     sticker = StickerImage()
     sticker.original_file_name = file_name
-    sticker.relative_path = file_name
     sticker.file_size = 1
     sticker.hash = file_hash
     sticker.extension = extension
@@ -102,7 +101,6 @@ class ExportLibraryTests(unittest.TestCase):
             modification_date=modification_date,
         )
         sticker.file_size = len(content)
-        sticker.relative_path = str(source_path)
         sticker.text_in_image = text_in_image
         return self.db.add_stickers([sticker])[0]
 

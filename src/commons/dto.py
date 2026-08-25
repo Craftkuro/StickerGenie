@@ -5,7 +5,6 @@ from typing import Optional
 class StickerImage:
     id: int
     original_file_name: str
-    relative_path: str
     file_size: int
     hash: str
     extension: str
@@ -22,7 +21,7 @@ class StickerImage:
         self.tags = []
 
     def __repr__(self):
-        return f'StickerImage<{self.relative_path}>'
+        return f'StickerImage<{self.original_file_name}>'
 
 
 class Tag:

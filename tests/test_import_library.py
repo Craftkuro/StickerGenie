@@ -49,7 +49,6 @@ def make_tag(
 def make_sticker(file_name: str, content: bytes) -> StickerImage:
     sticker = StickerImage()
     sticker.original_file_name = file_name
-    sticker.relative_path = file_name
     sticker.file_size = len(content)
     sticker.hash = hashlib.sha1(content).hexdigest()
     sticker.extension = ".png"
@@ -183,10 +182,6 @@ class ImportLibraryTests(unittest.TestCase):
         self.assertEqual(1, len(stickers))
         sticker = stickers[0]
         self.assertEqual("示例.png", sticker.original_file_name)
-        self.assertEqual(
-            str(self.backup_root / "set_1" / "示例.png"),
-            sticker.relative_path,
-        )
         self.assertEqual(len(content), sticker.file_size)
         self.assertEqual(file_hash, sticker.hash)
         self.assertEqual(".png", sticker.extension)
