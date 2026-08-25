@@ -394,11 +394,10 @@ class LibraryAuditingDialog(QDialog):
                 )
             )
         except Exception as exc:
-            # ValueError(无向量)/RuntimeError(未初始化) 等：清空列表并提示原因。
+            # ValueError(无向量)/RuntimeError(未初始化) 等：连缓存一起清空，
+            # 否则之后切换过滤开关会用上一张图的缓存重建列表。
             logger.warning("获取相似图片失败：%s", exc)
-            page.refresh_content(
-                services.sticker_library_viewer_service.build_sticker_model([])
-            )
+            page.clear_similar_data()
             main_window = services.global_instances.main_window
             if main_window is not None:
                 main_window.statusBar().showMessage(str(exc), 8000)

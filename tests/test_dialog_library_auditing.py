@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -497,6 +498,44 @@ class LibraryAuditingDialogTests(unittest.TestCase):
         # 对话框仍可正常导航；可见状态下再次刷新依旧只清空列表。
         dialog.pushButtonRand.click()
         self.assertEqual(f"#{self.gif.id} {self.gif.original_file_name}", dialog.label.text())
+        self.assertEqual(0, page.listViewStickerList.model().rowCount())
+
+    def test_missing_vector_then_filter_toggle_shows_no_stale_results(self):
+        # 上一张图查询成功，相似页缓存了它的结果并显示出来。
+        success = MagicMock(
+            return_value=(
+                [SimpleNamespace(sqlite_id=self.png_b.id, similarity=0.9)],
+                {self.png_b.id: self.png_b},
+            )
+        )
+        with patch(
+            "services.sticker_library_viewer_service.fetch_similar_candidates",
+            success,
+        ):
+            dialog = self._create_dialog(initial_random_queue=[self.png_a.id])
+            dialog.show()
+            self.app.processEvents()
+
+        page = dialog._similar_page
+        self.assertIsNotNone(page)
+        self.assertEqual(1, page.listViewStickerList.model().rowCount())
+
+        # 切到没有特征向量的图：列表清空。
+        failure = MagicMock(side_effect=ValueError("该图片还没有特征向量。"))
+        self.db.random_queue.append(self.gif.id)
+        with patch(
+            "services.sticker_library_viewer_service.fetch_similar_candidates",
+            failure,
+        ):
+            dialog.pushButtonRand.click()
+
+        self.assertEqual(0, page.listViewStickerList.model().rowCount())
+        self.assertEqual([], page._cached_search_results)
+        self.assertEqual({}, page._cached_sticker_map)
+
+        # 之后反复开关过滤，也不应把上一张图的结果带回来。
+        page.apply_filter_and_refresh()
+        page.apply_filter_and_refresh()
         self.assertEqual(0, page.listViewStickerList.model().rowCount())
 
     def _renamed_copy(self):

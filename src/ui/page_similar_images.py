@@ -50,6 +50,19 @@ class SimilarImagesPage(FiniteStickerCollectionPage):
         self._cached_search_results = list(search_results)
         self._cached_sticker_map = dict(sticker_map)
 
+    def clear_similar_data(self) -> None:
+        """清空缓存的查询结果并显示空列表（如当前图片没有特征向量时）。
+
+        只清视图不清缓存的话，下一次过滤开关会用旧缓存重建列表，
+        把上一张图的查询结果带回来。
+        """
+        self._cached_search_results = []
+        self._cached_sticker_map = {}
+
+        from services.sticker_library_viewer_service import build_sticker_model
+
+        self.refresh_content(build_sticker_model([]))
+
     def set_filter_config(
         self, enabled: bool, config: SimilarityFilterConfig
     ) -> None:
