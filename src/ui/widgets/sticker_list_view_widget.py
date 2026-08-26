@@ -587,6 +587,9 @@ class StickerListView(QListView):
         self.verticalScrollBar().valueChanged.connect(
             self._on_vertical_scrollbar_changed
         )
+        self.verticalScrollBar().rangeChanged.connect(
+            self._on_vertical_scrollbar_range_changed
+        )
         self.set_thumbnail_provider(
             thumbnail_provider
             or services.global_instances.current_thumbnail_provider
@@ -612,12 +615,14 @@ class StickerListView(QListView):
         model.rowsInserted.connect(self._on_model_rows_inserted)
         model.rowsRemoved.connect(self._on_model_rows_removed)
         model.modelReset.connect(self._on_model_reset)
+        model.layoutChanged.connect(self._on_model_layout_changed)
 
     def _disconnect_model_signals(self, model) -> None:
         for signal_name, slot in (
             ("rowsInserted", self._on_model_rows_inserted),
             ("rowsRemoved", self._on_model_rows_removed),
             ("modelReset", self._on_model_reset),
+            ("layoutChanged", self._on_model_layout_changed),
         ):
             signal = getattr(model, signal_name)
             try:
@@ -626,17 +631,31 @@ class StickerListView(QListView):
                 pass
 
     def _on_model_rows_inserted(self, _parent, _first, _last) -> None:
-        self._load_more_timer.start()
+        self._schedule_load_more_check()
         self._update_empty_state()
 
     def _on_model_rows_removed(self, _parent, _first, _last) -> None:
+        self._schedule_load_more_check()
         self._update_empty_state()
 
     def _on_model_reset(self) -> None:
+        self._schedule_load_more_check()
         self._update_empty_state()
 
+    def _on_model_layout_changed(self, *_args) -> None:
+        self._schedule_load_more_check()
+
     def _on_vertical_scrollbar_changed(self, _value: int) -> None:
-        self.check_load_more()
+        self._schedule_load_more_check()
+
+    def _on_vertical_scrollbar_range_changed(
+        self, _minimum: int, _maximum: int
+    ) -> None:
+        self._schedule_load_more_check()
+
+    def _schedule_load_more_check(self) -> None:
+        """在布局稳定后的事件循环中合并执行一次加载检查。"""
+        self._load_more_timer.start()
 
     def check_load_more(self) -> None:
         """在即将滚动到底部（或内容不足一屏）时发出加载更多请求。"""
@@ -644,14 +663,25 @@ class StickerListView(QListView):
         if model is None or model.rowCount() <= 0:
             return
 
-        scrollbar = self.verticalScrollBar()
-        if scrollbar.maximum() > 0:
-            if (
-                scrollbar.value()
-                < scrollbar.maximum() - self.LOAD_MORE_THRESHOLD
-            ):
-                return
+        if not self._is_near_bottom(model):
+            return
         self.load_more_requested.emit()
+
+    def _is_near_bottom(self, model) -> bool:
+        """根据最后一项与视口底部的距离判断是否需要加载。"""
+        viewport_rect = self.viewport().rect()
+        if viewport_rect.isEmpty():
+            return False
+
+        last_index = model.index(model.rowCount() - 1, 0)
+        last_rect = self.visualRect(last_index)
+        if not last_rect.isValid():
+            return False
+
+        return (
+            last_rect.bottom()
+            <= viewport_rect.bottom() + self.LOAD_MORE_THRESHOLD
+        )
 
     def item_size(self) -> int:
         """返回当前模式的显示尺寸（图标模式为格子边长，详细信息模式为行高）。"""
@@ -682,6 +712,7 @@ class StickerListView(QListView):
             # setSingleStep(-1) 归还控制权并立即应用布局刚记下的首选步长
             # （委托 sizeHint 高 + spacing），与程序启动时的行为一致。
             self.verticalScrollBar().setSingleStep(-1)
+        self._schedule_load_more_check()
 
     def set_display_size(self, size: int) -> None:
         """调整当前模式的显示大小（类似 Windows 7 资源管理器的滑块）。"""
@@ -703,6 +734,7 @@ class StickerListView(QListView):
             if isinstance(delegate, StickerItemDelegate):
                 delegate.set_item_size(self._icon_item_size)
             self._apply_icon_grid_size()
+        self._schedule_load_more_check()
 
     def wheelEvent(self, event) -> None:
         if not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -740,6 +772,11 @@ class StickerListView(QListView):
         super().resizeEvent(event)
         if self._display_mode == commons.constants.LIST_DISPLAY_MODE_LIST:
             self._sync_detail_grid_width()
+        self._schedule_load_more_check()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._schedule_load_more_check()
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)

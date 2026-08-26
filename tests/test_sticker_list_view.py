@@ -275,6 +275,25 @@ class StickerListViewTests(unittest.TestCase):
         self.assertGreater(len(spy), 0)
         view.close()
 
+    def test_view_rechecks_when_resize_makes_content_fit(self):
+        view = StickerListView()
+        model = QStandardItemModel()
+        for _ in range(100):
+            model.appendRow(QStandardItem(""))
+        view.setModel(model)
+        view.resize(320, 240)
+        view.show()
+        QApplication.processEvents()
+
+        self.assertGreater(view.verticalScrollBar().maximum(), 0)
+        spy = QSignalSpy(view.load_more_requested)
+
+        view.resize(4000, 4000)
+
+        self.assertTrue(self._wait_until(lambda: len(spy) > 0))
+        self.assertEqual(0, view.verticalScrollBar().maximum())
+        view.close()
+
     def test_finite_page_ignores_load_more_request(self):
         page = FiniteStickerCollectionPage(auto_refresh=False)
         model = QStandardItemModel()
@@ -856,6 +875,49 @@ class StickerListViewTests(unittest.TestCase):
                 QApplication.processEvents()
 
                 self.assertEqual(len(stickers), model.rowCount())
+                self.assertFalse(page._has_more)
+                self.assertEqual(len(stickers), page._offset)
+                page.close()
+
+    def test_infinite_page_fills_after_resize_makes_first_page_fit(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "stored-hash.png"
+            image = QImage(2, 2, QImage.Format.Format_ARGB32)
+            image.fill(0xFFFFFFFF)
+            self.assertTrue(image.save(str(image_path)))
+
+            class FakePagedDB:
+                def __init__(self, rows):
+                    self.rows = rows
+
+                def list_stickers(self, offset=0, count=100, **kwargs):
+                    return self.rows[offset:offset + count]
+
+            page_size = InfiniteStickerCollectionPage.PAGE_SIZE
+            stickers = [make_sticker() for _ in range(page_size + 5)]
+            with patch(
+                "services.global_instances.current_library_db",
+                FakePagedDB(stickers),
+            ), patch(
+                "services.global_instances.current_blob_storage",
+                FakeBlobStorage(image_path),
+            ):
+                page = InfiniteStickerCollectionPage(auto_refresh=False)
+                page.resize(400, 300)
+                page.show()
+                QApplication.processEvents()
+
+                view = page.listViewStickerList
+                self.assertEqual(page_size, view.model().rowCount())
+                self.assertGreater(view.verticalScrollBar().maximum(), 0)
+
+                page.resize(4000, 4000)
+
+                self.assertTrue(
+                    self._wait_until(
+                        lambda: view.model().rowCount() == len(stickers)
+                    )
+                )
                 self.assertFalse(page._has_more)
                 self.assertEqual(len(stickers), page._offset)
                 page.close()
