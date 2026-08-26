@@ -60,6 +60,26 @@ class FakeVectorStore:
         self.deleted.append(vector_id)
         return vector_id in self.by_sqlite_id.values()
 
+    def find_ids_by_sqlite_ids(self, sticker_ids):
+        wanted = set(sticker_ids)
+        return {
+            sticker_id: vector_id
+            for sticker_id, vector_id in self.by_sqlite_id.items()
+            if sticker_id in wanted
+        }
+
+    def delete_batch(self, vector_ids):
+        unique = list(dict.fromkeys(vector_ids))
+        existing = set(self.by_sqlite_id.values())
+        removed = {vector_id for vector_id in unique if vector_id in existing}
+        self.by_sqlite_id = {
+            sticker_id: registered_id
+            for sticker_id, registered_id in self.by_sqlite_id.items()
+            if registered_id not in removed
+        }
+        self.deleted.extend(unique)
+        return len(removed)
+
     def delete_by_sqlite_id(self, sticker_id):
         vector_id = self.by_sqlite_id.get(sticker_id)
         if vector_id is None:

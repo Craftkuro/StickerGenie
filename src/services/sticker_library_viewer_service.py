@@ -260,20 +260,36 @@ def delete_stickers(stickers: Sequence[StickerImage]) -> tuple[str, ...]:
     wiring.slot_refresh_content()
     cleanup_errors = []
 
-    for sticker in sticker_list:
-        if vector_store is not None:
-            try:
-                with services.global_instances.vector_store_lock:
-                    if sticker.vectordb_id:
-                        deleted = vector_store.delete(str(sticker.vectordb_id))
-                        if not deleted:
-                            vector_store.delete_by_sqlite_id(sticker.id)
-                    else:
-                        vector_store.delete_by_sqlite_id(sticker.id)
-            except Exception as exc:
-                logger.exception("删除图片向量失败，id=%s", sticker.id)
-                cleanup_errors.append(f"向量清理失败：{exc}")
+    if vector_store is not None and sticker_list:
+        # 向量清理整批一次完成：逐条 delete 每条固定 ~10ms（chroma-rust
+        # 逐操作持久化的开销），100 张要 1s+，批量后只需 ~几十 ms。
+        try:
+            with services.global_instances.vector_store_lock:
+                direct_ids = list(dict.fromkeys(
+                    str(sticker.vectordb_id)
+                    for sticker in sticker_list
+                    if sticker.vectordb_id
+                ))
+                # vectordb_id 可能失效（指向已不存在的记录），
+                # 一并按 sqlite_id 解析出实际存在的记录 id。
+                resolved_ids = vector_store.find_ids_by_sqlite_ids(
+                    [sticker.id for sticker in sticker_list]
+                )
+                # ai认为两种方式都查并取并集，能解决潜在脏数据问题，并且性能影响微乎其微
+                all_ids = sorted(set(direct_ids) | set(resolved_ids.values()))
+                if all_ids:
+                    deleted_count = vector_store.delete_batch(all_ids)
+                    if deleted_count < len(all_ids):
+                        logger.info(
+                            "部分向量条目不存在（可由维护功能重建）：预期 %d，实际 %d",
+                            len(all_ids),
+                            deleted_count,
+                        )
+        except Exception as exc:
+            logger.exception("批量删除图片向量失败")
+            cleanup_errors.append(f"向量清理失败：{exc}")
 
+    for sticker in sticker_list:
         try:
             services.sticker_recycle_bin.stash_sticker(sticker)
         except Exception as exc:

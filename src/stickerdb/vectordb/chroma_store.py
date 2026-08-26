@@ -380,19 +380,22 @@ class ChromaVectorStore:
     def delete_batch(self, vector_ids: List[str]) -> int:
         """
         批量删除向量记录
-        
+
+        超过单批上限（Chroma 限制约 5461）时自动分块，
+        调用方无需关心集合规模。
+
         参数:
             vector_ids: 记录ID列表
-            
+
         返回:
             成功删除的记录数
         """
         if self._collection is None:
             raise VectorDBConnectionError("集合未初始化")
-        
+
         if len(vector_ids) == 0:
             return 0
-        
+
         try:
             unique_ids = list(dict.fromkeys(vector_ids))
             existing = self._collection.get(ids=unique_ids, include=[])
@@ -402,15 +405,58 @@ class ChromaVectorStore:
                 logger.warning("所有向量ID都不存在")
                 return 0
 
-            self._collection.delete(ids=existing_ids)
+            # Chroma 对单次操作的批大小有硬限制，分块提交。
+            chunk_size = 5000
+            for start in range(0, len(existing_ids), chunk_size):
+                self._collection.delete(
+                    ids=existing_ids[start:start + chunk_size]
+                )
             logger.info(f"批量删除 {len(existing_ids)} 个向量")
             return len(existing_ids)
-            
+
         except Exception as e:
             error_msg = f"批量删除向量失败: {str(e)}"
             logger.error(error_msg, exc_info=True)
             raise VectorDBException(error_msg) from e
-    
+
+    def find_ids_by_sqlite_ids(
+        self, sqlite_ids: List[int]
+    ) -> Dict[int, str]:
+        """
+        批量解析 sqlite_id -> 向量记录ID 的映射
+
+        供批量删除前一次性定位记录，替代逐条 get_by_sqlite_id。
+
+        参数:
+            sqlite_id: SQLite 数据库中的记录ID列表
+
+        返回:
+            {sqlite_id: vector_id} 字典；查不到记录的键不出现
+        """
+        if self._collection is None:
+            raise VectorDBConnectionError("集合未初始化")
+
+        unique_ids = list(dict.fromkeys(sqlite_ids))
+        if not unique_ids:
+            return {}
+
+        try:
+            result = self._collection.get(
+                where={"sqlite_id": {"$in": unique_ids}},
+                include=["metadatas"],
+            )
+
+            mapping: Dict[int, str] = {}
+            for i in range(len(result["ids"])):
+                metadata = result["metadatas"][i]
+                mapping[int(metadata["sqlite_id"])] = result["ids"][i]
+            return mapping
+
+        except Exception as e:
+            error_msg = f"批量解析 sqlite_id 失败: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            raise VectorDBException(error_msg) from e
+
     def delete_by_sqlite_id(self, sqlite_id: int) -> bool:
         """
         根据 SQLite ID 删除向量记录

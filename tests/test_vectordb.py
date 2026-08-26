@@ -111,6 +111,43 @@ class ChromaVectorStoreTests(unittest.TestCase):
         self.assertTrue(self.store.delete(vector_ids[1]))
         self.assertEqual(0, self.store.count())
 
+    def test_batch_delete_splits_requests_over_chroma_max_batch_size(self):
+        from unittest.mock import MagicMock
+
+        fake_collection = MagicMock()
+        fake_collection.get.return_value = {
+            "ids": [f"id-{index}" for index in range(6000)]
+        }
+        original_collection = self.store._collection
+        self.store._collection = fake_collection
+        try:
+            deleted = self.store.delete_batch(
+                [f"id-{index}" for index in range(6000)]
+            )
+        finally:
+            self.store._collection = original_collection
+
+        self.assertEqual(6000, deleted)
+        batch_sizes = [
+            len(call.kwargs["ids"])
+            for call in fake_collection.delete.call_args_list
+        ]
+        self.assertEqual([5000, 1000], batch_sizes)
+
+    def test_find_ids_by_sqlite_ids_maps_only_existing_records(self):
+        vector_ids = self.store.add_batch(
+            [make_vector(0), make_vector(1)],
+            [make_metadata(1), make_metadata(2)],
+        )
+
+        mapping = self.store.find_ids_by_sqlite_ids([1, 2, 999])
+
+        self.assertEqual(
+            {1: vector_ids[0], 2: vector_ids[1]},
+            mapping,
+        )
+        self.assertEqual({}, self.store.find_ids_by_sqlite_ids([]))
+
     def test_search_by_id_includes_the_requested_record_as_reference(self):
         base = make_vector(0)
         nearby = make_vector(0)
