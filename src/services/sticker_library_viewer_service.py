@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Iterable, Sequence
 
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject
-from PyQt6.QtGui import QStandardItemModel, QStandardItem
+from PyQt6.QtGui import QStandardItem
 
 import services.global_instances
 import services.similarity_result_filter
@@ -19,6 +19,7 @@ from commons.roles import (
     ROLE_STICKER_IMAGE,
 )
 from commons.signal_objects import MainWindowNewTabRequest
+from commons.sticker_list_model import StickerListModel
 from stickerdb.vectordb.models import SearchResult
 
 logger = logging.getLogger(__name__)
@@ -97,8 +98,8 @@ def build_sticker_items(
 def build_sticker_model(
     images: Iterable[StickerImage],
     similarities: dict[int, float] | None = None,
-) -> QStandardItemModel:
-    model = QStandardItemModel()
+) -> StickerListModel:
+    model = StickerListModel()
     for item in build_sticker_items(images, similarities):
         model.appendRow(item)
     return model
@@ -254,6 +255,9 @@ def delete_stickers(stickers: Sequence[StickerImage]) -> tuple[str, ...]:
     db.delete_stickers(sticker_list)
     # SQLite 提交成功后立刻广播：即使后续清理失败，UI 行也必须消失。
     wiring.signal_stickers_deleted.emit([s.id for s in sticker_list])
+    # 删完必刷由服务层结构保证（快照页靠上面的广播修剪，无限集合页
+    # 跳过修剪、只认这里的全量刷新），调用方无需自觉。
+    wiring.slot_refresh_content()
     cleanup_errors = []
 
     for sticker in sticker_list:

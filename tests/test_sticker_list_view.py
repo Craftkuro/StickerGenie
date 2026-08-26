@@ -51,6 +51,7 @@ from commons.roles import (
     ROLE_SIMILARITY,
     ROLE_STICKER_IMAGE,
 )
+from commons.sticker_list_model import StickerListModel
 import services.global_instances
 from services.settings import create_settings_manager
 from services.sticker_library_viewer_service import (
@@ -349,7 +350,7 @@ class StickerListViewTests(unittest.TestCase):
 
     def test_batch_tag_update_preserves_model_dto_reference(self):
         page = SearchResultPage(auto_refresh=False)
-        model = QStandardItemModel()
+        model = StickerListModel()
         current_sticker = make_sticker()
         item = QStandardItem("")
         item.setData(current_sticker, ROLE_STICKER_IMAGE)
@@ -617,7 +618,7 @@ class StickerListViewTests(unittest.TestCase):
 
     def test_delete_stickers_prunes_rows_via_broadcast_signal(self):
         page = SearchResultPage(auto_refresh=False)
-        model = QStandardItemModel()
+        model = StickerListModel()
         stickers = []
         for sticker_id in (1, 2, 3):
             sticker = make_sticker()
@@ -662,7 +663,7 @@ class StickerListViewTests(unittest.TestCase):
 
     def test_delete_broadcast_with_unknown_ids_is_noop(self):
         page = SearchResultPage(auto_refresh=False)
-        model = QStandardItemModel()
+        model = StickerListModel()
         for sticker_id in (1, 2):
             sticker = make_sticker()
             sticker.id = sticker_id
@@ -679,8 +680,8 @@ class StickerListViewTests(unittest.TestCase):
     def test_delete_broadcast_prunes_every_open_page(self):
         first_page = SearchResultPage(auto_refresh=False)
         second_page = SearchResultPage(auto_refresh=False)
-        first_model = QStandardItemModel()
-        second_model = QStandardItemModel()
+        first_model = StickerListModel()
+        second_model = StickerListModel()
         for sticker_id in (1, 2, 3):
             item = QStandardItem("")
             sticker = make_sticker()
@@ -1394,7 +1395,7 @@ class StickerListViewTests(unittest.TestCase):
     def test_view_repaints_matching_item_when_thumbnail_ready(self):
         provider = ThumbnailProvider()
         view = StickerListView(thumbnail_provider=provider)
-        model = QStandardItemModel()
+        model = StickerListModel()
         item = QStandardItem("")
         item.setData(BlobFileEntity("ready-hash", ".png"), ROLE_BLOB_ENTITY)
         model.appendRow(item)
@@ -1417,7 +1418,7 @@ class StickerListViewTests(unittest.TestCase):
     def test_view_ignores_thumbnail_ready_for_absent_hash(self):
         provider = ThumbnailProvider()
         view = StickerListView(thumbnail_provider=provider)
-        model = QStandardItemModel()
+        model = StickerListModel()
         item = QStandardItem("")
         item.setData(BlobFileEntity("other-hash", ".png"), ROLE_BLOB_ENTITY)
         model.appendRow(item)
@@ -1432,10 +1433,29 @@ class StickerListViewTests(unittest.TestCase):
         update_item.assert_not_called()
         view.close()
 
-    def test_thumbnail_ready_updates_row_appended_after_set_model(self):
+    def test_thumbnail_ready_with_plain_model_is_ignored(self):
+        # plain model（debug 服务等）没有 row_for_hash：路由优雅退化，不炸。
         provider = ThumbnailProvider()
         view = StickerListView(thumbnail_provider=provider)
         model = QStandardItemModel()
+        item = QStandardItem("")
+        item.setData(BlobFileEntity("plain-hash", ".png"), ROLE_BLOB_ENTITY)
+        model.appendRow(item)
+        view.setModel(model)
+
+        with patch.object(view, "_update_item") as update_item:
+            provider.thumbnail_ready.emit(
+                "plain-hash",
+                QImage(1, 1, QImage.Format.Format_RGB32),
+            )
+
+        update_item.assert_not_called()
+        view.close()
+
+    def test_thumbnail_ready_updates_row_appended_after_set_model(self):
+        provider = ThumbnailProvider()
+        view = StickerListView(thumbnail_provider=provider)
+        model = StickerListModel()
         first = QStandardItem("")
         first.setData(BlobFileEntity("first-hash", ".png"), ROLE_BLOB_ENTITY)
         model.appendRow(first)
@@ -1462,7 +1482,7 @@ class StickerListViewTests(unittest.TestCase):
     def test_thumbnail_ready_ignores_row_outside_viewport(self):
         provider = ThumbnailProvider()
         view = StickerListView(thumbnail_provider=provider)
-        model = QStandardItemModel()
+        model = StickerListModel()
         for row in range(20):
             item = QStandardItem("")
             item.setData(
@@ -1487,7 +1507,7 @@ class StickerListViewTests(unittest.TestCase):
     def test_thumbnail_ready_uses_shifted_row_after_removal(self):
         provider = ThumbnailProvider()
         view = StickerListView(thumbnail_provider=provider)
-        model = QStandardItemModel()
+        model = StickerListModel()
         for file_hash in ("hash-a", "hash-b", "hash-c"):
             item = QStandardItem("")
             item.setData(
@@ -2077,7 +2097,7 @@ class StickerListViewTests(unittest.TestCase):
 
     def test_batch_tag_update_repaints_detail_rows(self):
         page = SearchResultPage(auto_refresh=False)
-        model = QStandardItemModel()
+        model = StickerListModel()
         current_sticker = make_sticker()
         item = QStandardItem("")
         item.setData(current_sticker, ROLE_STICKER_IMAGE)
@@ -2101,10 +2121,10 @@ class StickerListViewTests(unittest.TestCase):
         self.assertEqual(["批量新标签"], [tag.name for tag in stored_sticker.tags])
         page.close()
 
-    def test_mode_switch_preserves_load_more_and_hash_index(self):
+    def test_mode_switch_preserves_load_more_and_thumbnail_routing(self):
         provider = ThumbnailProvider()
         view = StickerListView(thumbnail_provider=provider)
-        model = QStandardItemModel()
+        model = StickerListModel()
         for row in range(200):
             item = QStandardItem("")
             item.setData(BlobFileEntity(f"hash-{row}", ".png"), ROLE_BLOB_ENTITY)

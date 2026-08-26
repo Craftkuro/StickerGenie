@@ -2,10 +2,11 @@
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QActionGroup, QIcon, QStandardItemModel
+from PyQt6.QtGui import QAction, QActionGroup, QIcon
 from PyQt6.QtWidgets import QMenu, QToolButton
 
 import services.sticker_library_viewer_service
+from commons.sticker_list_model import StickerListModel
 from utils.resource_path import resolve_resource_path
 
 from .widgets.sticker_list_page import StickerListPage
@@ -37,6 +38,11 @@ class InfiniteStickerCollectionPage(StickerListPage):
         self._has_more = True
         self._loading_more = False
         self.listViewStickerList.load_more_requested.connect(self._load_more)
+        # 本页行数可达数万且删除广播后必有全量刷新，修剪是白做功：
+        # 取消基类订阅的删除广播，刷新由服务层在删除成功后统一触发。
+        services.sticker_library_viewer_service.wiring.signal_stickers_deleted.disconnect(
+            self._prune_deleted_rows
+        )
 
         # 刷新和排序按钮依次插到显示模式按钮右侧（自定义区1），
         # 最终布局为 [显示模式][刷新][排序] | spacer | [滑块]。
@@ -119,7 +125,7 @@ class InfiniteStickerCollectionPage(StickerListPage):
         self._loading_more = False
 
         previous_model = self.listViewStickerList.model()
-        new_model = QStandardItemModel(self.listViewStickerList)
+        new_model = StickerListModel(self.listViewStickerList)
         self.listViewStickerList.setModel(new_model)
         if previous_model is not None and previous_model is not new_model:
             previous_model.deleteLater()
@@ -147,7 +153,7 @@ class InfiniteStickerCollectionPage(StickerListPage):
             )
             model = self.listViewStickerList.model()
             if model is None:
-                model = QStandardItemModel(self.listViewStickerList)
+                model = StickerListModel(self.listViewStickerList)
                 self.listViewStickerList.setModel(model)
             for item in items:
                 model.appendRow(item)

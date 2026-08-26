@@ -29,6 +29,7 @@ from commons.roles import (
     ROLE_FILE_PATH,
     ROLE_STICKER_IMAGE,
 )
+from commons.sticker_list_model import StickerListModel
 import services.image_clipboard_service
 import services.sticker_library_viewer_service
 from utils.resource_path import resolve_resource_path
@@ -379,26 +380,10 @@ class StickerListPage(QWidget):
         dialog.exec()
 
     def _update_sticker_dtos(self, updated_stickers: list) -> None:
-        """更新当前模型中 DTO 的标签，同时保留 DTO 对象引用。"""
-        updated_by_id = {
-            sticker.id: sticker
-            for sticker in updated_stickers
-            if getattr(sticker, "id", None) is not None
-        }
+        """批量编辑标签后，按 id 更新当前模型中的共享 DTO 并局部重绘。"""
         model = self.listViewStickerList.model()
-        if model is None or not updated_by_id:
-            return
-
-        for row in range(model.rowCount()):
-            index = model.index(row, 0)
-            sticker = index.data(ROLE_STICKER_IMAGE)
-            if sticker is None:
-                continue
-            updated = updated_by_id.get(getattr(sticker, "id", None))
-            if updated is None:
-                continue
-            sticker.tags = list(updated.tags)
-            model.dataChanged.emit(index, index, [ROLE_STICKER_IMAGE])
+        if isinstance(model, StickerListModel):
+            model.refresh_stickers(updated_stickers)
 
     def _is_gif_index(self, index: QModelIndex) -> bool:
         blob_entity = index.data(ROLE_BLOB_ENTITY)
@@ -526,27 +511,11 @@ class StickerListPage(QWidget):
     def _prune_deleted_rows(self, deleted_ids: list) -> None:
         """收到删除广播后，把命中行从当前模型中移除。
 
-        单遍扫描模型行，按集合匹配，无 IO；payload 含本页没有的 id
-        时为无害 no-op。
+        payload 含本页没有的 id 时为无害 no-op。
         """
-        if not deleted_ids:
-            return
         model = self.listViewStickerList.model()
-        if model is None:
-            return
-
-        deleted = set(deleted_ids)
-        rows = []
-        for row in range(model.rowCount()):
-            sticker = model.index(row, 0).data(ROLE_STICKER_IMAGE)
-            if sticker is not None and sticker.id in deleted:
-                rows.append(row)
-        if not rows:
-            return
-
-        # 从大到小删除行，避免前面行移除后导致后续行号失效。
-        for row in sorted(rows, reverse=True):
-            model.removeRow(row)
+        if isinstance(model, StickerListModel):
+            model.remove_stickers_by_ids(deleted_ids)
 
     def _delete_stickers_for_indexes(self, indexes: list[QModelIndex]):
         stickers = []
@@ -593,9 +562,8 @@ class StickerListPage(QWidget):
             QMessageBox.critical(self, "删除失败", str(exc))
             return
 
-        # 本页的行移除由 signal_stickers_deleted 广播统一完成。
-        services.sticker_library_viewer_service.wiring.slot_refresh_content()
-
+        # 本页的行移除由 signal_stickers_deleted 广播统一完成；
+        # 全量刷新由服务层在删除成功后统一触发。
         if cleanup_errors:
             QMessageBox.warning(
                 self,

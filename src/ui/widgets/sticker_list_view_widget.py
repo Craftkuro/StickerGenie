@@ -541,8 +541,6 @@ class StickerListView(QListView):
         # 两种模式的尺寸互相独立记忆（类似 Windows 资源管理器）。
         self._icon_item_size = self.ITEM_SIZE
         self._detail_row_height = self.DETAIL_ROW_HEIGHT_DEFAULT
-        # hash -> row 索引：缩略图就绪时按 hash 直接定位行，避免逐行扫描视口。
-        self._hash_to_rows: dict[str, int] = {}
         # 空态占位文案；_empty_state_active 记录上次绘制的空态，用于检测翻转。
         self._empty_text = self.DEFAULT_EMPTY_TEXT
         self._empty_state_active = True
@@ -587,10 +585,8 @@ class StickerListView(QListView):
             self._disconnect_model_signals(previous_model)
 
         super().setModel(model)
-        self._hash_to_rows.clear()
         if model is not None:
             self._connect_model_signals(model)
-            self._rebuild_hash_index()
             self._load_more_timer.start()
         self._update_empty_state()
 
@@ -598,14 +594,12 @@ class StickerListView(QListView):
         model.rowsInserted.connect(self._on_model_rows_inserted)
         model.rowsRemoved.connect(self._on_model_rows_removed)
         model.modelReset.connect(self._on_model_reset)
-        model.dataChanged.connect(self._on_model_data_changed)
 
     def _disconnect_model_signals(self, model) -> None:
         for signal_name, slot in (
             ("rowsInserted", self._on_model_rows_inserted),
             ("rowsRemoved", self._on_model_rows_removed),
             ("modelReset", self._on_model_reset),
-            ("dataChanged", self._on_model_data_changed),
         ):
             signal = getattr(model, signal_name)
             try:
@@ -613,49 +607,15 @@ class StickerListView(QListView):
             except TypeError:
                 pass
 
-    def _on_model_rows_inserted(self, _parent, first, last) -> None:
-        self._update_hash_index_for_inserted_rows(first, last)
+    def _on_model_rows_inserted(self, _parent, _first, _last) -> None:
         self._load_more_timer.start()
         self._update_empty_state()
 
     def _on_model_rows_removed(self, _parent, _first, _last) -> None:
-        # 删除会导致后续行号变化，全量重建比逐行修正更不易出错；删除是低频操作。
-        self._rebuild_hash_index()
         self._update_empty_state()
 
     def _on_model_reset(self) -> None:
-        self._rebuild_hash_index()
         self._update_empty_state()
-
-    def _on_model_data_changed(self, _top_left, _bottom_right, roles) -> None:
-        # 只有 blob 身份变化会影响 hash 索引；当前业务不会改，这里兜底处理。
-        if not roles or ROLE_BLOB_ENTITY in roles:
-            self._rebuild_hash_index()
-
-    def _rebuild_hash_index(self) -> None:
-        """全量重建 hash -> row 映射。"""
-        self._hash_to_rows.clear()
-        model = self.model()
-        if model is None:
-            return
-        for row in range(model.rowCount()):
-            blob_entity = model.index(row, 0).data(ROLE_BLOB_ENTITY)
-            if blob_entity is not None:
-                self._hash_to_rows[blob_entity.hash] = row
-
-    def _update_hash_index_for_inserted_rows(self, first: int, last: int) -> None:
-        """rowsInserted 后增量更新；非追加场景直接全量重建。"""
-        model = self.model()
-        if model is None:
-            return
-        if last != model.rowCount() - 1:
-            # 中间插入会让后续行号整体 +1，重建比逐行修正更不易出错。
-            self._rebuild_hash_index()
-            return
-        for row in range(first, last + 1):
-            blob_entity = model.index(row, 0).data(ROLE_BLOB_ENTITY)
-            if blob_entity is not None:
-                self._hash_to_rows[blob_entity.hash] = row
 
     def _on_vertical_scrollbar_changed(self, _value: int) -> None:
         self.check_load_more()
@@ -793,8 +753,12 @@ class StickerListView(QListView):
             thumbnail_provider.thumbnail_ready.connect(self._on_thumbnail_ready)
 
     def _on_thumbnail_ready(self, file_hash, _image) -> None:
-        """缩略图就绪后通过 hash 索引定位并重绘匹配的可见 item。"""
-        row = self._hash_to_rows.get(file_hash)
+        """缩略图就绪后向模型查询 hash 对应行并重绘匹配的可见 item。"""
+        row_for_hash = getattr(self.model(), "row_for_hash", None)
+        if row_for_hash is None:
+            # plain model（debug 服务等）：无法路由，跳过。
+            return
+        row = row_for_hash(file_hash)
         if row is None:
             return
 
