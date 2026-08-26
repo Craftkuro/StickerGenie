@@ -315,7 +315,7 @@ class StickerListViewTests(unittest.TestCase):
         delete_mock.assert_called_once_with(index)
         page.close()
 
-    def test_context_menu_multi_selection_offers_save_as_and_delete(self):
+    def test_context_menu_multi_selection_offers_copy_save_as_and_delete(self):
         page = SearchResultPage(auto_refresh=False)
         model = QStandardItemModel()
         model.appendRow(QStandardItem(""))
@@ -334,10 +334,15 @@ class StickerListViewTests(unittest.TestCase):
 
         def fake_exec(menu, position):
             action_texts = [action.text() for action in menu.actions()]
-            self.assertEqual(["另存为", "批量编辑标签", "更多"], action_texts)
-            batch_action = menu.actions()[1]
+            self.assertEqual(
+                ["复制到剪贴板", "", "另存为", "批量编辑标签", "更多"],
+                action_texts,
+            )
+            copy_action = menu.actions()[0]
+            copy_action.trigger()
+            batch_action = menu.actions()[3]
             batch_action.trigger()
-            more_menu = menu.actions()[2].menu()
+            more_menu = menu.actions()[4].menu()
             delete_action = more_menu.actions()[0]
             self.assertEqual("移动到图库回收站", delete_action.text())
             delete_action.trigger()
@@ -357,7 +362,11 @@ class StickerListViewTests(unittest.TestCase):
                         page,
                         "_batch_edit_tags_for_indexes",
                     ) as batch_mock:
-                        page._show_sticker_context_menu(QPoint(0, 0))
+                        with patch.object(
+                            page,
+                            "_copy_stickers_for_indexes",
+                        ) as copy_mock:
+                            page._show_sticker_context_menu(QPoint(0, 0))
 
         self.assertEqual(
             [0, 1],
@@ -367,6 +376,11 @@ class StickerListViewTests(unittest.TestCase):
             [0, 1],
             [index.row() for index in batch_mock.call_args.args[0]],
         )
+        self.assertEqual(
+            [0, 1],
+            [index.row() for index in copy_mock.call_args.args[0]],
+        )
+        copy_mock.assert_called_once()
         page.close()
 
     def test_batch_tag_update_preserves_model_dto_reference(self):

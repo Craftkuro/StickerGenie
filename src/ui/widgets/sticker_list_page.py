@@ -309,11 +309,16 @@ class StickerListPage(QWidget):
 
         selected_indexes = self._selected_indexes()
         menu = QMenu(self)
-        # 另存为对单选和多选都可用；复制、查找相似图片和图片属性只适用于单选。
+        copy_action = menu.addAction("复制到剪贴板")
+        copy_action.triggered.connect(
+            lambda _checked=False: self._copy_stickers_for_indexes(
+                selected_indexes
+            )
+        )
+        # 另存为对单选和多选都可用；查找相似图片和图片属性只适用于单选。
         if len(selected_indexes) == 1:
             selected_index = selected_indexes[0]
             is_gif = self._is_gif_index(selected_index)
-            copy_action = menu.addAction("复制到剪贴板")
             if is_gif:
                 copy_first_frame_action = menu.addAction("复制首帧到剪贴板")
             menu.addSeparator()
@@ -321,11 +326,6 @@ class StickerListPage(QWidget):
             save_as_action = menu.addAction("另存为")
             image_properties_action = menu.addAction("图片属性")
             menu.addSeparator()
-            copy_action.triggered.connect(
-                lambda _checked=False: self._copy_sticker_for_index(
-                    selected_index
-                )
-            )
             if is_gif:
                 copy_first_frame_action.triggered.connect(
                     lambda _checked=False: self._copy_sticker_for_index(
@@ -349,6 +349,7 @@ class StickerListPage(QWidget):
                 )
             )
         else:
+            menu.addSeparator()
             save_as_action = menu.addAction("另存为")
             save_as_action.triggered.connect(
                 lambda _checked=False: self._save_as_for_indexes(
@@ -361,6 +362,7 @@ class StickerListPage(QWidget):
                     selected_indexes
                 )
             )
+            menu.addSeparator()
         more_menu = menu.addMenu("更多")
         delete_action = more_menu.addAction("移动到图库回收站")
         if len(selected_indexes) == 1:
@@ -394,17 +396,20 @@ class StickerListPage(QWidget):
         return [model.index(row, 0) for row in rows]
 
     def _copy_selected_stickers(self) -> None:
-        indexes = self._selected_indexes()
-        if len(indexes) == 1:
-            self._copy_sticker_for_index(indexes[0])
+        self._copy_stickers_for_indexes(self._selected_indexes())
+
+    def _copy_stickers_for_indexes(self, indexes: list[QModelIndex]) -> None:
+        valid_indexes = [index for index in indexes if index.isValid()]
+        if not valid_indexes:
             return
-        if len(indexes) < 2:
+        if len(valid_indexes) == 1:
+            self._copy_sticker_for_index(valid_indexes[0])
             return
 
         paths = [
             index.data(ROLE_FILE_PATH)
-            for index in indexes
-            if index.isValid() and index.data(ROLE_FILE_PATH)
+            for index in valid_indexes
+            if index.data(ROLE_FILE_PATH)
         ]
         if not paths:
             return
