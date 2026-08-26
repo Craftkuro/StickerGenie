@@ -374,6 +374,9 @@ class StickerItemDelegate(QStyledItemDelegate):
         不设裁剪：layout_tag_chips 保证圆角片不越界，而裁剪区左边界
         与首片左边框重合，在高 DPI 缩放下会把整列边框裁掉。
         """
+        # 抗锯齿让描边以路径为中心对称渲染；高 DPI（如 125%）下
+        # 不开 AA 时四个角的圆弧各自取整会不对称。
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         for position, (chip_rect, label) in enumerate(layout.chips):
             accent_value = getattr(tags[position], "color_rgb", "")
             accent_color = QColor(accent_value) if accent_value else QColor()
@@ -389,10 +392,8 @@ class StickerItemDelegate(QStyledItemDelegate):
 
             painter.setBrush(background)
             painter.setPen(QPen(border, 1))
-            # 收缩 1px 抵消 Qt 描边在右/下侧的外扩，
-            # 保证圆角片渲染宽度与逻辑宽度一致、片间距精确等于 TAG_CHIP_GAP。
             painter.drawRoundedRect(
-                chip_rect.adjusted(0, 0, -1, -1),
+                chip_rect,
                 TAG_CHIP_CORNER_RADIUS,
                 TAG_CHIP_CORNER_RADIUS,
             )
@@ -445,6 +446,9 @@ class StickerItemDelegate(QStyledItemDelegate):
         """
         painter.save()
         try:
+            # 高 DPI（如 125%）下不开抗锯齿时，圆角弧线按设备像素取整
+            # 左右舍入方向不一致，会导致四个角形状不对称。
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             font = painter.font()
             font.setPointSize(self.BADGE_FONT_POINT_SIZE)
             font.setBold(True)

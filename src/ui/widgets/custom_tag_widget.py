@@ -87,7 +87,11 @@ class TagItemDelegate(QStyledItemDelegate):
             index: 模型索引
         """
         painter.save()
-        
+
+        # 高 DPI（如 125%）下不开抗锯齿时，圆角弧线按设备像素取整
+        # 左右舍入方向不一致，会导致四个角形状不对称。
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
         # 获取绘制区域
         rect = option.rect
         

@@ -1997,7 +1997,7 @@ class StickerListViewTests(unittest.TestCase):
         self.assertGreater(counts[0], 0)
         self.assertEqual(counts[0], counts[1])
 
-    def test_detail_chip_border_renders_exact_logical_width(self):
+    def test_detail_chip_border_renders_symmetric_band(self):
         sticker = make_sticker()
         sticker.tags = [self._make_tag("城市"), self._make_tag("建筑")]
         item = QStandardItem("")
@@ -2017,14 +2017,17 @@ class StickerListViewTests(unittest.TestCase):
         )
         self.assertEqual(2, len(layout.chips))
 
-        def is_border(color):
-            return color.blue() > 230 and color.green() < 200 and color.red() < 90
+        def is_border_tinted(color):
+            # 开启抗锯齿后描边与绿底/淡蓝填充混合，纯色判定失效；
+            # 背景绿、内部填充与黑色文字的蓝分量都很低，
+            # 只有描边混色能带来高蓝通道值。
+            return color.blue() >= 100
 
         runs = []
         start = None
         for x in range(canvas.width()):
             has_border = any(
-                is_border(canvas.pixelColor(x, y))
+                is_border_tinted(canvas.pixelColor(x, y))
                 for y in range(canvas.height())
             )
             if has_border:
@@ -2038,11 +2041,47 @@ class StickerListViewTests(unittest.TestCase):
 
         self.assertEqual(len(layout.chips), len(runs))
         for (chip_rect, _), (run_start, run_end) in zip(layout.chips, runs):
-            # 渲染宽度必须精确等于逻辑宽度（无 Qt 描边外扩的 +1）。
-            self.assertEqual(chip_rect.left(), run_start)
-            self.assertEqual(chip_rect.right(), run_end)
+            # 抗锯齿下描边以路径为中心渲染，
+            # 可见带相对逻辑矩形允许 ±1px 的混合渗出。
+            self.assertLessEqual(chip_rect.left() - 1, run_start)
+            self.assertGreaterEqual(chip_rect.left(), run_start)
+            self.assertLessEqual(chip_rect.right(), run_end)
+            self.assertGreaterEqual(chip_rect.right() + 1, run_end)
+        widths = {run_end - run_start + 1 for run_start, run_end in runs}
+        # 各片可见带宽度一致（对称渲染），不允许某一片被裁剪或加粗。
+        self.assertEqual(1, len(widths))
         for (_, prev_end), (next_start, _) in zip(runs, runs[1:]):
-            self.assertEqual(TAG_CHIP_GAP, next_start - prev_end - 1)
+            gap = next_start - prev_end - 1
+            # 混合渗出使相邻可见带的间距相对 TAG_CHIP_GAP 有 ±2px 容差。
+            self.assertGreaterEqual(gap, TAG_CHIP_GAP - 2)
+            self.assertLessEqual(gap, TAG_CHIP_GAP)
+
+    def test_rounded_corner_paint_enables_antialiasing(self):
+        """角标与标签片的圆角对称性依赖抗锯齿：绘制期间必须开启。"""
+        hints_seen = []
+        original = QPainter.drawRoundedRect
+
+        def spy(painter, *args, **kwargs):
+            hints_seen.append(painter.renderHints())
+            return original(painter, *args, **kwargs)
+
+        icon_item = self._make_icon_item(0.92)
+        sticker = make_sticker()
+        sticker.tags = [self._make_tag("城市"), self._make_tag("建筑")]
+        detail_item = QStandardItem("")
+        detail_item.setData(sticker, ROLE_STICKER_IMAGE)
+
+        with patch.object(QPainter, "drawRoundedRect", spy):
+            self._paint_item(icon_item, 160)
+            self._paint_detail_item(detail_item)
+
+        self.assertTrue(hints_seen)
+        self.assertTrue(
+            all(
+                hint & QPainter.RenderHint.Antialiasing
+                for hint in hints_seen
+            )
+        )
 
     # ==================== 标签布局纯函数 ====================
 
