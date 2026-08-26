@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QObject
+from PyQt6.QtCore import QObject, Qt
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QPushButton
 
 import apppath
@@ -89,6 +90,24 @@ class MainWindowSearchBoxTests(unittest.TestCase):
         self.assertIsInstance(search_button, QPushButton)
         self.assertEqual(main_menu_button.iconSize(), search_button.iconSize())
         self.assertEqual(main_menu_button.sizeHint(), search_button.sizeHint())
+
+    def test_ctrl_f_focuses_and_selects_search_text(self):
+        self.window.show()
+        self.window.customSearchBox.line_edit.setText("search text")
+        self.window.pushButtonAddSticker.setFocus()
+        QApplication.processEvents()
+
+        QTest.keyClick(
+            self.window.pushButtonAddSticker,
+            Qt.Key.Key_F,
+            Qt.KeyboardModifier.ControlModifier,
+        )
+
+        self.assertIs(
+            self.window.customSearchBox.line_edit,
+            QApplication.focusWidget(),
+        )
+        self.assertEqual("search text", self.window.customSearchBox.line_edit.selectedText())
 
     def test_text_search_routes_with_text_type(self):
         self.window.searchTypeComboBox.setCurrentIndex(1)

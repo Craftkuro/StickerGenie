@@ -14,6 +14,7 @@ from PyQt6.QtCore import (
     QEvent,
     QItemSelectionModel,
     QPoint,
+    QPointF,
     QRect,
     QSize,
     Qt,
@@ -27,8 +28,9 @@ from PyQt6.QtGui import (
     QPixmap,
     QStandardItem,
     QStandardItemModel,
+    QWheelEvent,
 )
-from PyQt6.QtTest import QSignalSpy
+from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -122,6 +124,25 @@ class StickerListViewTests(unittest.TestCase):
                 return True
             time.sleep(0.01)
         return False
+
+    def _send_wheel(self, view, delta, modifiers=Qt.KeyboardModifier.NoModifier):
+        position = view.viewport().rect().center()
+        event = QWheelEvent(
+            QPointF(position),
+            QPointF(view.viewport().mapToGlobal(position)),
+            QPoint(0, delta),
+            QPoint(0, delta),
+            Qt.MouseButton.NoButton,
+            modifiers,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        QApplication.sendEvent(view.viewport(), event)
+
+    def _focus_list_view(self, page):
+        page.show()
+        page.listViewStickerList.setFocus()
+        QApplication.processEvents()
 
     def test_uses_large_image_only_grid(self):
         view = StickerListView()
@@ -831,6 +852,136 @@ class StickerListViewTests(unittest.TestCase):
         self.assertIsInstance(page.toolbar_spacer, ToolbarSpacer)
         self.assertEqual("toolbarSpacer", page.toolbar_spacer.objectName())
         page.close()
+
+    def test_list_shortcuts_dispatch_to_selected_item_handlers(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        for _ in range(2):
+            item = QStandardItem("")
+            sticker = make_sticker()
+            item.setData(sticker, ROLE_STICKER_IMAGE)
+            model.appendRow(item)
+        page.refresh_content(model)
+        view = page.listViewStickerList
+        selection_model = view.selectionModel()
+        index = model.index(0, 0)
+        selection_model.select(
+            index,
+            QItemSelectionModel.SelectionFlag.ClearAndSelect,
+        )
+        view.setCurrentIndex(index)
+        self._focus_list_view(page)
+
+        with patch.object(page, "_copy_sticker_for_index") as copy_mock, patch.object(
+            page, "_save_as_for_indexes"
+        ) as save_mock, patch.object(
+            page, "_open_image_viewer_for_index"
+        ) as open_mock, patch.object(
+            page, "_delete_stickers_for_indexes"
+        ) as delete_mock:
+            QTest.keyClick(view, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+            QTest.keyClick(view, Qt.Key.Key_S, Qt.KeyboardModifier.ControlModifier)
+            QTest.keyClick(view, Qt.Key.Key_Return)
+            QTest.keyClick(view, Qt.Key.Key_Delete)
+
+        copy_mock.assert_called_once_with(index)
+        save_mock.assert_called_once()
+        self.assertEqual([0], [item.row() for item in save_mock.call_args.args[0]])
+        open_mock.assert_called_once_with(index)
+        delete_mock.assert_called_once()
+        self.assertEqual(
+            [0], [item.row() for item in delete_mock.call_args.args[0]]
+        )
+        page.close()
+
+    def test_ctrl_a_selects_all_items(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        for _ in range(3):
+            model.appendRow(QStandardItem(""))
+        page.refresh_content(model)
+        self._focus_list_view(page)
+
+        QTest.keyClick(
+            page.listViewStickerList,
+            Qt.Key.Key_A,
+            Qt.KeyboardModifier.ControlModifier,
+        )
+
+        self.assertEqual(3, len(page.listViewStickerList.selectionModel().selectedRows()))
+        page.close()
+
+    def test_ctrl_c_uses_file_paths_for_multiple_selection(self):
+        page = SearchResultPage(auto_refresh=False)
+        model = QStandardItemModel()
+        paths = ["C:/library/first.png", "C:/library/second.gif"]
+        for path in paths:
+            item = QStandardItem("")
+            sticker = make_sticker()
+            item.setData(sticker, ROLE_STICKER_IMAGE)
+            item.setData(path, ROLE_FILE_PATH)
+            model.appendRow(item)
+        page.refresh_content(model)
+        selection_model = page.listViewStickerList.selectionModel()
+        selection_model.select(
+            model.index(0, 0),
+            QItemSelectionModel.SelectionFlag.ClearAndSelect,
+        )
+        selection_model.select(
+            model.index(1, 0),
+            QItemSelectionModel.SelectionFlag.Select,
+        )
+        self._focus_list_view(page)
+
+        with patch(
+            "services.image_clipboard_service.copy_file_paths_to_clipboard"
+        ) as copy_files:
+            QTest.keyClick(
+                page.listViewStickerList,
+                Qt.Key.Key_C,
+                Qt.KeyboardModifier.ControlModifier,
+            )
+
+        copy_files.assert_called_once_with(paths)
+        page.close()
+
+    def test_ctrl_wheel_changes_size_and_syncs_slider(self):
+        page = FiniteStickerCollectionPage(auto_refresh=False)
+        view = page.listViewStickerList
+        signal_spy = QSignalSpy(view.display_size_changed)
+        initial_size = view.item_size()
+
+        self._send_wheel(
+            view,
+            120,
+            Qt.KeyboardModifier.ControlModifier,
+        )
+
+        self.assertEqual(initial_size + 8, view.item_size())
+        self.assertEqual(view.item_size(), page.display_size_slider.value())
+        self.assertEqual(1, len(signal_spy))
+
+        self._send_wheel(view, -120)
+
+        self.assertEqual(initial_size + 8, view.item_size())
+        page.close()
+
+    def test_f5_refreshes_only_infinite_page(self):
+        infinite_page = InfiniteStickerCollectionPage(auto_refresh=False)
+        finite_page = FiniteStickerCollectionPage(auto_refresh=False)
+        infinite_spy = QSignalSpy(infinite_page.signal_refresh_content)
+        finite_spy = QSignalSpy(finite_page.signal_refresh_content)
+        self._focus_list_view(infinite_page)
+
+        QTest.keyClick(infinite_page.listViewStickerList, Qt.Key.Key_F5)
+
+        self.assertEqual(1, len(infinite_spy))
+
+        self._focus_list_view(finite_page)
+        QTest.keyClick(finite_page.listViewStickerList, Qt.Key.Key_F5)
+        self.assertEqual(0, len(finite_spy))
+        infinite_page.close()
+        finite_page.close()
 
     def test_insert_toolbar_actions_around_spacer(self):
         page = FiniteStickerCollectionPage(auto_refresh=False)
@@ -1773,7 +1924,10 @@ class StickerListViewTests(unittest.TestCase):
         actions_by_text["图标"].trigger()
 
         self.assertEqual(QListView.ViewMode.IconMode, view.viewMode())
-        self.assertEqual((48, commons.constants.THUMBNAIL_SIZE), (slider.minimum(), slider.maximum()))
+        self.assertEqual(
+            (StickerListView.DISPLAY_SIZE_MIN, StickerListView.ICON_DISPLAY_SIZE_MAX),
+            (slider.minimum(), slider.maximum()),
+        )
         self.assertEqual(160, slider.value())
         self.assertEqual(QSize(160, 160), view.gridSize())
 

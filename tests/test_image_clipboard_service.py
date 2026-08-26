@@ -8,15 +8,38 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PIL import Image
 from PyQt6.QtCore import QUrl
-from PyQt6.QtGui import QImage
+from PyQt6.QtGui import QGuiApplication, QImage
+from PyQt6.QtWidgets import QApplication
 
 from services.image_clipboard_service import (
     STAGING_TTL_SECONDS,
+    copy_file_paths_to_clipboard,
     create_image_mime_data,
 )
 
 
 class ImageClipboardServiceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_copy_file_paths_exposes_urls_in_order_without_staging(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            paths = [root / "first.png", root / "second.gif"]
+            for path in paths:
+                path.write_bytes(b"image")
+
+            copy_file_paths_to_clipboard(paths)
+
+            mime_data = QGuiApplication.clipboard().mimeData()
+            self.assertTrue(mime_data.hasUrls())
+            self.assertEqual(
+                [path.resolve() for path in paths],
+                [Path(url.toLocalFile()).resolve() for url in mime_data.urls()],
+            )
+            self.assertFalse(mime_data.hasHtml())
+
     def test_static_image_exposes_file_raw_bytes_and_bitmap(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

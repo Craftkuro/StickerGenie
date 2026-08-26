@@ -516,6 +516,8 @@ class StickerListView(QListView):
 
     # 即将滚动到列表底部时发出，由无限集合标签页负责响应。
     load_more_requested = pyqtSignal()
+    # Ctrl+滚轮调整尺寸后通知工具栏滑块同步。
+    display_size_changed = pyqtSignal(int)
 
     THUMBNAIL_SIZE = commons.constants.THUMBNAIL_SIZE
     ITEM_SIZE = StickerItemDelegate.ITEM_SIZE
@@ -523,6 +525,8 @@ class StickerListView(QListView):
     DETAIL_ROW_HEIGHT_DEFAULT = 72
     DETAIL_ROW_HEIGHT_MIN = 48
     DETAIL_ROW_HEIGHT_MAX = 128
+    DISPLAY_SIZE_MIN = 48
+    ICON_DISPLAY_SIZE_MAX = 256
     DEFAULT_EMPTY_TEXT = "列表空空如也"
 
     def __init__(
@@ -682,10 +686,29 @@ class StickerListView(QListView):
                 delegate.set_item_size(self._detail_row_height)
             self._sync_detail_grid_width()
         else:
-            self._icon_item_size = max(32, min(size, 512))
+            self._icon_item_size = max(
+                self.DISPLAY_SIZE_MIN,
+                min(size, self.ICON_DISPLAY_SIZE_MAX),
+            )
             if isinstance(delegate, StickerItemDelegate):
                 delegate.set_item_size(self._icon_item_size)
             self._apply_icon_grid_size()
+
+    def wheelEvent(self, event) -> None:
+        if not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            super().wheelEvent(event)
+            return
+
+        delta = event.angleDelta().y()
+        if delta:
+            size_step = round(delta / 120 * 8)
+            if size_step:
+                previous_size = self.item_size()
+                self.set_display_size(previous_size + size_step)
+                current_size = self.item_size()
+                if current_size != previous_size:
+                    self.display_size_changed.emit(current_size)
+        event.accept()
 
     def _apply_icon_grid_size(self) -> None:
         self.setGridSize(

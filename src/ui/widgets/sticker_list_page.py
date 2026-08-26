@@ -11,7 +11,14 @@ from PyQt6.QtCore import (
     Qt,
     pyqtSignal,
 )
-from PyQt6.QtGui import QAction, QActionGroup, QIcon, QStandardItemModel
+from PyQt6.QtGui import (
+    QAction,
+    QActionGroup,
+    QIcon,
+    QKeySequence,
+    QShortcut,
+    QStandardItemModel,
+)
 from PyQt6.QtWidgets import (
     QFileDialog,
     QMenu,
@@ -88,9 +95,27 @@ class StickerListPage(QWidget):
             self._prune_deleted_rows
         )
 
+        self._setup_list_shortcuts()
+
         # 所有子类共用的工具栏控件：显示模式切换和显示大小滑块。
         self._setup_display_mode_toggle()
         self._setup_display_size_slider()
+
+    def _setup_list_shortcuts(self) -> None:
+        view = self.listViewStickerList
+        self._list_shortcuts = []
+        for key, slot in (
+            ("Ctrl+C", self._copy_selected_stickers),
+            ("Ctrl+A", self._select_all_stickers),
+            ("Ctrl+S", self._save_selected_stickers),
+            (QKeySequence(Qt.Key.Key_Return), self._open_current_sticker),
+            (QKeySequence(Qt.Key.Key_Enter), self._open_current_sticker),
+            (QKeySequence(Qt.Key.Key_Delete), self._delete_selected_stickers),
+        ):
+            shortcut = QShortcut(QKeySequence(key), view)
+            shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+            shortcut.activated.connect(slot)
+            self._list_shortcuts.append(shortcut)
 
     def add_toolbar_widget(self, widget: QWidget) -> QAction:
         """把自定义 widget 追加到工具栏最末（仅基类内部用于安装滑块）。"""
@@ -152,7 +177,10 @@ class StickerListPage(QWidget):
 
         slider = QSlider(Qt.Orientation.Horizontal, self)
         slider.setObjectName("displaySizeSlider")
-        slider.setRange(48, commons.constants.THUMBNAIL_SIZE)
+        slider.setRange(
+            self.listViewStickerList.DISPLAY_SIZE_MIN,
+            self.listViewStickerList.ICON_DISPLAY_SIZE_MAX,
+        )
         slider.setSingleStep(8)
         slider.setPageStep(16)
         slider.setValue(self.listViewStickerList.item_size())
@@ -160,6 +188,7 @@ class StickerListPage(QWidget):
         slider.setToolTip("调整图片显示大小")
         slider.setAccessibleName("图片显示大小")
         slider.valueChanged.connect(self.listViewStickerList.set_display_size)
+        self.listViewStickerList.display_size_changed.connect(slider.setValue)
         self.add_toolbar_widget(slider)
         self.display_size_slider = slider
 
@@ -212,7 +241,10 @@ class StickerListPage(QWidget):
                 view.DETAIL_ROW_HEIGHT_MAX,
             )
         else:
-            slider.setRange(48, commons.constants.THUMBNAIL_SIZE)
+            slider.setRange(
+                view.DISPLAY_SIZE_MIN,
+                view.ICON_DISPLAY_SIZE_MAX,
+            )
         slider.setValue(target_value)
 
     def refresh_content(self, model: QStandardItemModel):
@@ -360,6 +392,42 @@ class StickerListPage(QWidget):
             }
         )
         return [model.index(row, 0) for row in rows]
+
+    def _copy_selected_stickers(self) -> None:
+        indexes = self._selected_indexes()
+        if len(indexes) == 1:
+            self._copy_sticker_for_index(indexes[0])
+            return
+        if len(indexes) < 2:
+            return
+
+        paths = [
+            index.data(ROLE_FILE_PATH)
+            for index in indexes
+            if index.isValid() and index.data(ROLE_FILE_PATH)
+        ]
+        if not paths:
+            return
+
+        try:
+            services.image_clipboard_service.copy_file_paths_to_clipboard(paths)
+        except Exception as exc:
+            logger.exception("复制图片文件到剪贴板失败")
+            QMessageBox.warning(self, "复制失败", str(exc))
+
+    def _select_all_stickers(self) -> None:
+        self.listViewStickerList.selectAll()
+
+    def _save_selected_stickers(self) -> None:
+        self._save_as_for_indexes(self._selected_indexes())
+
+    def _open_current_sticker(self) -> None:
+        self._open_image_viewer_for_index(
+            self.listViewStickerList.currentIndex()
+        )
+
+    def _delete_selected_stickers(self) -> None:
+        self._delete_stickers_for_indexes(self._selected_indexes())
 
     def _batch_edit_tags_for_indexes(self, indexes: list[QModelIndex]) -> None:
         stickers = [

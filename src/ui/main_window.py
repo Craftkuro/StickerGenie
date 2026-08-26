@@ -6,7 +6,14 @@ from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QWidget, QVBoxLayout, \
     QComboBox, QSizePolicy, QTabBar, QMenu
 from PyQt6 import uic
-from PyQt6.QtGui import QAction, QCloseEvent, QStandardItemModel, QStandardItem
+from PyQt6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QKeySequence,
+    QShortcut,
+    QStandardItemModel,
+    QStandardItem,
+)
 
 import apppath
 from commons.signal_objects import MainWindowNewTabRequest
@@ -57,6 +64,7 @@ class MainWindow(QMainWindow):
             self._settings_manager.get("recent_searches")
         )
         self._init_search_controls()
+        self._setup_search_shortcut()
 
         self._image_import_service = ImageImportService(self)
         self._image_import_controller = ImageImportController(
@@ -190,6 +198,16 @@ class MainWindow(QMainWindow):
             self._on_search_type_changed
         )
         self._on_search_type_changed(self.searchTypeComboBox.currentIndex())
+
+    def _setup_search_shortcut(self) -> None:
+        self._search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self._search_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._search_shortcut.activated.connect(self._focus_search_box)
+
+    def _focus_search_box(self) -> None:
+        line_edit = self.customSearchBox.line_edit
+        line_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        line_edit.selectAll()
 
     def _current_search_type(self):
         return services.search.SearchType(

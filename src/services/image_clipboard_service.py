@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import time
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 from PyQt6.QtCore import QByteArray, QMimeData, QMimeDatabase, QUrl
@@ -173,3 +174,15 @@ def copy_image_to_clipboard(
     )
     QGuiApplication.clipboard().setMimeData(mime_data)
     return staged_path
+
+
+def copy_file_paths_to_clipboard(paths: Sequence[str | Path]) -> None:
+    """Copy existing image paths to the clipboard as files without staging."""
+    if QGuiApplication.instance() is None:
+        raise RuntimeError("应用程序尚未初始化。")
+
+    mime_data = QMimeData()
+    mime_data.setUrls(
+        [QUrl.fromLocalFile(str(Path(path).resolve())) for path in paths]
+    )
+    QGuiApplication.clipboard().setMimeData(mime_data)
