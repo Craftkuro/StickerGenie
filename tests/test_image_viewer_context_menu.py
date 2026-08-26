@@ -129,8 +129,13 @@ class ImageViewerContextMenuTests(unittest.TestCase):
         dialog_mock.assert_called_once_with(
             self.dialog,
             "另存为",
-            QStandardPaths.writableLocation(
-                QStandardPaths.StandardLocation.DesktopLocation
+            str(
+                Path(
+                    QStandardPaths.writableLocation(
+                        QStandardPaths.StandardLocation.DesktopLocation
+                    )
+                )
+                / "viewer.png"
             ),
         )
         self.assertTrue(destination.is_file())

@@ -524,7 +524,7 @@ class StickerListPage(QWidget):
             destination, _ = QFileDialog.getSaveFileName(
                 self,
                 "另存为",
-                desktop_path,
+                str(Path(desktop_path) / sticker.original_file_name),
             )
             if not destination:
                 return

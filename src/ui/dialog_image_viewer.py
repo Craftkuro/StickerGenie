@@ -205,12 +205,13 @@ class ImageViewerDialog(QDialog):
         if not self._file_path or not self._display_name:
             return
 
+        desktop_path = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DesktopLocation
+        )
         destination, _ = QFileDialog.getSaveFileName(
             self,
             "另存为",
-            QStandardPaths.writableLocation(
-                QStandardPaths.StandardLocation.DesktopLocation
-            ),
+            str(Path(desktop_path) / self._display_name),
         )
         if not destination:
             return

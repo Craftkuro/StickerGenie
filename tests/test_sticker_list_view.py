@@ -527,8 +527,13 @@ class StickerListViewTests(unittest.TestCase):
             dialog_mock.assert_called_once_with(
                 page,
                 "另存为",
-                QStandardPaths.writableLocation(
-                    QStandardPaths.StandardLocation.DesktopLocation
+                str(
+                    Path(
+                        QStandardPaths.writableLocation(
+                            QStandardPaths.StandardLocation.DesktopLocation
+                        )
+                    )
+                    / "原始名称.png"
                 ),
             )
             self.assertEqual(b"single-image", target_path.read_bytes())
