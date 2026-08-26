@@ -360,6 +360,7 @@ class CustomSearchBox(QWidget):
         self.line_edit = QLineEdit(self)
         self.line_edit.setObjectName("searchLineEdit")
         self.line_edit.setPlaceholderText("搜索...")
+        self.line_edit.setClearButtonEnabled(True)
         self.line_edit.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
