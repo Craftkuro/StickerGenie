@@ -29,6 +29,7 @@ datas = [
     ("src/ui/dialog_batch_tag_edit.ui", "ui"),
     ("src/ui/dialog_about.ui", "ui"),
     ("src/ui/dialog_library_import_progress.ui", "ui"),
+    ("src/ui/dialog_library_export_progress.ui", "ui"),
     ("src/ui/dialog_library_auditing.ui", "ui"),
     ("src/resources/app_icon.ico", "resources"),
     ("src/resources/arrow-down-narrow-wide.svg", "resources"),
@@ -75,6 +76,14 @@ hiddenimports = chromadb_hiddenimports + rust_hiddenimports + [
     "ui.widgets.image_text_edit_widget",
     "ui.widgets.path_drop_list_widget",
     "ui.widgets.custom_search_box",
+    "ui.widgets.custom_tag_widget",
+    "ui.dialog_tag_selector",
+    # 以下模块在函数内部被动态导入（延迟导入以避免循环依赖），
+    # PyInstaller 静态分析无法追踪，必须显式声明。
+    "ui.page_search_result",
+    "ui.page_advanced_search_result",
+    "ui.page_similar_images",
+    "ui.page_infinite_sticker_collection",
     "PyQt6.QtSvg",
 ]
 
