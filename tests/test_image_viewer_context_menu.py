@@ -9,7 +9,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PIL import Image
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, QStandardPaths, Qt
 from PyQt6.QtGui import QContextMenuEvent, QImage
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox
 
@@ -122,10 +122,17 @@ class ImageViewerContextMenuTests(unittest.TestCase):
             QFileDialog,
             "getSaveFileName",
             return_value=(str(destination), ""),
-        ):
+        ) as dialog_mock:
             with patch.object(QMessageBox, "information") as info_mock:
                 self.dialog._save_current_image_as()
 
+        dialog_mock.assert_called_once_with(
+            self.dialog,
+            "另存为",
+            QStandardPaths.writableLocation(
+                QStandardPaths.StandardLocation.DesktopLocation
+            ),
+        )
         self.assertTrue(destination.is_file())
         info_mock.assert_called_once_with(
             self.dialog,

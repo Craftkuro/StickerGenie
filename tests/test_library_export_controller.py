@@ -7,6 +7,7 @@ from unittest.mock import Mock, call, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QStandardPaths
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QApplication
 
@@ -52,9 +53,16 @@ class LibraryExportControllerTests(unittest.TestCase):
         with patch(
             "ui.operations.library_export_controller.QFileDialog.getExistingDirectory",
             return_value="C:/exports/gallery",
-        ):
+        ) as dialog_mock:
             controller.export_library()
 
+        dialog_mock.assert_called_once_with(
+            window,
+            "选择导出目录",
+            QStandardPaths.writableLocation(
+                QStandardPaths.StandardLocation.DesktopLocation
+            ),
+        )
         action.setEnabled.assert_called_once_with(False)
         status_bar.showMessage.assert_called_once_with("正在导出图库…")
         export_service.start_export.assert_called_once_with("C:/exports/gallery")

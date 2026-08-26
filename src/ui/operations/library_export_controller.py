@@ -1,5 +1,6 @@
 """图库导出的界面控制器。"""
 
+from PyQt6.QtCore import QStandardPaths
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from services.export_library import LibraryExportService
@@ -21,7 +22,9 @@ class LibraryExportController:
         destination = QFileDialog.getExistingDirectory(
             self._window,
             "选择导出目录",
-            "",
+            QStandardPaths.writableLocation(
+                QStandardPaths.StandardLocation.DesktopLocation
+            ),
         )
         if not destination:
             return

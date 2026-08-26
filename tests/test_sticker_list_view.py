@@ -17,6 +17,7 @@ from PyQt6.QtCore import (
     QPointF,
     QRect,
     QSize,
+    QStandardPaths,
     Qt,
 )
 from PyQt6.QtGui import (
@@ -526,7 +527,9 @@ class StickerListViewTests(unittest.TestCase):
             dialog_mock.assert_called_once_with(
                 page,
                 "另存为",
-                "原始名称.png",
+                QStandardPaths.writableLocation(
+                    QStandardPaths.StandardLocation.DesktopLocation
+                ),
             )
             self.assertEqual(b"single-image", target_path.read_bytes())
             information_mock.assert_called_once_with(
@@ -567,7 +570,13 @@ class StickerListViewTests(unittest.TestCase):
             ) as information_mock:
                 page._save_as_for_indexes(indexes)
 
-            dialog_mock.assert_called_once_with(page, "选择保存目录")
+            dialog_mock.assert_called_once_with(
+                page,
+                "选择保存目录",
+                QStandardPaths.writableLocation(
+                    QStandardPaths.StandardLocation.DesktopLocation
+                ),
+            )
             self.assertEqual(b"one", (destination / "one.png").read_bytes())
             self.assertEqual(b"two", (destination / "two.png").read_bytes())
             information_mock.assert_called_once_with(

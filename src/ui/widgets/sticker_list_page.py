@@ -8,6 +8,7 @@ from PyQt6.QtCore import (
     QModelIndex,
     QPoint,
     QSize,
+    QStandardPaths,
     Qt,
     pyqtSignal,
 )
@@ -512,6 +513,9 @@ class StickerListPage(QWidget):
             (source_path, sticker.original_file_name)
             for sticker, source_path in records
         ]
+        desktop_path = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DesktopLocation
+        )
         is_multi_selection = (
             sum(1 for index in indexes if index.isValid()) > 1
         )
@@ -520,7 +524,7 @@ class StickerListPage(QWidget):
             destination, _ = QFileDialog.getSaveFileName(
                 self,
                 "另存为",
-                sticker.original_file_name,
+                desktop_path,
             )
             if not destination:
                 return
@@ -544,6 +548,7 @@ class StickerListPage(QWidget):
             destination = QFileDialog.getExistingDirectory(
                 self,
                 "选择保存目录",
+                desktop_path,
             )
             if not destination:
                 return

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6 import uic
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QStandardPaths, Qt
 from PyQt6.QtGui import QMovie, QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -208,7 +208,9 @@ class ImageViewerDialog(QDialog):
         destination, _ = QFileDialog.getSaveFileName(
             self,
             "另存为",
-            self._display_name,
+            QStandardPaths.writableLocation(
+                QStandardPaths.StandardLocation.DesktopLocation
+            ),
         )
         if not destination:
             return
