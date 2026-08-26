@@ -40,10 +40,11 @@ class LibraryExportControllerTests(unittest.TestCase):
         action.setEnabled.assert_not_called()
         status_bar.showMessage.assert_not_called()
 
-    def test_selected_directory_starts_background_export(self):
+    def test_selected_directory_starts_export_with_progress_dialog(self):
         export_service = Mock()
         action = Mock()
         status_bar = Mock()
+        progress_dialog = Mock()
         window = SimpleNamespace(
             actionExportLibrary=action,
             statusBar=lambda: status_bar,
@@ -53,7 +54,10 @@ class LibraryExportControllerTests(unittest.TestCase):
         with patch(
             "ui.operations.library_export_controller.QFileDialog.getExistingDirectory",
             return_value="C:/exports/gallery",
-        ) as dialog_mock:
+        ) as dialog_mock, patch(
+            "ui.operations.library_export_controller.LibraryExportProgressDialog",
+            return_value=progress_dialog,
+        ) as progress_dialog_class:
             controller.export_library()
 
         dialog_mock.assert_called_once_with(
@@ -63,8 +67,11 @@ class LibraryExportControllerTests(unittest.TestCase):
                 QStandardPaths.StandardLocation.DesktopLocation
             ),
         )
+        progress_dialog_class.assert_called_once_with(window)
+        progress_dialog.open.assert_called_once_with()
+        self.assertIs(progress_dialog, controller._dialog)
         action.setEnabled.assert_called_once_with(False)
-        status_bar.showMessage.assert_called_once_with("正在导出图库…")
+        status_bar.showMessage.assert_not_called()
         export_service.start_export.assert_called_once_with("C:/exports/gallery")
 
     def test_start_failure_restores_action_and_shows_error(self):
@@ -72,6 +79,7 @@ class LibraryExportControllerTests(unittest.TestCase):
         export_service.start_export.side_effect = RuntimeError("图库尚未初始化。")
         action = Mock()
         status_bar = Mock()
+        progress_dialog = Mock()
         window = SimpleNamespace(
             actionExportLibrary=action,
             statusBar=lambda: status_bar,
@@ -82,29 +90,36 @@ class LibraryExportControllerTests(unittest.TestCase):
             "ui.operations.library_export_controller.QFileDialog.getExistingDirectory",
             return_value="C:/exports/gallery",
         ), patch(
+            "ui.operations.library_export_controller.LibraryExportProgressDialog",
+            return_value=progress_dialog,
+        ), patch(
             "ui.operations.library_export_controller.QMessageBox.critical"
         ) as critical:
             controller.export_library()
 
         self.assertEqual([call(False), call(True)], action.setEnabled.call_args_list)
-        status_bar.clearMessage.assert_called_once_with()
+        progress_dialog.finish.assert_called_once_with()
+        progress_dialog.deleteLater.assert_called_once_with()
+        status_bar.clearMessage.assert_not_called()
         critical.assert_called_once_with(window, "导出失败", "图库尚未初始化。")
 
-    def test_progress_is_shown_in_the_status_bar(self):
+    def test_progress_is_shown_in_the_dialog(self):
         status_bar = Mock()
+        progress_dialog = Mock()
         window = SimpleNamespace(statusBar=lambda: status_bar)
         controller = LibraryExportController(window, Mock())
+        controller._dialog = progress_dialog
         progress = ExportLibraryProgress(
             51,
             "正在导出图片",
             completed=5,
             total=10,
-            last_file_name="five.png",
         )
 
         controller._on_export_library_progress_changed(progress)
 
-        status_bar.showMessage.assert_called_once_with("正在导出图片（5/10）")
+        progress_dialog.update_progress.assert_called_once_with(progress)
+        status_bar.showMessage.assert_not_called()
 
     def test_success_restores_action_and_shows_exact_completion_message(self):
         action = Mock()
@@ -122,10 +137,7 @@ class LibraryExportControllerTests(unittest.TestCase):
             controller._on_export_library_finished(result)
 
         action.setEnabled.assert_called_once_with(True)
-        status_bar.showMessage.assert_called_once_with(
-            "已导出 12 个图片和 4 个标签",
-            8000,
-        )
+        status_bar.showMessage.assert_not_called()
         information.assert_called_once_with(
             window,
             "导出完成",
@@ -147,7 +159,7 @@ class LibraryExportControllerTests(unittest.TestCase):
             controller._on_export_library_failed("导出目录必须为空。")
 
         action.setEnabled.assert_called_once_with(True)
-        status_bar.clearMessage.assert_called_once_with()
+        status_bar.clearMessage.assert_not_called()
         critical.assert_called_once_with(window, "导出失败", "导出目录必须为空。")
 
 

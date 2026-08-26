@@ -22,7 +22,6 @@ class ImageImportProgressDialog(QDialog):
         super().__init__(parent)
         self._can_close = False
         self._cancel_requested = False
-        self._detail_placeholder = "正在检查文件和重复项"
 
         ui_file_path = apppath.app_path / "ui" / "dialog_image_import_progress.ui"
         uic.loadUi(ui_file_path, self)
@@ -33,7 +32,7 @@ class ImageImportProgressDialog(QDialog):
         self.pushButtonCancel.clicked.connect(self._request_cancel)
 
     def update_progress(self, progress: ImportImagesProgress) -> None:
-        """用最新进度刷新状态、进度条和详情文本。"""
+        """用最新进度刷新状态、进度条和处理数量。"""
         if not isinstance(progress, ImportImagesProgress):
             raise TypeError("progress must be an ImportImagesProgress")
 
@@ -46,18 +45,6 @@ class ImageImportProgressDialog(QDialog):
             )
         else:
             self.labelTaskProgress.setText("")
-        if self._cancel_requested:
-            self._detail_placeholder = "正在等待当前操作结束"
-        elif progress.status == "正在预处理图片":
-            self._detail_placeholder = "正在检查文件和重复项"
-        elif progress.status == "正在写入图库":
-            self._detail_placeholder = "正在保存图片到图库"
-        elif progress.status == "正在生成图片向量":
-            self._detail_placeholder = "正在生成图片向量"
-        else:
-            self._detail_placeholder = ""
-        self.labelDetail.setText(self._detail_placeholder)
-        self.labelDetail.setToolTip("")
 
     def _request_cancel(self) -> None:
         """请求中止导入：禁用取消按钮并发出信号，由服务层置位 cancel_event。"""
@@ -67,9 +54,6 @@ class ImageImportProgressDialog(QDialog):
         self._cancel_requested = True
         self.pushButtonCancel.setEnabled(False)
         self.labelStatus.setText("正在中止")
-        self._detail_placeholder = "正在等待当前操作结束"
-        self.labelDetail.setText(self._detail_placeholder)
-        self.labelDetail.setToolTip("")
         self.cancel_requested.emit()
 
     def finish(self) -> None:

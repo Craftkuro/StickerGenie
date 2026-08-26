@@ -30,7 +30,7 @@ class LibraryImportProgressDialog(QDialog):
         self.pushButtonCancel.clicked.connect(self._request_cancel)
 
     def update_progress(self, progress: LibraryImportProgress) -> None:
-        """用最新进度刷新状态、进度条与中止按钮。"""
+        """用最新进度刷新状态、进度条、处理数量与中止按钮。"""
         if not isinstance(progress, LibraryImportProgress):
             raise TypeError("progress must be a LibraryImportProgress")
 
@@ -44,7 +44,6 @@ class LibraryImportProgressDialog(QDialog):
             )
         else:
             self.labelTaskProgress.setText("")
-        self.labelDetail.setText(progress.last_file_name or "")
         self.pushButtonCancel.setEnabled(
             progress.cancellable and not self._cancel_requested
         )

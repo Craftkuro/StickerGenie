@@ -46,7 +46,6 @@ class LibraryImportProgress:
     status: str
     completed: int = 0
     total: int = 0
-    last_file_name: str | None = None
     cancellable: bool = False
 
     def __post_init__(self) -> None:
@@ -91,7 +90,6 @@ def _report_progress(
     *,
     completed: int,
     total: int,
-    last_file_name: str | None = None,
     cancellable: bool,
 ) -> None:
     if callback is not None:
@@ -101,7 +99,6 @@ def _report_progress(
                 status=status,
                 completed=completed,
                 total=total,
-                last_file_name=last_file_name,
                 cancellable=cancellable,
             )
         )
@@ -381,14 +378,12 @@ def import_library(
         if _is_cancelled(cancel_event):
             return make_result(cancelled=True)
 
-        file_name = PurePosixPath(image.relative_path).name
         _report_progress(
             progress,
             percent(completed),
             "正在导入备份图片",
             completed=completed,
             total=total,
-            last_file_name=file_name,
             cancellable=True,
         )
 

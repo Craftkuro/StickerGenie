@@ -126,7 +126,6 @@ class ExportLibraryProgress:
     status: str
     completed: int = 0
     total: int = 0
-    last_file_name: str | None = None
 
     def __post_init__(self) -> None:
         if not 0 <= self.percent <= 100:
@@ -166,7 +165,6 @@ def _report_progress(
     *,
     completed: int,
     total: int,
-    last_file_name: str | None = None,
 ) -> None:
     if callback is not None:
         callback(
@@ -175,7 +173,6 @@ def _report_progress(
                 status=status,
                 completed=completed,
                 total=total,
-                last_file_name=last_file_name,
             )
         )
 
@@ -464,7 +461,6 @@ def export_library(
                 "正在导出图片",
                 completed=completed,
                 total=total,
-                last_file_name=sticker.original_file_name,
             )
 
         tag_order = {tag.name: _tag_sort_key(tag) for tag in tags}

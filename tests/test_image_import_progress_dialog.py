@@ -4,7 +4,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLabel
 
 import apppath
 from services.import_images import ImportImagesProgress
@@ -27,7 +27,7 @@ class ImageImportProgressDialogTests(unittest.TestCase):
         self.dialog.finish()
         self.app.processEvents()
 
-    def test_displays_status_counts_and_detail_placeholder(self):
+    def test_displays_status_and_counts(self):
         progress = ImportImagesProgress(
             percent=51,
             status="正在写入图库",
@@ -40,11 +40,7 @@ class ImageImportProgressDialogTests(unittest.TestCase):
         self.assertEqual(51, self.dialog.progressBar.value())
         self.assertEqual("正在写入图库", self.dialog.labelStatus.text())
         self.assertEqual("已处理 3/8", self.dialog.labelTaskProgress.text())
-        self.assertEqual(
-            "正在保存图片到图库",
-            self.dialog.labelDetail.text(),
-        )
-        self.assertEqual("", self.dialog.labelDetail.toolTip())
+        self.assertIsNone(self.dialog.findChild(QLabel, "labelDetail"))
 
     def test_shows_ocr_progress_counts(self):
         progress = ImportImagesProgress(
@@ -103,7 +99,7 @@ class ImageImportProgressDialogTests(unittest.TestCase):
         )
         self.assertEqual("正在中止", self.dialog.labelStatus.text())
         self.assertEqual(50, self.dialog.progressBar.value())
-        self.assertEqual("正在等待当前操作结束", self.dialog.labelDetail.text())
+        self.assertIsNone(self.dialog.findChild(QLabel, "labelDetail"))
 
 
 if __name__ == "__main__":

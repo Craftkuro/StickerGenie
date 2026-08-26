@@ -4,7 +4,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLabel
 
 import apppath
 from services.import_library import LibraryImportProgress
@@ -27,14 +27,13 @@ class LibraryImportProgressDialogTests(unittest.TestCase):
         self.dialog.finish()
         self.app.processEvents()
 
-    def test_displays_status_counts_and_file_name(self):
+    def test_displays_status_and_counts(self):
         self.dialog.update_progress(
             LibraryImportProgress(
                 percent=51,
                 status="正在导入备份图片",
                 completed=3,
                 total=8,
-                last_file_name="cat.png",
                 cancellable=True,
             )
         )
@@ -42,7 +41,7 @@ class LibraryImportProgressDialogTests(unittest.TestCase):
         self.assertEqual(51, self.dialog.progressBar.value())
         self.assertEqual("正在导入备份图片", self.dialog.labelStatus.text())
         self.assertEqual("已处理 3/8", self.dialog.labelTaskProgress.text())
-        self.assertEqual("cat.png", self.dialog.labelDetail.text())
+        self.assertIsNone(self.dialog.findChild(QLabel, "labelDetail"))
         self.assertTrue(self.dialog.pushButtonCancel.isEnabled())
 
     def test_cancel_is_enabled_only_during_the_per_image_stage(self):
@@ -75,7 +74,6 @@ class LibraryImportProgressDialogTests(unittest.TestCase):
         )
 
         self.assertEqual("", self.dialog.labelTaskProgress.text())
-        self.assertEqual("", self.dialog.labelDetail.text())
 
     def test_cannot_close_until_the_import_finishes(self):
         self.dialog.close()
@@ -121,6 +119,7 @@ class LibraryImportProgressDialogTests(unittest.TestCase):
         self.assertEqual("正在中止", self.dialog.labelStatus.text())
         self.assertEqual(50, self.dialog.progressBar.value())
         self.assertFalse(self.dialog.pushButtonCancel.isEnabled())
+        self.assertIsNone(self.dialog.findChild(QLabel, "labelDetail"))
 
 
 if __name__ == "__main__":
