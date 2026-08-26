@@ -336,14 +336,14 @@ class StickerListViewTests(unittest.TestCase):
         def fake_exec(menu, position):
             action_texts = [action.text() for action in menu.actions()]
             self.assertEqual(
-                ["复制到剪贴板", "", "另存为", "批量编辑标签", "更多"],
+                ["复制到剪贴板", "", "另存为", "批量编辑标签", "", "更多"],
                 action_texts,
             )
             copy_action = menu.actions()[0]
             copy_action.trigger()
             batch_action = menu.actions()[3]
             batch_action.trigger()
-            more_menu = menu.actions()[4].menu()
+            more_menu = menu.actions()[5].menu()
             delete_action = more_menu.actions()[0]
             self.assertEqual("移动到图库回收站", delete_action.text())
             delete_action.trigger()
