@@ -5,12 +5,15 @@ import logging
 
 from PyQt6 import uic
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QIcon, QPalette, QPixmap
+from PyQt6.QtGui import QColor, QIcon, QPalette, QPainter, QPixmap
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QListWidgetItem,
     QMessageBox,
     QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
 )
 
 import apppath
@@ -22,6 +25,60 @@ from utils.resource_path import resolve_resource_path
 logger = logging.getLogger(__name__)
 
 TAG_DATA_ROLE = Qt.ItemDataRole.UserRole
+
+
+class TagColorDotDelegate(QStyledItemDelegate):
+    """在原生图标槽位上自绘标签颜色圆点。
+
+    item 携带全透明图标让样式按原生图标布局排版（背景、选中、焦点、
+    行高全部由样式负责，任何风格下都是整行正确绘制），delegate 只在
+    SE_ItemViewItemDecoration 槽位上以设备分辨率补画彩色圆点。
+    """
+
+    SWATCH_DIAMETER = 12
+    FALLBACK_COLOR = "#2196F3"
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        index,
+    ) -> None:
+        init_option = QStyleOptionViewItem(option)
+        self.initStyleOption(init_option, index)
+        super().paint(painter, init_option, index)
+
+        widget = init_option.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        deco_rect = style.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemDecoration,
+            init_option,
+            widget,
+        )
+        if deco_rect.isEmpty():
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._accent_color(index))
+        painter.drawEllipse(deco_rect)
+        painter.restore()
+
+    @staticmethod
+    def transparent_icon() -> QIcon:
+        pixmap = QPixmap(
+            TagColorDotDelegate.SWATCH_DIAMETER,
+            TagColorDotDelegate.SWATCH_DIAMETER,
+        )
+        pixmap.fill(Qt.GlobalColor.transparent)
+        return QIcon(pixmap)
+
+    def _accent_color(self, index) -> QColor:
+        tag = index.data(TAG_DATA_ROLE)
+        color = QColor(tag.color_rgb) if tag is not None else QColor()
+        if not color.isValid():
+            color = QColor(self.FALLBACK_COLOR)
+        return color
 
 
 class TagManagerDialog(QDialog):
@@ -57,6 +114,9 @@ class TagManagerDialog(QDialog):
         self.splitterTags.setStretchFactor(0, 0)
         self.splitterTags.setStretchFactor(1, 1)
         self.splitterTags.setSizes([260, 560])
+        self.listWidgetTags.setItemDelegate(
+            TagColorDotDelegate(self.listWidgetTags)
+        )
 
         self.toolButtonAddTag.setIcon(
             QIcon(str(resolve_resource_path("plus.svg")))
@@ -127,7 +187,7 @@ class TagManagerDialog(QDialog):
     def _make_tag_item(self, tag: Tag) -> QListWidgetItem:
         item = QListWidgetItem(tag.name)
         item.setData(TAG_DATA_ROLE, tag)
-        item.setIcon(self._color_icon(tag.color_rgb))
+        item.setIcon(TagColorDotDelegate.transparent_icon())
         if not tag.enabled:
             disabled_text = self.palette().color(
                 QPalette.ColorGroup.Disabled,
@@ -136,15 +196,6 @@ class TagManagerDialog(QDialog):
             item.setForeground(disabled_text)
             item.setToolTip("已禁用")
         return item
-
-    @staticmethod
-    def _color_icon(color_value: str) -> QIcon:
-        color = QColor(color_value)
-        if not color.isValid():
-            color = QColor("#2196F3")
-        pixmap = QPixmap(14, 14)
-        pixmap.fill(color)
-        return QIcon(pixmap)
 
     def _first_visible_item(self) -> QListWidgetItem | None:
         for row in range(self.listWidgetTags.count()):

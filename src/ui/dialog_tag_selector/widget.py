@@ -11,10 +11,11 @@ from __future__ import annotations
 import logging
 from typing import Iterable, List, Optional, Sequence
 
-from PyQt6.QtCore import QRect, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPalette
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPalette, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QHBoxLayout,
     QLineEdit,
@@ -43,10 +44,14 @@ TAG_ACCENT_COLOR_ROLE = Qt.ItemDataRole.UserRole + 2
 
 
 class TagSelectorItemDelegate(QStyledItemDelegate):
-    """在列表行左侧绘制标签 color_rgb 对应的强调色圆点。"""
+    """在原生图标槽位上自绘标签 color_rgb 对应的强调色圆点。
 
-    SWATCH_DIAMETER = 10
-    SWATCH_MARGIN = 8
+    item 携带全透明图标让样式按原生图标布局排版（背景、选中、焦点、
+    行高全部由样式负责，任何风格下都是整行正确绘制），delegate 只在
+    SE_ItemViewItemDecoration 槽位上以设备分辨率补画彩色圆点。
+    """
+
+    SWATCH_DIAMETER = 12
     FALLBACK_COLOR = "#2196F3"
 
     def paint(
@@ -55,33 +60,34 @@ class TagSelectorItemDelegate(QStyledItemDelegate):
         option: QStyleOptionViewItem,
         index,
     ) -> None:
-        item_option = QStyleOptionViewItem(option)
-        item_option.rect = option.rect.adjusted(self._leading_width(), 0, 0, 0)
+        init_option = QStyleOptionViewItem(option)
+        self.initStyleOption(init_option, index)
+        super().paint(painter, init_option, index)
 
-        if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, option.palette.highlight())
-
-        super().paint(painter, item_option, index)
-
-        swatch_rect = QRect(
-            option.rect.left() + self.SWATCH_MARGIN,
-            option.rect.top() + (option.rect.height() - self.SWATCH_DIAMETER) // 2,
-            self.SWATCH_DIAMETER,
-            self.SWATCH_DIAMETER,
+        widget = init_option.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        deco_rect = style.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemDecoration,
+            init_option,
+            widget,
         )
+        if deco_rect.isEmpty():
+            return
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(self._accent_color(index))
-        painter.drawEllipse(swatch_rect)
+        painter.drawEllipse(deco_rect)
         painter.restore()
 
-    def sizeHint(self, option, index) -> QSize:
-        size = super().sizeHint(option, index)
-        return QSize(size.width() + self._leading_width(), size.height())
-
-    def _leading_width(self) -> int:
-        return self.SWATCH_MARGIN * 2 + self.SWATCH_DIAMETER
+    @staticmethod
+    def transparent_icon() -> QIcon:
+        pixmap = QPixmap(
+            TagSelectorItemDelegate.SWATCH_DIAMETER,
+            TagSelectorItemDelegate.SWATCH_DIAMETER,
+        )
+        pixmap.fill(Qt.GlobalColor.transparent)
+        return QIcon(pixmap)
 
     def _accent_color(self, index) -> QColor:
         color = QColor(index.data(TAG_ACCENT_COLOR_ROLE))
@@ -240,6 +246,7 @@ class TagSelectorWidget(QWidget):
         item.setData(TAG_DATA_ROLE, tag)
         item.setData(TAG_ID_ROLE, tag.id)
         item.setData(TAG_ACCENT_COLOR_ROLE, tag.color_rgb)
+        item.setIcon(TagSelectorItemDelegate.transparent_icon())
         if not tag.enabled:
             disabled_color = self.palette().color(
                 QPalette.ColorGroup.Disabled,
