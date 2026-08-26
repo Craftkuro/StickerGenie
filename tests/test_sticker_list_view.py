@@ -162,10 +162,27 @@ class StickerListViewTests(unittest.TestCase):
             view.selectionMode(),
         )
         self.assertEqual(QSize(200, 200), view.iconSize())
-        self.assertEqual(QSize(160, 160), view.gridSize())
+        self.assertEqual(QSize(120, 120), view.gridSize())
         self.assertTrue(view.uniformItemSizes())
         self.assertFalse(view.wordWrap())
         self.assertIsInstance(view.itemDelegate(), StickerItemDelegate)
+
+    def test_new_view_uses_configured_default_icon_size(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            manager = create_settings_manager(
+                Path(temporary_directory) / "settings.toml"
+            )
+            manager.set("default_icon_size", 140)
+            with patch.object(
+                services.global_instances,
+                "current_settings_manager",
+                manager,
+            ):
+                view = StickerListView()
+
+        self.assertEqual(QSize(140, 140), view.gridSize())
+        self.assertEqual(140, view.item_size())
+        view.close()
 
     def test_set_display_size_updates_grid_and_delegate(self):
         view = StickerListView()
@@ -1163,8 +1180,8 @@ class StickerListViewTests(unittest.TestCase):
         slider = page.display_size_slider
 
         self.assertIsInstance(slider, QSlider)
-        self.assertEqual(160, slider.value())
-        self.assertEqual(QSize(160, 160), page.listViewStickerList.gridSize())
+        self.assertEqual(120, slider.value())
+        self.assertEqual(QSize(120, 120), page.listViewStickerList.gridSize())
 
         slider.setValue(64)
         self.assertEqual(QSize(64, 64), page.listViewStickerList.gridSize())
@@ -1803,9 +1820,9 @@ class StickerListViewTests(unittest.TestCase):
         view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_ICON)
 
         self.assertEqual(QListView.ViewMode.IconMode, view.viewMode())
-        self.assertEqual(QSize(160, 160), view.gridSize())
+        self.assertEqual(QSize(120, 120), view.gridSize())
         self.assertEqual(
-            QSize(160, 160),
+            QSize(120, 120),
             delegate.sizeHint(QStyleOptionViewItem(), model.index(0, 0)),
         )
         view.close()
@@ -1868,14 +1885,14 @@ class StickerListViewTests(unittest.TestCase):
     def test_item_size_reflects_current_mode(self):
         view = StickerListView()
 
-        self.assertEqual(160, view.item_size())
+        self.assertEqual(120, view.item_size())
         view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_LIST)
         self.assertEqual(
             StickerListView.DETAIL_ROW_HEIGHT_DEFAULT,
             view.item_size(),
         )
         view.set_display_mode(commons.constants.LIST_DISPLAY_MODE_ICON)
-        self.assertEqual(160, view.item_size())
+        self.assertEqual(120, view.item_size())
         view.close()
 
     def test_rebuilt_delegate_inherits_current_mode_and_size(self):
@@ -1956,8 +1973,8 @@ class StickerListViewTests(unittest.TestCase):
             (StickerListView.DISPLAY_SIZE_MIN, StickerListView.ICON_DISPLAY_SIZE_MAX),
             (slider.minimum(), slider.maximum()),
         )
-        self.assertEqual(160, slider.value())
-        self.assertEqual(QSize(160, 160), view.gridSize())
+        self.assertEqual(120, slider.value())
+        self.assertEqual(QSize(120, 120), view.gridSize())
 
         checked = [
             action for action in toggle.menu().actions() if action.isChecked()

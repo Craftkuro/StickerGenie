@@ -242,6 +242,9 @@ class SchemaAnnotationTests(unittest.TestCase):
         "thumbnail_memory_cache_size": dict(
             page="general", minimum=100, maximum=100000, step=100
         ),
+        "default_icon_size": dict(
+            page="general", group="视图", minimum=48, maximum=256
+        ),
         "recent_search_limit": dict(page="search", maximum=100),
         "tag_suggestion_limit": dict(page="search", maximum=100),
         "similar_image_target_drop_ratio": dict(

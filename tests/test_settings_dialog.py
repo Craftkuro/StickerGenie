@@ -41,6 +41,7 @@ class SettingsDialogTests(unittest.TestCase):
 
     def test_loads_saved_values_and_switches_categories(self):
         self.manager.set("thumbnail_memory_cache_size", 1500)
+        self.manager.set("default_icon_size", 140)
         self.manager.set("recent_search_limit", 8)
         self.manager.set("tag_suggestion_limit", 12)
         self.manager.set("similar_image_target_drop_ratio", 0.42)
@@ -61,6 +62,7 @@ class SettingsDialogTests(unittest.TestCase):
         self.assertEqual(
             1500, dialog.field_widget("thumbnail_memory_cache_size").value()
         )
+        self.assertEqual(140, dialog.field_widget("default_icon_size").value())
         self.assertEqual(8, dialog.field_widget("recent_search_limit").value())
         self.assertEqual(
             12, dialog.field_widget("tag_suggestion_limit").value()
@@ -93,6 +95,7 @@ class SettingsDialogTests(unittest.TestCase):
             [
                 "library_base_path",
                 "thumbnail_memory_cache_size",
+                "default_icon_size",
                 "recent_search_limit",
                 "tag_suggestion_limit",
                 "recent_searches",
@@ -111,6 +114,7 @@ class SettingsDialogTests(unittest.TestCase):
 
         visible_keys = [
             "thumbnail_memory_cache_size",
+            "default_icon_size",
             "recent_search_limit",
             "tag_suggestion_limit",
             "similar_image_target_drop_ratio",
@@ -134,6 +138,13 @@ class SettingsDialogTests(unittest.TestCase):
         self.assertEqual(100000, thumbnail.maximum())
         self.assertEqual(100, thumbnail.singleStep())
         self.assertEqual(" 张", thumbnail.suffix())
+
+        default_icon_size = dialog.field_widget("default_icon_size")
+        self.assertIsInstance(default_icon_size, QSpinBox)
+        self.assertEqual(48, default_icon_size.minimum())
+        self.assertEqual(256, default_icon_size.maximum())
+        self.assertEqual(120, default_icon_size.value())
+        self.assertEqual("", default_icon_size.suffix())
 
         drop_ratio = dialog.field_widget("similar_image_target_drop_ratio")
         self.assertIsInstance(drop_ratio, QDoubleSpinBox)
@@ -175,12 +186,17 @@ class SettingsDialogTests(unittest.TestCase):
         general_page = dialog.stackedWidget.widget(0)
         general_groups = general_page.findChildren(QGroupBox)
         self.assertEqual(
-            ["缩略图缓存"], [group.title() for group in general_groups]
+            ["缩略图缓存", "视图"],
+            [group.title() for group in general_groups],
         )
         general_labels = [
             label.text() for label in general_groups[0].findChildren(QLabel)
         ]
         self.assertEqual(["缩略图内存缓存大小"], general_labels)
+        view_labels = [
+            label.text() for label in general_groups[1].findChildren(QLabel)
+        ]
+        self.assertEqual(["图标默认大小"], view_labels)
 
         search_page = dialog.stackedWidget.widget(1)
         search_groups = search_page.findChildren(QGroupBox)
@@ -242,6 +258,7 @@ class SettingsDialogTests(unittest.TestCase):
         dialog = SettingsDialog(config_manager=self.manager)
         dialog.show()
         dialog.field_widget("thumbnail_memory_cache_size").setValue(1500)
+        dialog.field_widget("default_icon_size").setValue(140)
         dialog.field_widget("recent_search_limit").setValue(24)
         dialog.field_widget("tag_suggestion_limit").setValue(7)
         dialog.field_widget("similar_image_target_drop_ratio").setValue(0.33)
@@ -260,6 +277,7 @@ class SettingsDialogTests(unittest.TestCase):
         self.assertEqual(
             1500, saved_manager.get("thumbnail_memory_cache_size")
         )
+        self.assertEqual(140, saved_manager.get("default_icon_size"))
         self.assertEqual(24, saved_manager.get("recent_search_limit"))
         self.assertEqual(7, saved_manager.get("tag_suggestion_limit"))
         self.assertEqual(

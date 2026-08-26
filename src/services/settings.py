@@ -18,7 +18,7 @@ import commons.constants
 from config_manager import ConfigField, ConfigManager, ConfigType, FieldUI, WidgetKind
 
 
-SETTINGS_VERSION = "1.5.0"
+SETTINGS_VERSION = "1.6.0"
 
 PAGE_GENERAL = "general"
 PAGE_SEARCH = "search"
@@ -49,6 +49,20 @@ SETTINGS_SCHEMA = [
             minimum=100,
             maximum=100000,
             step=100,
+        ),
+    ),
+    ConfigField(
+        "default_icon_size",
+        ConfigType.INT,
+        120,
+        "创建图片列表视图时使用的默认图标大小。",
+        ui=FieldUI(
+            kind=WidgetKind.SPIN_BOX,
+            page=PAGE_GENERAL,
+            label="图标默认大小",
+            group="视图",
+            minimum=48,
+            maximum=256,
         ),
     ),
     ConfigField(

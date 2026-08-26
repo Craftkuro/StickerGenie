@@ -527,6 +527,7 @@ class StickerListView(QListView):
     DETAIL_ROW_HEIGHT_MAX = 128
     DISPLAY_SIZE_MIN = 48
     ICON_DISPLAY_SIZE_MAX = 256
+    DEFAULT_ICON_SIZE = 120
     DEFAULT_EMPTY_TEXT = "列表空空如也"
 
     def __init__(
@@ -546,8 +547,17 @@ class StickerListView(QListView):
         self.sort_mode = commons.constants.SORT_BY_DATE
         self.reverse_sort = False
         self._thumbnail_provider: ThumbnailProvider | None = None
-        # 两种模式的尺寸互相独立记忆（类似 Windows 资源管理器）。
-        self._icon_item_size = self.ITEM_SIZE
+        # 两种模式的尺寸互相独立设置（类似 Windows 资源管理器）。
+        settings_manager = services.global_instances.current_settings_manager
+        default_icon_size = self.DEFAULT_ICON_SIZE
+        if settings_manager is not None:
+            default_icon_size = int(
+                settings_manager.get("default_icon_size")
+            )
+        self._icon_item_size = max(
+            self.DISPLAY_SIZE_MIN,
+            min(default_icon_size, self.ICON_DISPLAY_SIZE_MAX),
+        )
         self._detail_row_height = self.DETAIL_ROW_HEIGHT_DEFAULT
         # 空态占位文案；_empty_state_active 记录上次绘制的空态，用于检测翻转。
         self._empty_text = self.DEFAULT_EMPTY_TEXT
