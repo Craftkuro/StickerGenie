@@ -1,6 +1,8 @@
 # coding=utf-8
 import logging
+import logging.handlers
 import pathlib
+import time
 import apppath
 import blob_storage
 import thumbnail_disk_storage
@@ -13,9 +15,16 @@ from stickerdb.vectordb import ChromaVectorStore
 
 logger = logging.getLogger(__name__)
 
+# 日志文件大小上限（5 MB），超过后轮转；保留最近 5 个历史文件。
+LOG_FILE_MAX_BYTES = 5 * 1024 * 1024
+LOG_FILE_BACKUP_COUNT = 5
+# 日志保留天数，超过此年龄的日志文件在启动时清理。
+LOG_FILE_RETENTION_DAYS = 30
+
 
 def run_startup_tasks():
     set_logging_levels()
+    setup_file_logging()
     init_settings_manager()
     library_path = resolve_library_path()
     open_library(library_path)
@@ -25,6 +34,51 @@ def set_logging_levels():
     logging.getLogger('PyQt6.uic.uiparser').setLevel(logging.INFO)
     logging.getLogger('PyQt6.uic.properties').setLevel(logging.INFO)
     logging.getLogger('PIL').setLevel(logging.INFO)
+
+
+def setup_file_logging():
+    """在配置目录下的 log 文件夹中写入与控制台相同的日志，并自动轮转与清理。
+
+    使用 RotatingFileHandler 按大小轮转，并在启动时删除超过保留期的旧日志。
+    """
+    if apppath.user_data_dir_path is None:
+        logger.warning("数据目录尚未初始化，跳过文件日志配置")
+        return
+
+    log_dir = pathlib.Path(apppath.user_data_dir_path) / "log"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    log_file = log_dir / "stickergenie.log"
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=LOG_FILE_MAX_BYTES,
+        backupCount=LOG_FILE_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+        )
+    )
+    logging.root.addHandler(file_handler)
+
+    cleanup_expired_logs(log_dir, LOG_FILE_RETENTION_DAYS)
+
+
+def cleanup_expired_logs(log_dir: pathlib.Path, retention_days: int) -> None:
+    """删除 log_dir 中修改时间早于 retention_days 天的日志文件。"""
+    if retention_days <= 0:
+        return
+    cutoff = time.time() - retention_days * 86400
+    for entry in log_dir.iterdir():
+        if not entry.is_file():
+            continue
+        try:
+            if entry.stat().st_mtime < cutoff:
+                entry.unlink()
+        except OSError:
+            logger.warning("无法删除过期日志文件: %s", entry)
 
 
 def init_settings_manager():
