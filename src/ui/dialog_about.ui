@@ -20,6 +20,9 @@
    <string>关于 StickerGenie</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>12</number>
+   </property>
    <property name="leftMargin">
     <number>20</number>
    </property>
@@ -32,9 +35,44 @@
    <property name="bottomMargin">
     <number>16</number>
    </property>
-   <property name="spacing">
-    <number>12</number>
-   </property>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutAppIcon">
+     <item>
+      <widget class="QLabel" name="labelAppIcon">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>64</width>
+         <height>64</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>64</width>
+         <height>64</height>
+        </size>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="pixmap">
+        <pixmap>../resources/app_icon.svg</pixmap>
+       </property>
+       <property name="scaledContents">
+        <bool>true</bool>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
    <item>
     <widget class="QLabel" name="labelAppName">
      <property name="font">
@@ -64,13 +102,13 @@
    <item>
     <widget class="QLabel" name="labelDescription">
      <property name="text">
-      <string>这里是关于对话框的占位说明文字，请在此手动编辑内容。</string>
-     </property>
-     <property name="wordWrap">
-      <bool>true</bool>
+      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/Craftkuro/StickerGenie&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#003e92;&quot;&gt;https://github.com/Craftkuro/StickerGenie&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
      </property>
      <property name="alignment">
       <set>Qt::AlignmentFlag::AlignCenter</set>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
      </property>
     </widget>
    </item>
