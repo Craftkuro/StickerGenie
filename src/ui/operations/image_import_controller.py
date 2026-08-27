@@ -67,6 +67,7 @@ class ImageImportController:
     def _on_import_images_finished(self, result):
         self._close_image_import_progress_dialog()
         imported_count = len(result.imported_stickers)
+        failed_count = len(result.file_errors)
         if imported_count:
             services.sticker_library_viewer_service.wiring.slot_refresh_content()
 
@@ -75,6 +76,8 @@ class ImageImportController:
             message += f"，生成 {result.vectorized_count} 个向量"
         if result.ocr_count:
             message += f"，识别 {result.ocr_count} 张图片文字"
+        if failed_count:
+            message += f"，{failed_count} 张图片导入失败"
         self._window.statusBar().showMessage(message, 8000)
 
         detail_parts = [f"已导入 {imported_count} 张图片"]
@@ -86,11 +89,16 @@ class ImageImportController:
             detail_parts.append(
                 f"另有 {result.duplicate_count} 个重复图片未导入"
             )
-        QMessageBox.information(
-            self._window,
-            "导入完成",
-            "，".join(detail_parts) + "。",
-        )
+        if failed_count:
+            detail_parts.append(f"{failed_count} 张图片导入失败")
+
+        box = QMessageBox(self._window)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("导入完成")
+        box.setText("，".join(detail_parts) + "。")
+        if failed_count:
+            box.setDetailedText("\n".join(result.file_errors))
+        box.exec()
 
         errors = result.vector_errors + result.ocr_errors
         if errors:

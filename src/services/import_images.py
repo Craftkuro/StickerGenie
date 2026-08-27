@@ -45,6 +45,7 @@ class ImportImagesResult:
     vector_errors: tuple[str, ...] = ()
     ocr_count: int = 0
     ocr_errors: tuple[str, ...] = ()
+    file_errors: tuple[str, ...] = ()
     cancelled: bool = False
 
 
@@ -344,11 +345,12 @@ def _prepare_candidates(
     cancel_event: threading.Event | None = None,
     task_index: int,
     task_count: int,
-) -> tuple[list[ImportCandidate], int, bool]:
+) -> tuple[list[ImportCandidate], int, tuple[str, ...], bool]:
     """读取图片元数据并过滤同一请求内的重复 hash。"""
     candidates: list[ImportCandidate] = []
     request_hashes: set[str] = set()
     duplicate_count = 0
+    file_errors: list[str] = []
     total_files = len(file_paths)
 
     _report_progress(
@@ -361,39 +363,48 @@ def _prepare_candidates(
         total=total_files,
     )
     if _is_cancelled(cancel_event):
-        return candidates, duplicate_count, True
+        return candidates, duplicate_count, tuple(file_errors), True
 
     for processed, file_path in enumerate(file_paths, start=1):
         if _is_cancelled(cancel_event):
-            return candidates, duplicate_count, True
+            return candidates, duplicate_count, tuple(file_errors), True
 
         candidate = None
+        is_duplicate = False
+        read_error = False
         try:
             path = Path(file_path)
-            if path.exists():
-                metadata = get_image_metadata(path)
-                if _is_cancelled(cancel_event):
-                    return candidates, duplicate_count, True
+            if not path.exists():
+                raise FileNotFoundError(f"文件不存在：{file_path}")
 
-                if metadata.hash in request_hashes:
-                    duplicate_count += 1
-                else:
-                    request_hashes.add(metadata.hash)
+            metadata = get_image_metadata(path)
+            if _is_cancelled(cancel_event):
+                return candidates, duplicate_count, tuple(file_errors), True
 
-                    sticker = _metadata_to_sticker_image(metadata)
-                    if tags:
-                        for tag in tags:
-                            sticker.tags.append(tag)
-                    candidate = ImportCandidate(
-                        sticker=sticker,
-                        file_path=file_path,
-                        file_hash=metadata.hash,
-                    )
+            if metadata.hash in request_hashes:
+                is_duplicate = True
+                duplicate_count += 1
+            else:
+                request_hashes.add(metadata.hash)
+
+                sticker = _metadata_to_sticker_image(metadata)
+                if tags:
+                    for tag in tags:
+                        sticker.tags.append(tag)
+                candidate = ImportCandidate(
+                    sticker=sticker,
+                    file_path=file_path,
+                    file_hash=metadata.hash,
+                )
         except (OSError, ValueError) as exc:
+            read_error = True
             logger.warning("无法读取图片 %s: %s", file_path, exc)
+            file_errors.append(f"{file_path}：{exc}")
 
         if candidate is not None:
             candidates.append(candidate)
+        elif not is_duplicate and not read_error:
+            file_errors.append(file_path)
 
         _report_progress(
             progress,
@@ -405,7 +416,7 @@ def _prepare_candidates(
             total=total_files,
         )
 
-    return candidates, duplicate_count, False
+    return candidates, duplicate_count, tuple(file_errors), False
 
 
 def _select_new_candidates(
@@ -667,6 +678,7 @@ def import_images_with_result(
     vector_errors: tuple[str, ...] = ()
     ocr_count = 0
     ocr_errors: tuple[str, ...] = ()
+    file_errors: tuple[str, ...] = ()
 
     # 任务0（预处理+写入图库）始终执行，OCR 与向量按需追加并依次编号。
     task_count = 1 + int(extract_text) + int(generate_vectors)
@@ -679,10 +691,11 @@ def import_images_with_result(
             vector_errors=vector_errors,
             ocr_count=ocr_count,
             ocr_errors=ocr_errors,
+            file_errors=file_errors,
             cancelled=cancelled,
         )
 
-    candidates, request_duplicate_count, cancelled = _prepare_candidates(
+    candidates, request_duplicate_count, file_errors, cancelled = _prepare_candidates(
         file_paths,
         tags,
         progress=progress,

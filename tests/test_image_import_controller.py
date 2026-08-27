@@ -104,6 +104,7 @@ class ImageImportControllerTests(unittest.TestCase):
         )
         controller = ImageImportController(window, Mock())
         controller._close_image_import_progress_dialog = close_progress_dialog
+        message_box = Mock()
         result = ImportImagesResult(
             imported_stickers=(object(),),
             duplicate_count=2,
@@ -113,19 +114,52 @@ class ImageImportControllerTests(unittest.TestCase):
         with patch(
             "ui.operations.image_import_controller.services.sticker_library_viewer_service.wiring.slot_refresh_content",
         ) as refresh_content, patch(
-            "ui.operations.image_import_controller.QMessageBox.information"
-        ) as information:
+            "ui.operations.image_import_controller.QMessageBox",
+            return_value=message_box,
+        ):
             controller._on_import_images_finished(result)
 
         close_progress_dialog.assert_called_once_with()
         refresh_content.assert_called_once_with()
-        information.assert_called_once_with(
-            window,
-            "导入完成",
-            "已导入 1 张图片，生成 1 个向量，另有 2 个重复图片未导入。",
+        message_box.setWindowTitle.assert_called_once_with("导入完成")
+        message_box.setText.assert_called_once_with(
+            "已导入 1 张图片，生成 1 个向量，另有 2 个重复图片未导入。"
         )
+        message_box.exec.assert_called_once_with()
         status_bar.showMessage.assert_called_once_with(
             "已导入 1 张图片，生成 1 个向量",
+            8000,
+        )
+
+    def test_reports_failed_import_files_in_a_collapsible_section(self):
+        status_bar = Mock()
+        close_progress_dialog = Mock()
+        window = SimpleNamespace(
+            statusBar=lambda: status_bar,
+        )
+        controller = ImageImportController(window, Mock())
+        controller._close_image_import_progress_dialog = close_progress_dialog
+        message_box = Mock()
+        result = ImportImagesResult(
+            imported_stickers=(object(),),
+            file_errors=("corrupt.png：无法识别图片实际格式：MPO", "fake.jpg"),
+        )
+
+        with patch(
+            "ui.operations.image_import_controller.services.sticker_library_viewer_service.wiring.slot_refresh_content",
+        ) as refresh_content, patch(
+            "ui.operations.image_import_controller.QMessageBox",
+            return_value=message_box,
+        ):
+            controller._on_import_images_finished(result)
+
+        refresh_content.assert_called_once_with()
+        message_box.setText.assert_called_once_with("已导入 1 张图片，2 张图片导入失败。")
+        message_box.setDetailedText.assert_called_once_with(
+            "corrupt.png：无法识别图片实际格式：MPO\nfake.jpg"
+        )
+        status_bar.showMessage.assert_called_once_with(
+            "已导入 1 张图片，2 张图片导入失败",
             8000,
         )
 
@@ -141,7 +175,8 @@ class ImageImportControllerTests(unittest.TestCase):
         with patch(
             "ui.operations.image_import_controller.services.sticker_library_viewer_service.wiring.slot_refresh_content"
         ) as refresh_content, patch(
-            "ui.operations.image_import_controller.QMessageBox.information"
+            "ui.operations.image_import_controller.QMessageBox",
+            return_value=Mock(),
         ):
             controller._on_import_images_finished(result)
 

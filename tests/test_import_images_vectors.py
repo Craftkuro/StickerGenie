@@ -467,6 +467,53 @@ class ImportImagesVectorTests(unittest.TestCase):
         )
         self.assertIsNone(self.db.list_stickers()[0].text_in_image)
 
+    def test_corrupt_and_unreadable_files_are_reported_with_error_info(self):
+        corrupt_path = self.root / "corrupt.jpg"
+        corrupt_path.write_bytes(b"this is not a real image")
+        missing_path = self.root / "missing.png"
+
+        result = import_images_with_result(
+            [
+                str(self.source_path),
+                str(corrupt_path),
+                str(missing_path),
+            ]
+        )
+
+        self.assertEqual(1, len(result.imported_stickers))
+        self.assertFalse(result.cancelled)
+        self.assertEqual(2, len(result.file_errors))
+        self.assertTrue(
+            any(
+                error.startswith(str(corrupt_path))
+                and "无法读取图片尺寸" in error
+                for error in result.file_errors
+            )
+        )
+        self.assertTrue(
+            any(
+                error.startswith(str(missing_path))
+                and "文件不存在" in error
+                for error in result.file_errors
+            )
+        )
+        self.assertEqual(1, len(self.db.list_stickers()))
+
+    def test_within_request_duplicates_are_not_reported_as_failed(self):
+        duplicate_path = self.root / "duplicate-corrupt.png"
+        duplicate_path.write_bytes(self.source_path.read_bytes())
+
+        result = import_images_with_result(
+            [
+                str(self.source_path),
+                str(duplicate_path),
+            ]
+        )
+
+        self.assertEqual(1, len(result.imported_stickers))
+        self.assertEqual((), result.file_errors)
+        self.assertEqual(1, len(self.db.list_stickers()))
+
     def test_import_service_executes_the_request_outside_the_main_thread(self):
         app = QCoreApplication.instance() or QCoreApplication([])
         service = ImageImportService()
