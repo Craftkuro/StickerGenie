@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication, QDialog
 
 import apppath
+from commons.version import __version__
 from ui.dialog_about import AboutDialog
 
 
@@ -16,11 +17,11 @@ class AboutDialogTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         apppath.app_path = Path(__file__).resolve().parents[1] / "src"
 
-    def test_ui_is_loaded_with_placeholder_content(self):
+    def test_ui_displays_application_version(self):
         dialog = AboutDialog()
         self.assertEqual("关于 StickerGenie", dialog.windowTitle())
         self.assertEqual("StickerGenie", dialog.labelAppName.text())
-        self.assertTrue(dialog.labelVersion.text())
+        self.assertEqual(f"版本：{__version__}", dialog.labelVersion.text())
         self.assertTrue(dialog.labelDescription.text())
 
     def test_close_button_accepts_dialog(self):

@@ -54,7 +54,7 @@
    <item>
     <widget class="QLabel" name="labelVersion">
      <property name="text">
-      <string>版本：0.0.0（占位文本）</string>
+      <string>版本：</string>
      </property>
      <property name="alignment">
       <set>Qt::AlignmentFlag::AlignCenter</set>

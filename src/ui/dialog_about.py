@@ -5,16 +5,18 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog
 
 import apppath
+from commons.version import __version__
 
 
 class AboutDialog(QDialog):
-    """展示应用名称、版本等占位信息的关于对话框。"""
+    """展示应用名称、版本等信息的关于对话框。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
         ui_file_path = apppath.app_path / "ui" / "dialog_about.ui"
         uic.loadUi(ui_file_path, self)
+        self.labelVersion.setText(f"版本：{__version__}")
 
         self.setModal(True)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
