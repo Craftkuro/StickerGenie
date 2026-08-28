@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions: 
+  contents: write
+
 env:
   # Glob that matches your versioned zip (e.g., dist/StickerGenie-1.0.0.zip)
   ARTIFACTS: 'dist/StickerGenie-*.zip'
