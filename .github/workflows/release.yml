@@ -20,13 +20,36 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
 
       - name: Checkout models repository
         uses: actions/checkout@v4
         with:
           repository: Craftkuro/StickerGenie-models
           path: models
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}   # 若 models 为私有且 GITHUB_TOKEN 无法访问，请改为 ${{ secrets.PAT_FOR_MODELS }}
+          fetch-depth: 0
+          lfs: true
+
+      - name: Ensure git-lfs is available and pull LFS objects (models/)
+        shell: pwsh
+        run: |
+          Write-Host "Checking for git-lfs..."
+          if (-not (Get-Command git-lfs -ErrorAction SilentlyContinue)) {
+            Write-Host "git-lfs not found. Attempting to install via Chocolatey..."
+            choco install git-lfs -y
+          }
+          git lfs install --system
+          if (Test-Path models) {
+            Push-Location models
+            Write-Host "Running 'git lfs pull' in models/..."
+            git lfs pull --all || git lfs pull
+            Pop-Location
+          } else {
+            Write-Host "models/ directory not found; skipping git lfs pull"
+          }
 
       - name: Set up Python
         uses: actions/setup-python@v4
