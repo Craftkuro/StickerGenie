@@ -131,18 +131,31 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "artifact_path=$full"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "artifact_name=$name"
 
-      - name: Upload artifact for release
-        if: ${{ steps.find_artifact.outputs.artifact_path != '' }}
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub release
+        id: create_release
+        uses: actions/create-release@v1
         with:
-          name: ${{ steps.find_artifact.outputs.artifact_name }}
-          path: ${{ steps.find_artifact.outputs.artifact_path }}
-
-      - name: Create GitHub release and attach artifact
-        uses: ncipollo/release-action@v1
-        with:
-          tag: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          artifact: ${{ steps.find_artifact.outputs.artifact_name }}
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          body: "Automated release for ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release asset (built zip)
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.find_artifact.outputs.artifact_path }}
+          asset_name: ${{ steps.find_artifact.outputs.artifact_name }}
+          asset_content_type: application/zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # (可选) 如果你还想把构建产物保存在 actions 界面供调试/存档，可单独保留 upload-artifact 步骤，但 Release 上传应使用上面的 upload-release-asset。
+      # - name: Upload artifact for workflow (optional)
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ steps.find_artifact.outputs.artifact_name }}
+      #     path: ${{ steps.find_artifact.outputs.artifact_path }}
