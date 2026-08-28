@@ -1,13 +1,13 @@
 name: Build and Release (Windows)
 
+permissions:
+  contents: write
+
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
-
-permissions: 
-  contents: write
 
 env:
   # Glob that matches your versioned zip (e.g., dist/StickerGenie-1.0.0.zip)
@@ -70,24 +70,55 @@ jobs:
           echo Running build.bat
           call build.bat
 
-      - name: List produced artifacts (debug)
+      - name: Find build artifact
+        id: find_artifact
         shell: pwsh
         run: |
           Write-Host "Looking for artifacts matching: $env:ARTIFACTS"
           $pattern = $env:ARTIFACTS
           $dir = Split-Path -Path $pattern -Parent
           $leaf = Split-Path -Path $pattern -Leaf
-          if (-not (Test-Path $dir)) {
-            Write-Host "Directory '$dir' does not exist (pattern: $pattern)"
+
+          # If the pattern has no explicit directory, search the workspace
+          if ([string]::IsNullOrWhiteSpace($dir) -or $dir -eq '.') {
+            $dir = "$PWD"
           } else {
-            Get-ChildItem -Path $dir -Filter $leaf -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+            # Resolve relative path
+            $dir = Resolve-Path $dir -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $dir) {
+              Write-Host "Directory '$dir' does not exist for pattern: $pattern"
+              exit 1
+            } else {
+              $dir = $dir.Path
+            }
           }
 
-      - name: Create GitHub release and upload artifacts
+          $matches = Get-ChildItem -Path $dir -Filter $leaf -Recurse -File -ErrorAction SilentlyContinue
+          if (-not $matches) {
+            Write-Host "No artifacts found for pattern '$pattern'"
+            exit 1
+          }
+
+          # If multiple matches, pick the first (sorted) — adjust if you want a different selection rule
+          $file = $matches | Sort-Object FullName | Select-Object -First 1
+          $full = $file.FullName
+          $name = $file.Name
+
+          Write-Host "Found artifact: $full"
+          Write-Host "artifact_path=$full" >> $env:GITHUB_OUTPUT
+          Write-Host "artifact_name=$name" >> $env:GITHUB_OUTPUT
+
+      - name: Upload artifact for release
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.find_artifact.outputs.artifact_name }}
+          path: ${{ steps.find_artifact.outputs.artifact_path }}
+
+      - name: Create GitHub release and attach artifact
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          files: ${{ env.ARTIFACTS }}
+          artifact: ${{ steps.find_artifact.outputs.artifact_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
