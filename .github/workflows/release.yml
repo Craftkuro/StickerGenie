@@ -45,7 +45,7 @@ jobs:
           if (Test-Path models) {
             Push-Location models
             Write-Host "Running 'git lfs pull' in models/..."
-            git lfs pull --all || git lfs pull
+            git lfs pull
             Pop-Location
           } else {
             Write-Host "models/ directory not found; skipping git lfs pull"
