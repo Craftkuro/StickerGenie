@@ -36,25 +36,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Copy .onnx model files to repo root
+      - name: Ensure src/ exists and copy .onnx model files into src/
         shell: pwsh
         run: |
-          Write-Host "Copying .onnx files from models/ to repository root"
+          Write-Host "Ensuring src/ directory exists"
+          New-Item -ItemType Directory -Path src -Force | Out-Null
+
+          Write-Host "Copying .onnx files from models/ to src/"
           $onnx = Get-ChildItem -Path models -Filter '*.onnx' -Recurse -File -ErrorAction SilentlyContinue
           if (-not $onnx) {
             Write-Host "No .onnx files found in models repository"
             exit 1
           }
           foreach ($f in $onnx) {
-            Write-Host "Copying $($f.FullName) -> $PWD"
-            Copy-Item -Path $f.FullName -Destination $PWD -Force
+            $dest = Join-Path -Path (Resolve-Path src).Path -ChildPath $f.Name
+            Write-Host "Copying $($f.FullName) -> $dest"
+            Copy-Item -Path $f.FullName -Destination $dest -Force
           }
 
-      - name: List files in repo root (debug)
+      - name: List files in src/ (debug)
         shell: pwsh
         run: |
-          Write-Host "Repository root contents (first 200):"
-          Get-ChildItem -Path . -File -Recurse | Sort-Object FullName | Select-Object FullName -First 200
+          Write-Host "src/ contents (first 200):"
+          Get-ChildItem -Path src -File -Recurse | Sort-Object FullName | Select-Object FullName -First 200
 
       - name: Run build
         shell: cmd
