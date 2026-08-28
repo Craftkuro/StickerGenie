@@ -83,14 +83,12 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($dir) -or $dir -eq '.') {
             $dir = "$PWD"
           } else {
-            # Resolve relative path
-            $dir = Resolve-Path $dir -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $dir) {
+            $resolved = Resolve-Path $dir -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $resolved) {
               Write-Host "Directory '$dir' does not exist for pattern: $pattern"
               exit 1
-            } else {
-              $dir = $dir.Path
             }
+            $dir = $resolved.Path
           }
 
           $matches = Get-ChildItem -Path $dir -Filter $leaf -Recurse -File -ErrorAction SilentlyContinue
@@ -99,16 +97,19 @@ jobs:
             exit 1
           }
 
-          # If multiple matches, pick the first (sorted) — adjust if you want a different selection rule
+          # If multiple matches, pick the first (sorted)
           $file = $matches | Sort-Object FullName | Select-Object -First 1
           $full = $file.FullName
           $name = $file.Name
 
           Write-Host "Found artifact: $full"
-          Write-Host "artifact_path=$full" >> $env:GITHUB_OUTPUT
-          Write-Host "artifact_name=$name" >> $env:GITHUB_OUTPUT
+
+          # Write outputs in a way Actions understands on Windows runners
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "artifact_path=$full"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "artifact_name=$name"
 
       - name: Upload artifact for release
+        if: ${{ steps.find_artifact.outputs.artifact_path != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.find_artifact.outputs.artifact_name }}
