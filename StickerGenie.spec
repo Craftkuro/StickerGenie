@@ -32,6 +32,7 @@ datas = [
     ("src/ui/dialog_library_export_progress.ui", "ui"),
     ("src/ui/dialog_library_auditing.ui", "ui"),
     ("src/resources/app_icon.ico", "resources"),
+    ("src/resources/app_icon.svg", "resources"),
     ("src/resources/arrow-down-narrow-wide.svg", "resources"),
     ("src/resources/arrow-left.svg", "resources"),
     ("src/resources/arrow-right.svg", "resources"),
