@@ -175,7 +175,7 @@ jobs:
 
           Add-Content -Path $env:GITHUB_OUTPUT -Value "tag_name=$tag"
 
-       - name: Check if release exists
+      - name: Check if release exists
         id: check_release
         shell: pwsh
         env:
