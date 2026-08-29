@@ -1,8 +1,5 @@
 name: Build and Release (Windows)
 
-permissions:
-  contents: write
-
 on:
   push:
     tags:
@@ -10,55 +7,48 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Optional tag name. If omitted, a timestamp-based tag (vYYYYMMDDHHMMSS) will be generated.'
+        description: '可选。手动触发时使用的发布标签；留空则自动生成 vYYYYMMDDHHMMSS。'
         required: false
 
+permissions:
+  contents: write
+
 env:
-  # Glob that matches your versioned zip (e.g., dist/StickerGenie-1.0.0.zip)
+  # 上传到 Release 的产物 glob（build.bat 产出 dist/StickerGenie-<版本>.zip）
   ARTIFACTS: 'dist/StickerGenie-*.zip'
+  # 构建使用的 Python 版本
+  PYTHON_VERSION: '3.13'
 
 jobs:
   build-and-release:
     runs-on: windows-latest
 
     steps:
+      # 1. 拉取主仓库（完整历史 + LFS 对象）
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           lfs: true
 
+      # 2. 拉取模型仓库（.onnx 模型文件）
+      #    若 StickerGenie-models 为私有仓库且 GITHUB_TOKEN 无访问权限，改用它: ${{ secrets.PAT_FOR_MODELS }}
+      #    windows-latest 自带 git-lfs，actions/checkout 的 lfs: true 会在拉取时自动下载 LFS 对象，无需手动安装
       - name: Checkout models repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Craftkuro/StickerGenie-models
           path: models
-          token: ${{ secrets.GITHUB_TOKEN }}   # 若 models 为私有且 GITHUB_TOKEN 无法访问，请改为 ${{ secrets.PAT_FOR_MODELS }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           lfs: true
 
-      - name: Ensure git-lfs is available and pull LFS objects (models/)
-        shell: pwsh
-        run: |
-          Write-Host "Checking for git-lfs..."
-          if (-not (Get-Command git-lfs -ErrorAction SilentlyContinue)) {
-            Write-Host "git-lfs not found. Attempting to install via Chocolatey..."
-            choco install git-lfs -y
-          }
-          git lfs install --system
-          if (Test-Path models) {
-            Push-Location models
-            Write-Host "Running 'git lfs pull' in models/..."
-            git lfs pull
-            Pop-Location
-          } else {
-            Write-Host "models/ directory not found; skipping git lfs pull"
-          }
-
+      # 3. 配置 Python（带 pip 依赖缓存）
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
-          python-version: '3.13'
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
       - name: Install Python dependencies
         shell: pwsh
@@ -66,178 +56,64 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Ensure src/ exists and copy .onnx model files into src/
+      # 4. 将模型仓库中的 .onnx 文件复制进 src/（PyInstaller 打包需要）
+      - name: Copy .onnx models into src/
         shell: pwsh
         run: |
-          Write-Host "Ensuring src/ directory exists"
           New-Item -ItemType Directory -Path src -Force | Out-Null
-
-          Write-Host "Copying .onnx files from models/ to src/"
-          $onnx = Get-ChildItem -Path models -Filter '*.onnx' -Recurse -File -ErrorAction SilentlyContinue
-          if (-not $onnx) {
-            Write-Host "No .onnx files found in models repository"
+          $onnx = @(Get-ChildItem -Path models -Filter '*.onnx' -Recurse -File)
+          if ($onnx.Count -eq 0) {
+            Write-Error '未在 models 仓库中找到 .onnx 文件'
             exit 1
           }
-          foreach ($f in $onnx) {
-            $dest = Join-Path -Path (Resolve-Path src).Path -ChildPath $f.Name
-            Write-Host "Copying $($f.FullName) -> $dest"
-            Copy-Item -Path $f.FullName -Destination $dest -Force
-          }
+          $onnx | Copy-Item -Destination src -Force
+          Get-ChildItem -Path src -Filter '*.onnx' | ForEach-Object { Write-Host "Model: $($_.Name)" }
 
-      - name: List files in src/ (debug)
-        shell: pwsh
-        run: |
-          Write-Host "src/ contents (first 200):"
-          Get-ChildItem -Path src -File -Recurse | Sort-Object FullName | Select-Object FullName -First 200
-
+      # 5. 构建：产出 dist/StickerGenie-<版本>.zip
       - name: Run build
         shell: cmd
-        run: |
-          REM Ensure this runs from repository root
-          echo Running build.bat
-          call build.bat
+        run: call build.bat
 
-      - name: Find build artifact
-        id: find_artifact
-        shell: pwsh
-        run: |
-          Write-Host "Looking for artifacts matching: $env:ARTIFACTS"
-          $pattern = $env:ARTIFACTS
-          $dir = Split-Path -Path $pattern -Parent
-          $leaf = Split-Path -Path $pattern -Leaf
-
-          # If the pattern has no explicit directory, search the workspace
-          if ([string]::IsNullOrWhiteSpace($dir) -or $dir -eq '.') {
-            $dir = "$PWD"
-          } else {
-            $resolved = Resolve-Path $dir -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $resolved) {
-              Write-Host "Directory '$dir' does not exist for pattern: $pattern"
-              exit 1
-            }
-            $dir = $resolved.Path
-          }
-
-          $matches = Get-ChildItem -Path $dir -Filter $leaf -Recurse -File -ErrorAction SilentlyContinue
-          if (-not $matches) {
-            Write-Host "No artifacts found for pattern '$pattern'"
-            exit 1
-          }
-
-          # If multiple matches, pick the first (sorted)
-          $file = $matches | Sort-Object FullName | Select-Object -First 1
-          $full = $file.FullName
-          $name = $file.Name
-
-          Write-Host "Found artifact: $full"
-
-          # Write outputs in a way Actions understands on Windows runners
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "artifact_path=$full"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "artifact_name=$name"
-
-      - name: Determine tag name (create and push on manual run if needed)
-        id: set_tag
+      # 6. 确定发布标签
+      #    push tag 事件：使用被推送的 tag；手动触发：使用输入或自动生成，若 tag 不存在则创建并推送（已存在则复用）
+      - name: Resolve release tag
+        id: tag
         shell: pwsh
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ github.event.inputs.tag }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          # Decide tag name: if triggered manually (workflow_dispatch), generate or use provided input; otherwise use ref name from the push event
           if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
-            if (-not [string]::IsNullOrEmpty($env:INPUT_TAG)) {
-              $tag = $env:INPUT_TAG
-              Write-Host "Using user-supplied tag: $tag"
-            } else {
-              $ts = Get-Date -Format 'yyyyMMddHHmmss'
-              $tag = "v$ts"
-              Write-Host "Generated timestamp tag: $tag"
+            $tag = $env:INPUT_TAG
+            if ([string]::IsNullOrWhiteSpace($tag)) {
+              $tag = 'v' + (Get-Date -Format 'yyyyMMddHHmmss')
             }
+            $tag = $tag.Trim()
+            Write-Host "手动触发，使用标签: $tag"
 
-            # Create annotated tag and push it, but if the tag already exists, skip creation instead of failing
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-            # Ensure we have the full history and refs
-            git fetch --prune --unshallow 2>$null | Out-Null || true
-
+            git fetch origin --tags --force --prune
             if (git rev-parse -q --verify "refs/tags/$tag") {
-              Write-Host "Tag $tag already exists. Skipping tag creation/push."
-              # do not exit; continue and reuse $tag for the release
+              Write-Host "标签 $tag 已存在，跳过创建"
             } else {
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
               git tag -a $tag -m "Release $tag"
               git push origin $tag
             }
           } else {
             $tag = $env:REF_NAME
-            Write-Host "Using tag from push event: $tag"
+            Write-Host "push 事件，使用标签: $tag"
           }
-
           Add-Content -Path $env:GITHUB_OUTPUT -Value "tag_name=$tag"
 
-      - name: Check if release exists
-        id: check_release
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = '${{ steps.set_tag.outputs.tag_name }}'
-          $headers = @{ Authorization = "token $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json" }
-          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$tag"
-          try {
-            $resp = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -ErrorAction Stop
-            $exists = 'true'
-            $upload_url = $resp.upload_url -replace '\{\?name,label\}$',''
-          } catch {
-            # 如果是 404，说明 release 不存在；其余错误则抛出
-            if ($_.Exception.Response -and ($_.Exception.Response.StatusCode.Value__ -eq 404)) {
-              $exists = 'false'
-              $upload_url = ''
-            } else {
-              Write-Error $_
-              exit 1
-            }
-          }
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "release_exists=$exists"
-          if ($upload_url) { Add-Content -Path $env:GITHUB_OUTPUT -Value "release_upload_url=$upload_url" }
-
-      - name: Create GitHub release (only if not exists)
-        id: create_release
-        if: steps.check_release.outputs.release_exists != 'true'
-        uses: actions/create-release@v1
+      # 7. 创建 / 更新 GitHub Release 并上传构建产物（release notes 自动生成，对比上一个 tag 的提交）
+      - name: Create / update GitHub release and upload assets
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.set_tag.outputs.tag_name }}
-          release_name: ${{ steps.set_tag.outputs.tag_name }}
-          body: "Automated release for ${{ steps.set_tag.outputs.tag_name }}"
+          tag_name: ${{ steps.tag.outputs.tag_name }}
+          name: ${{ steps.tag.outputs.tag_name }}
+          files: ${{ env.ARTIFACTS }}
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Determine upload_url to use for assets
-        id: set_upload_url
-        shell: pwsh
-        run: |
-          if ('${{ steps.check_release.outputs.release_exists }}' -eq 'true') {
-            $u = '${{ steps.check_release.outputs.release_upload_url }}'
-          } else {
-            $u = '${{ steps.create_release.outputs.upload_url }}'
-          }
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "upload_url=$u"
-
-      - name: Upload release asset (built zip)
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.set_upload_url.outputs.upload_url }}
-          asset_path: ${{ steps.find_artifact.outputs.artifact_path }}
-          asset_name: ${{ steps.find_artifact.outputs.artifact_name }}
-          asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # (可选) 如果你还想把构建产物保存在 actions 界面供调试/存档，可单独保留 upload-artifact 步骤，但 Release 上传应使用上面的 upload-release-asset。
-      # - name: Upload artifact for workflow (optional)
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: ${{ steps.find_artifact.outputs.artifact_name }}
-      #     path: ${{ steps.find_artifact.outputs.artifact_path }}
+          fail_on_unmatched_files: true
