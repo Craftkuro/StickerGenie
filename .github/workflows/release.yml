@@ -8,6 +8,10 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional tag name. If omitted, a timestamp-based tag (vYYYYMMDDHHMMSS) will be generated.'
+        required: false
 
 env:
   # Glob that matches your versioned zip (e.g., dist/StickerGenie-1.0.0.zip)
@@ -131,13 +135,53 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "artifact_path=$full"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "artifact_name=$name"
 
+      - name: Determine tag name (create and push on manual run if needed)
+        id: set_tag
+        shell: pwsh
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Decide tag name: if triggered manually (workflow_dispatch), generate or use provided input; otherwise use ref name from the push event
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            if (-not [string]::IsNullOrEmpty($env:INPUT_TAG)) {
+              $tag = $env:INPUT_TAG
+              Write-Host "Using user-supplied tag: $tag"
+            } else {
+              $ts = Get-Date -Format 'yyyyMMddHHmmss'
+              $tag = "v$ts"
+              Write-Host "Generated timestamp tag: $tag"
+            }
+
+            # Create annotated tag and push it
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            # Ensure we have the full history and refs
+            git fetch --prune --unshallow 2>$null | Out-Null || true
+
+            if (git rev-parse -q --verify "refs/tags/$tag") {
+              Write-Host "Tag $tag already exists. Exiting with error to avoid overwriting existing tag."
+              exit 1
+            }
+
+            git tag -a $tag -m "Release $tag"
+            git push origin $tag
+          } else {
+            $tag = $env:REF_NAME
+            Write-Host "Using tag from push event: $tag"
+          }
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "tag_name=$tag"
+
       - name: Create GitHub release
         id: create_release
         uses: actions/create-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
-          release_name: ${{ github.ref_name }}
-          body: "Automated release for ${{ github.ref_name }}"
+          tag_name: ${{ steps.set_tag.outputs.tag_name }}
+          release_name: ${{ steps.set_tag.outputs.tag_name }}
+          body: "Automated release for ${{ steps.set_tag.outputs.tag_name }}"
           draft: false
           prerelease: false
         env:
