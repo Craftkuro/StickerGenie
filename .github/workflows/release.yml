@@ -154,7 +154,7 @@ jobs:
               Write-Host "Generated timestamp tag: $tag"
             }
 
-            # Create annotated tag and push it
+            # Create annotated tag and push it, but if the tag already exists, skip creation instead of failing
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -162,12 +162,12 @@ jobs:
             git fetch --prune --unshallow 2>$null | Out-Null || true
 
             if (git rev-parse -q --verify "refs/tags/$tag") {
-              Write-Host "Tag $tag already exists. Exiting with error to avoid overwriting existing tag."
-              exit 1
+              Write-Host "Tag $tag already exists. Skipping tag creation/push."
+              # do not exit; continue and reuse $tag for the release
+            } else {
+              git tag -a $tag -m "Release $tag"
+              git push origin $tag
             }
-
-            git tag -a $tag -m "Release $tag"
-            git push origin $tag
           } else {
             $tag = $env:REF_NAME
             Write-Host "Using tag from push event: $tag"
@@ -175,8 +175,35 @@ jobs:
 
           Add-Content -Path $env:GITHUB_OUTPUT -Value "tag_name=$tag"
 
-      - name: Create GitHub release
+       - name: Check if release exists
+        id: check_release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ steps.set_tag.outputs.tag_name }}'
+          $headers = @{ Authorization = "token $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json" }
+          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$tag"
+          try {
+            $resp = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -ErrorAction Stop
+            $exists = 'true'
+            $upload_url = $resp.upload_url -replace '\{\?name,label\}$',''
+          } catch {
+            # 如果是 404，说明 release 不存在；其余错误则抛出
+            if ($_.Exception.Response -and ($_.Exception.Response.StatusCode.Value__ -eq 404)) {
+              $exists = 'false'
+              $upload_url = ''
+            } else {
+              Write-Error $_
+              exit 1
+            }
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "release_exists=$exists"
+          if ($upload_url) { Add-Content -Path $env:GITHUB_OUTPUT -Value "release_upload_url=$upload_url" }
+
+      - name: Create GitHub release (only if not exists)
         id: create_release
+        if: steps.check_release.outputs.release_exists != 'true'
         uses: actions/create-release@v1
         with:
           tag_name: ${{ steps.set_tag.outputs.tag_name }}
@@ -187,10 +214,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine upload_url to use for assets
+        id: set_upload_url
+        shell: pwsh
+        run: |
+          if ('${{ steps.check_release.outputs.release_exists }}' -eq 'true') {
+            $u = '${{ steps.check_release.outputs.release_upload_url }}'
+          } else {
+            $u = '${{ steps.create_release.outputs.upload_url }}'
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "upload_url=$u"
+
       - name: Upload release asset (built zip)
         uses: actions/upload-release-asset@v1
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          upload_url: ${{ steps.set_upload_url.outputs.upload_url }}
           asset_path: ${{ steps.find_artifact.outputs.artifact_path }}
           asset_name: ${{ steps.find_artifact.outputs.artifact_name }}
           asset_content_type: application/zip
