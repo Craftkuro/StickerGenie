@@ -13,6 +13,7 @@
 ## 屏幕截图
 ![主界面截图](docs/images/screenshot_main_window.jpg)
 ![相似图片查找截图](docs/images/screenshot_similar_images.jpg)
+（其实这里就翻车了，混进来了一只）
 
 ## 功能列表
 - 基于标签的图片管理及搜索
@@ -104,15 +105,15 @@ release版本里都是只支持cpu推理的。但项目实际上已经准备好�
 # 引用与致谢
 本项目所用图标来自[Lucide Icons](https://lucide.dev/)
 
-
 本项目的向量生成模型使用了Google发布的[siglip-base-patch16-224](https://huggingface.co/google/siglip-base-patch16-224)，并转换成了onnxruntime兼容的格式。
 
 本项目的OCR模型使用了百度发布的[PP-OCRv6](https://www.paddleocr.ai/main/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html), 模型文件使用了[RapidOCR](https://github.com/RapidAI/RapidOCR)在pypi发布的软件包内置的onnx模型，未做修改。
 
 本项目内置的OCR引擎借鉴了[RapidOCR](https://github.com/RapidAI/RapidOCR)进行开发，精简了运行流程并减少软件包依赖，只实现了本项目所用到的功能。
 
-
 为了方便构建和下载，本项目使用的模型存放在[https://github.com/Craftkuro/StickerGenie-models](https://github.com/Craftkuro/StickerGenie-models)，模型版权归原作者所有，按原项目的许可证进行分发。
+
+也感谢所有分享key的群友们，没有大家的帮助，我无法获取足够的算力来在如此短的时间里完成这个项目。
 
 # 领衔主演
 模型也要上台！
